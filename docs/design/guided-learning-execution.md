@@ -1,6 +1,6 @@
 # Guided learning execution plan
 
-**Status:** accepted implementation plan; execution pending
+**Status:** shipped and verified
 
 **Date:** 2026-08-30
 
@@ -9,7 +9,7 @@ landed in `045b523`
 
 ## Outcome
 
-This plan implements the complete first release of the guided-learning system:
+This plan records the complete first release of the guided-learning system:
 
 - the seven-card mark-to-source-to-cursor tour;
 - honest prerequisite and degradation states;
@@ -22,8 +22,8 @@ node-testable reducer. It does not become application research state. The
 programme adds no `AppState` field, no worker operation, no guide-specific
 query, no route key, and no edit to `lib/store.ts`.
 
-Implementation lands in focused commits. Each staged product-code slice is
-reviewed by pinned Claude Opus before commit, and findings are resolved through
+Implementation landed in focused commits. Each staged product-code slice was
+reviewed by pinned Claude Opus before commit, and findings were resolved through
 an exact successor-diff review rather than waived.
 
 ## Decisions
@@ -215,7 +215,6 @@ interface GuideStep {
   readonly cardSide: 'block-start' | 'block-end';
   readonly copy: (context: GuideContext, phase: GuideStepPhase) => GuideCopy;
   readonly stage?: (context: GuideContext) => GuideStageIntent | null;
-  readonly requires?: (context: GuideContext) => GuideReadiness;
   readonly advance:
     | { readonly kind: 'manual' }
     | { readonly kind: 'action'; readonly event: GuideEvent };
@@ -655,18 +654,33 @@ suite: 320×568 card fit and 44px actions, Terms visible below the top card, no
 page-level horizontal overflow, correct bottom lens/dock clearance, card action
 on coarse input, and an available exit at 568×320 landscape.
 
-Every product-code commit runs typecheck and the web unit suite. Browser suites
-scale with risk; full functional and compact suites run for anchor, tour,
-contextual-note, and invitation slices. Normal production build and bundle
-budget run whenever the reachable/lazy import graph changes.
+Every product-code commit ran typecheck and the web unit suite. Browser suites
+scaled with risk; full functional and compact suites ran for anchor, tour,
+contextual-note, and invitation slices. The normal production build and bundle
+budget ran whenever the reachable/lazy import graph changed.
 
-## Commit sequence
+### Release result
 
-`045b523 docs(design): define guided learning system` is complete and
-Opus-reviewed. This plan lands next as its own documentation commit. Product
-execution then proceeds:
+The reconciled tree passed the repository-wide typecheck, all 54 Node tests,
+1,632 Vitest cases with one intentional skip, and the production bundle
+contract. The entry chunk is 82,450 bytes gzip against the fixed 90,000-byte
+budget.
 
-1. **`refactor(copy): say texts, not books`**
+The complete real-browser matrix then ran with one worker so performance and
+keyboard results were not distorted by local contention: 280 cases passed and
+18 project-specific cases were intentionally skipped across compact WebKit,
+functional Chromium, and the isolated Chromium benchmark project. This includes
+the full guided tour, contextual notes, invitation, compact geometry, modal and
+history behavior, no-durable-write/reset contracts, the 100ms long-task gate,
+and all four benchmark specs.
+
+## Shipped commit sequence
+
+`045b523 docs(design): define guided learning system` and
+`cc13445 docs(design): plan guided learning execution` established the reviewed
+authority. Product execution then landed as follows:
+
+1. **`83a7da6 refactor(copy): say texts, not books`**
 
    User-visible copy and its selectors only; internal ids such as `by-book`,
    algorithms, type names, and Standard Ebooks proper names remain unchanged.
@@ -674,33 +688,33 @@ execution then proceeds:
    and run both browser projects. Review focus: no weakened waits or identifier
    rename hidden inside copy work.
 
-2. **`feat(guide): declare semantic anchors`**
+2. **`4087eb6 feat(guide): declare semantic anchors`**
 
    Add typed anchor/activation modules, the five tour anchors, inert dispersion
    marker, root highlight rules, shared query helper, and uniqueness tests.
    Review focus: exact geometry, stacking, zero hit-testing/layout change, and
    Suspense-exclusive uniqueness.
 
-3. **`feat(guide): resolve a resident target`**
+3. **`f36da67 feat(guide): resolve a resident target`**
 
    Add structural context, packed-array resolver, and fifteen fixtures. Review
    focus: CSR alignment, exact precedence, density final-bucket arithmetic,
    tie rules, and pending versus unavailable truth.
 
-4. **`feat(guide): model the guide session`**
+4. **`cb261df feat(guide): model the guide session`**
 
    Add definition, three-action stage adapter, reducer, navigation classifier,
    boundary gates, and real-store durability test. Review focus: qualified
    Reader events, exact layer-prefix fence, revealed return phase, restore
    timeout, and closed authority.
 
-5. **`feat(guide): author the guided tour`**
+5. **`4498867 feat(guide): author the guided tour`**
 
    Add the lazy seven-card registry and copy matrix tests. Review focus: exact
    authority copy, rate/count and exact/density branches, and absence of stage
    work from descriptive scenes.
 
-6. **`feat(guide): run the guided tour`**
+6. **`680c718 feat(guide): run the guided tour`**
 
    Add provider, card, Help launcher/prerequisites, App close-and-start seam,
    compact CSS, Playwright registration, and the full tour browser spec. Review
@@ -708,20 +722,20 @@ execution then proceeds:
    asynchronous close, focus ordering, current-step event matching, modal
    precedence, query subset, and bundle headroom.
 
-7. **`feat(help): add guides for this view`**
+7. **`51bd23e feat(help): add guides for this view`**
 
    Move shared Help content, add four note scripts, GuideLink, contextual
    anchors/links, and browser coverage. Review focus: no note stage intent, one
    shared voice, no link on the zero-occurrence Matches branch, and the narrow
    presentation-only panel boundary.
 
-8. **`feat(states): explain empty analytical states`**
+8. **`58bce34 feat(states): explain empty analytical states`**
 
    Inputs, zero-term Trends, and dispersion method-note improvements plus
    focused tests. Review focus: useful without guide machinery and no competing
    Terms authoring path.
 
-9. **`feat(guide): invite eligible readers once`**
+9. **`cc391ea feat(guide): invite eligible readers once`**
 
    Add versioned storage, reset registration, invitation, Replay wording, and
    dismissal/version tests. Review focus: invitation last, exact readiness,
@@ -729,8 +743,19 @@ execution then proceeds:
 
 10. **`docs(design): record shipped guided learning`**
 
-    Reconcile roadmap status, implementation commits, test gates, and final
-    Opus receipts. No product code.
+    Reconciles roadmap status, implementation commits, test gates, and final
+    Opus audit. No product code.
+
+Two focused follow-ups closed findings from exhaustive verification:
+
+- `5379049 fix(guide): keep invitation clear of work` moved the invitation
+  into ordinary Trends flow after a full browser pass exposed pointer
+  interception from its first fixed-position treatment.
+- `39f0f82 test(e2e): follow inline term entry`,
+  `1286886 fix(matches): preserve external edge cursor`, and
+  `77c4e94 test(e2e): refresh full-suite assumptions` repaired stale browser
+  journeys and one genuine programmatic-scroll fence exposed by the final
+  matrix.
 
 Each commit is independently revertible through step 5. Step 6 is the runtime
 hinge; steps 7 and 9 depend on it and must be reverted before it. State

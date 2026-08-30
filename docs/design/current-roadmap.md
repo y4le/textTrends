@@ -34,6 +34,15 @@ measurement gates, and method contracts.
   notices still disclose capped marks and marks retained from a superseded
   query. The footer, KWIC, Read, and Atlas share authored token geometry. See
   the [spatial Reader contract and decision](spatial-reader.md).
+- **Guided learning:** a seven-card tour teaches one round trip from a resident
+  analytical mark to canonical source text and back. Four pull-only contextual
+  notes live in Help, useful empty states explain their own next action, and a
+  once-per-version in-flow invitation offers discovery without autostart. The
+  system writes no durable research state, performs no guide-specific analysis,
+  and passed the full accessibility, history, compact-layout,
+  no-durable-write, bundle, and browser gates. See the
+  [guided-learning authority](guided-learning.md) and
+  [shipped implementation plan](guided-learning-execution.md).
 - **Bounded analysis results:** occurrence construction now has typed hard
   caps, the worker cache has simultaneous entry/byte ceilings, and publishing
   a new snapshot releases old occurrence entries. Cap failures remain visible
@@ -55,13 +64,6 @@ measurement gates, and method contracts.
 
 ## In progress
 
-- **Guided learning:** the accepted field-guide direction teaches one round trip
-  from a resident analytical mark to canonical source text and back, then offers
-  deeper contextual notes through Help. It writes no durable research state,
-  performs no guide-specific analysis, and ships behind exact accessibility,
-  history, compact-layout, and no-durable-write gates. See
-  [the guided-learning authority](guided-learning.md) and its
-  [implementation plan](guided-learning-execution.md).
 - **Publication hardening:** corpus rights/provenance and repository licensing
   still need an owner-led publication cut. These are tracked in
   [the backlog](backlog.md).

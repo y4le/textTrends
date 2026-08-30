@@ -1,6 +1,7 @@
 # Guided learning: from a mark to its source
 
-**Status:** accepted product direction; implementation planning in progress  
+**Status:** shipped first release
+
 **Date:** 2026-08-30  
 **Scope:** first-run teaching, contextual guides, explanatory states, copy,
 interaction, accessibility, state ownership, worker boundaries, privacy, and
@@ -100,10 +101,10 @@ progress. A ready result with no resolvable position disables the launcher with
 **Show a term that occurs in a ready text**. This avoids a disabled control whose
 only remedy is waiting while still preventing a tour that cannot reach a source.
 
-There is no autostart. A one-time invitation may ship after the tour itself is
-proven. It appears only when the complete tour is demonstrable, is non-modal,
-and can be permanently dismissed for that guide version. Help always allows
-replay.
+There is no autostart. A one-time invitation ships only after the tour itself
+is demonstrable. It is an in-flow, non-modal notice on Trends, cannot cover the
+analytical work, and can be permanently dismissed for that guide version. Help
+always allows replay.
 
 ### Seven-card script
 
@@ -317,7 +318,6 @@ Initial anchors are:
 - `chart-cursor`
 - `reader-prose`
 - `reading-footer`
-- `matches-grid`
 - `compare-sides`
 
 At step entry, exactly one semantic lookup is allowed. A missing target degrades
@@ -370,10 +370,9 @@ The guide never hijacks Back.
 | card side, anchor presence, scroll | component | render |
 | notebook, active terms, corpus, styles, trend settings, selection | existing research state, untouched | existing |
 
-The implementation may integrate the session with the application store or a
-dedicated React controller; the execution plan must choose one ownership point
-and prove that it cannot enter `workspaceFromApp`. Components consume actions
-and derived context, not registry internals.
+The shipped implementation owns the session in a dedicated React controller
+over a pure reducer and proves that it cannot enter `workspaceFromApp`.
+Components consume actions and derived context, not registry internals.
 
 ### Narrow staging surface
 
@@ -395,6 +394,8 @@ interface GuideDefinition {
   readonly id: GuideId;
   readonly version: number;
   readonly title: string;
+  readonly summary: string;
+  readonly places: readonly Place[];
   readonly requires: (context: GuideContext) => GuideReadiness;
   readonly steps: readonly GuideStep[];
 }
@@ -402,12 +403,10 @@ interface GuideDefinition {
 interface GuideStep {
   readonly id: string;
   readonly kind: 'welcome' | 'scene' | 'finish';
-  readonly ordinal?: number;
   readonly anchor?: GuideAnchorId;
-  readonly cardSide: GuideCardSide;
-  readonly copy: (context: GuideContext) => GuideCopy;
+  readonly cardSide: 'block-start' | 'block-end';
+  readonly copy: (context: GuideContext, phase: GuideStepPhase) => GuideCopy;
   readonly stage?: (context: GuideContext) => GuideStageIntent | null;
-  readonly requires?: (context: GuideContext) => GuideReadiness;
   readonly advance:
     | { readonly kind: 'manual' }
     | { readonly kind: 'action'; readonly event: GuideEvent };
@@ -416,7 +415,7 @@ interface GuideStep {
 
 The registry contains copy, semantic identifiers, pure readiness, and typed
 intents. It contains no React nodes, selectors, direct state mutation, or worker
-calls. Contextual Help summaries and their expanded field notes should derive
+calls. Contextual Help summaries and their expanded field notes derive
 from the same registry content so the two voices cannot drift.
 
 ### Resident target resolution
@@ -479,15 +478,14 @@ browser-data reset clears it.
 - no forbidden guide-attributable analysis queries; and
 - no behavior or visual change when no guide is active.
 
-`guide.spec.ts` must be added explicitly to the `webkit-compact` project
-`testMatch`; that project is a filename allowlist. Inside the spec, Compact
-WebKit at 320×568 must fit the card without page-level horizontal
-overflow, retain 44px actions, keep the Terms rail visible under the top card,
-and preserve a usable exit on a short landscape viewport. Keyboard-only,
-coarse-pointer, reduced-motion, dark, and light presentations are part of the
-same acceptance gate.
+`guide.spec.ts` is included explicitly in the `webkit-compact` project
+`testMatch`; that project is a filename allowlist. Compact WebKit at 320×568
+fits the card without page-level horizontal overflow, retains 44px actions,
+keeps the Terms rail visible under the top card, and preserves a usable exit on
+a short landscape viewport. Keyboard-only, coarse-pointer, reduced-motion,
+dark, and light presentations remain part of the surrounding acceptance gate.
 
-## Delivery sequence
+## Shipped delivery sequence
 
 1. **Decision and anchors:** record these invariants in
    `product-decisions.md`, add the five tour anchors, standardize `books` to
