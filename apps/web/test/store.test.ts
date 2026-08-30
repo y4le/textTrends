@@ -5149,6 +5149,42 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     f.runtime.dispose();
   });
 
+  it('commits Atlas positions query-free and descends with the evidence claim', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.setState({ corpusTokenCounts: new Map([['a', 100], ['b', 50]]) });
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 10, from: 'footer', anchor: 'position',
+    });
+    f.store.getState().setReaderScale('atlas');
+    const fullReaders = () => f.readers().filter((entry) => (
+      entry.query as { request: { maxTokens: number } }
+    ).request.maxTokens === 4_096);
+    const before = fullReaders().length;
+
+    f.store.getState().selectAtlasPosition({ doc: 'b', token: 20 }, 'position');
+    expect(f.store.getState()).toMatchObject({
+      readerScale: 'atlas',
+      scrub: { doc: 'b', token: 20 },
+      readerPlace: {
+        doc: 'b', anchor: 'position', cursor: { kind: 'around', token: 20 },
+      },
+    });
+    expect(fullReaders()).toHaveLength(before);
+
+    f.store.getState().selectAtlasPosition({ doc: 'b', token: 21 }, 'occurrence', true);
+    expect(f.store.getState()).toMatchObject({
+      readerScale: 'read',
+      scrub: { doc: 'b', token: 21 },
+      readerPlace: {
+        doc: 'b', anchor: 'occurrence', cursor: { kind: 'around', token: 21 },
+      },
+    });
+    expect(fullReaders()).toHaveLength(before + 1);
+    f.runtime.dispose();
+  });
+
   it('preserves Atlas while position history retargets the existing layer', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);

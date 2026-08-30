@@ -10,7 +10,7 @@ async function openReader(page: Page) {
   await page.getByRole('navigation', { name: 'Workbench sections' })
     .getByRole('link', { name: 'Matches', exact: true }).click();
   const grid = page.getByRole('grid', { name: 'Matches' });
-  const read = grid.getByRole('button').first();
+  const read = grid.getByRole('rowgroup').getByRole('button').first();
   await expect(read).toBeVisible();
   await read.click();
   const reader = page.getByRole('main', { name: /Reader:/ });
@@ -114,7 +114,7 @@ test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ p
   await page.getByRole('navigation', { name: 'Workbench sections' })
     .getByRole('link', { name: 'Matches', exact: true }).click();
   await page.getByRole('grid', { name: 'Matches' })
-    .getByRole('button').first().click();
+    .getByRole('rowgroup').getByRole('button').first().click();
   const fallback = page.getByRole('main', { name: /Reader:/ });
   await expect(fallback.getByRole('status', { name: 'Reader keyboard status' })).toHaveCount(1);
   await expect(fallback.locator('p.reader-position')).toHaveText('loading reader…');
@@ -146,6 +146,94 @@ test('Reader has one full-viewport presentation with its compressed analytical f
   await expect(page.locator('html')).not.toHaveClass(/reader-open/);
   await page.goForward();
   await expect(page.getByRole('main', { name: /Reader:/ })).toBeVisible();
+});
+
+test('Atlas compares complete text extents without analysis queries or page overflow', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const { reader } = await openReader(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const before = await trace(page);
+  const mark = before.events.at(-1)?.seq ?? 0;
+
+  await reader.getByRole('button', { name: 'Atlas', exact: true }).click();
+  const plane = reader.locator('.reader-atlas-plane');
+  await expect(plane).toBeVisible();
+  await expect(reader.locator('[data-atlas-column]')).toHaveCount(SHERLOCK.length);
+  await expect.poll(() => reader.locator('[data-atlas-canvas]').count())
+    .toBeLessThan(SHERLOCK.length);
+  await expect(reader.locator('.reader-atlas-extent')).toHaveCount(SHERLOCK.length);
+  await expect(reader.getByRole('button', { name: 'Atlas', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
+
+  const canvases = reader.locator('[data-atlas-canvas]');
+  const firstCanvas = canvases.first();
+  await firstCanvas.evaluate((canvas) => { canvas.dataset.themeProbe = 'resident'; });
+  const paintedColors = () => canvases.evaluateAll((nodes) => {
+    const colors = new Set<string>();
+    for (const node of nodes as HTMLCanvasElement[]) {
+      const context = node.getContext('2d');
+      if (!context) continue;
+      const pixels = context.getImageData(0, 0, node.width, node.height).data;
+      for (let index = 0; index < pixels.length; index += 4) {
+        if ((pixels[index + 3] ?? 0) > 250) {
+          colors.add(`${pixels[index]},${pixels[index + 1]},${pixels[index + 2]}`);
+        }
+      }
+    }
+    return [...colors];
+  });
+  const expectedFirstSeries = () => page.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--series-1');
+    document.body.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color.match(/[\d.]+/g)?.slice(0, 3).map(Number).join(',') ?? color;
+  });
+  const darkSeries = await expectedFirstSeries();
+  await expect.poll(async () => (await paintedColors()).includes(darkSeries)).toBe(true);
+
+  await reader.getByRole('button', { name: 'To scale', exact: true }).click();
+  await plane.evaluate((element) => { element.scrollLeft = 420; });
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+  const afterPresentation = await trace(page);
+  expect(workerQueriesAfter(afterPresentation.events, mark)).toEqual([]);
+  await expectNoBodyOverflow(page);
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect.poll(expectedFirstSeries).not.toBe(darkSeries);
+  const lightSeries = await expectedFirstSeries();
+  await expect.poll(async () => (await paintedColors()).includes(lightSeries)).toBe(true);
+  await expect(reader.locator('canvas[data-theme-probe="resident"]')).toHaveCount(1);
+
+  await plane.evaluate((element) => { element.scrollLeft = 0; });
+  const thirdRail = reader.locator('[data-atlas-column]').nth(2).locator('.reader-atlas-rail');
+  await thirdRail.click({ position: { x: 2, y: 32 } });
+  await expect(reader.locator('.reader-position')).toContainText('text 3 of');
+  await plane.evaluate((element) => { element.scrollLeft = 0; });
+  await thirdRail.click({ position: { x: 2, y: 96 } });
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+  expect(await plane.evaluate((element) => element.scrollLeft)).toBeLessThanOrEqual(1);
+
+  await reader.getByRole('button', { name: 'Equal', exact: true }).click();
+  await page.setViewportSize({ width: 844, height: 390 });
+  await expect.poll(() => plane.evaluate((element) =>
+    Math.abs(element.scrollHeight - element.clientHeight))).toBeLessThanOrEqual(1);
+  await expect.poll(() => Promise.all([
+    plane.evaluate((element) => element.clientHeight),
+    reader.locator('[data-atlas-column]').first().locator('.reader-atlas-rail')
+      .evaluate((rail) => rail.getBoundingClientRect().height),
+  ]).then(([planeHeight, railHeight]) => railHeight - planeHeight))
+    .toBeLessThanOrEqual(0);
+  await expect(reader.getByRole('button', { name: 'Atlas', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
+  await plane.press('Enter');
+  await expect(reader.locator('[data-reader-page]')).toBeVisible();
+  await expect(reader.getByRole('button', { name: 'Read', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
 });
 
 test('Reader page turns roll over between adjacent texts', async ({ page }) => {

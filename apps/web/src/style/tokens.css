@@ -418,6 +418,38 @@ canvas {
   justify-content: flex-end;
 }
 
+.reader-scale-control,
+.reader-atlas-normalization {
+  display: inline-flex;
+  overflow: hidden;
+  align-items: stretch;
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+}
+
+.reader-scale-control > button,
+.reader-atlas-normalization > button {
+  min-block-size: var(--chrome-target-block-size);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.reader-scale-control > button + button,
+.reader-atlas-normalization > button + button {
+  border-inline-start: 1px solid var(--rule-strong);
+}
+
+.reader-scale-control > button[aria-pressed='true'],
+.reader-atlas-normalization > button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--fg);
+}
+
 .reader-ruler {
   grid-area: reader-ruler;
   display: grid;
@@ -483,6 +515,50 @@ canvas {
   background: var(--accent);
 }
 
+.reader-atlas-ruler {
+  grid-area: reader-ruler;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  padding-block: min(var(--space-2), 1.5dvh);
+  border-bottom: 1px solid var(--rule);
+}
+
+.reader-atlas-ruler-list {
+  display: flex;
+  overflow-x: auto;
+  min-inline-size: 0;
+  gap: var(--space-1);
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  scroll-snap-type: inline proximity;
+}
+
+.reader-atlas-ruler-list > button {
+  flex: 0 0 auto;
+  overflow: hidden;
+  max-inline-size: 15rem;
+  min-block-size: var(--chrome-target-block-size);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-family: var(--font-serif);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  scroll-snap-align: center;
+}
+
+.reader-atlas-ruler-list > button[aria-pressed='true'] {
+  border-color: var(--rule-strong);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--fg);
+}
+
 .reader-prose-pane {
   grid-area: reader-prose;
   position: relative;
@@ -495,6 +571,134 @@ canvas {
 .reader-prose-pane .source-text {
   max-inline-size: 75ch;
   margin-inline: auto;
+}
+
+.reader-atlas-plane {
+  grid-area: reader-prose;
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: var(--space-2);
+  outline-offset: -2px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scroll-snap-type: inline proximity;
+  touch-action: pan-x;
+}
+
+.reader-atlas-columns {
+  display: flex;
+  block-size: 100%;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.reader-atlas-column {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-block-size: 0;
+  padding: var(--space-1);
+  border: 1px solid transparent;
+  scroll-snap-align: center;
+}
+
+.reader-atlas-column[data-atlas-active='true'] {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--rule));
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.reader-atlas-column > header {
+  display: grid;
+  min-inline-size: 0;
+  min-block-size: 3.25rem;
+  align-content: start;
+  gap: 2px;
+  padding-block-end: var(--space-1);
+}
+
+.reader-atlas-column > header > strong {
+  overflow: hidden;
+  font-family: var(--font-serif);
+  font-size: var(--text-sm);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-atlas-column > header > span,
+.reader-atlas-column > footer {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.reader-atlas-column > footer {
+  display: grid;
+  min-block-size: 2.4rem;
+  align-content: start;
+  gap: 2px;
+  padding-block-start: var(--space-1);
+}
+
+.reader-atlas-rail {
+  position: relative;
+  overflow: hidden;
+  inline-size: 100%;
+  cursor: crosshair;
+  background: color-mix(in srgb, var(--fg) 2%, transparent);
+}
+
+.reader-atlas-extent {
+  position: absolute;
+  z-index: 0;
+  inset-block-start: 0;
+  inset-inline: 7px;
+  border: 1px solid var(--rule);
+  pointer-events: none;
+}
+
+.reader-atlas-rail > canvas {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: block;
+}
+
+.reader-atlas-position-marker {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 4px;
+  border-block-start: 2px solid var(--accent);
+  filter: drop-shadow(0 0 2px var(--bg));
+  pointer-events: none;
+}
+
+.reader-atlas-rail-placeholder {
+  cursor: default;
+  background: transparent;
+}
+
+.reader-atlas-unavailable {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--rule);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.reader-atlas-coarse {
+  color: var(--accent-text);
+  line-height: 1.25;
+}
+
+.reader-atlas-feedback {
+  max-inline-size: none;
+  align-items: center;
+  justify-content: center;
 }
 
 .reader-feedback {
@@ -938,6 +1142,40 @@ canvas {
     gap: var(--space-1);
   }
 
+  .reader-header {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .reader-header > div:first-child {
+    min-inline-size: 0;
+    flex: 1 1 auto;
+  }
+
+  .reader-header-actions {
+    flex: 1 1 100%;
+    gap: var(--space-1);
+    justify-content: space-between;
+  }
+
+  .reader-scale-control > button,
+  .reader-atlas-normalization > button {
+    padding-inline: var(--space-1);
+  }
+
+  .reader-atlas-ruler {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+
+  .reader-atlas-normalization {
+    justify-self: end;
+  }
+
+  .reader-atlas-ruler-list > button {
+    max-inline-size: 10rem;
+  }
+
   .reader-ruler > button {
     min-inline-size: 44px;
     padding-inline: var(--space-1);
@@ -991,6 +1229,22 @@ canvas {
   .reader-ruler-meta,
   .reader-ruler-progress {
     display: none;
+  }
+
+  .reader-atlas-ruler-list {
+    display: none;
+  }
+
+  .reader-atlas-ruler {
+    justify-items: end;
+  }
+
+  .reader-atlas-column > header {
+    min-block-size: 2rem;
+  }
+
+  .reader-atlas-column > footer {
+    min-block-size: 1.2rem;
   }
 }
 

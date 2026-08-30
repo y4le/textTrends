@@ -1033,6 +1033,13 @@ export interface AppState {
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
   /** Move to the adjacent nonempty text at the same relative position. */
   stepReaderDocument(direction: -1 | 1): ScrubTarget | null;
+  /** Commit one Atlas location. Body positions stay in Atlas; an explicit
+   * descent returns to authenticated Read with the evidence claim preserved. */
+  selectAtlasPosition(
+    target: ScrubTarget,
+    anchor: ReaderAnchorKind,
+    descend?: boolean,
+  ): void;
   setReaderScale(scale: ReaderScale): void;
   setAtlasNormalization(normalization: AtlasNormalization): void;
   setReaderVisibleRange(range: ReaderVisibleRangeV1): void;
@@ -4400,6 +4407,38 @@ export function createAppRuntime(
           cursor: { kind: 'around', token: target.token },
         }, 'position');
         return target;
+      },
+
+      selectAtlasPosition(target, anchor, descend = false) {
+        const state = get();
+        const snapshot = state.snapshot;
+        const tokenCount = state.corpusTokenCounts.get(target.doc);
+        if (
+          state.interaction.kind === 'rsvp'
+          || state.readerScale !== 'atlas'
+          || state.readerPlace === null
+          || snapshot === null
+          || state.readerPlace.snapshot !== snapshot.snapshot
+          || !snapshot.readyDocs.includes(target.doc)
+          || !Number.isSafeInteger(target.token)
+          || target.token < 0
+          || tokenCount === undefined
+          || target.token >= tokenCount
+          || (anchor !== 'occurrence' && anchor !== 'position')
+        ) return;
+        if (state.scrub?.doc !== target.doc || state.scrub.token !== target.token) {
+          get().setScrub(
+            target,
+            descend
+              ? { kind: 'jump', origin: 'reader' }
+              : { kind: 'drift', origin: 'reader' },
+          );
+        }
+        replaceReaderTarget({
+          doc: target.doc,
+          cursor: { kind: 'around', token: target.token },
+        }, anchor);
+        if (descend) get().setReaderScale('read');
       },
 
       setReaderScale(scale) {

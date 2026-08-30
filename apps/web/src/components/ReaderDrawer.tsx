@@ -29,6 +29,8 @@ import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import { shortcutAria } from '../lib/shortcuts.ts';
 import { RsvpReader, type RsvpReaderSource } from './RsvpReader.tsx';
 import { ReaderRuler } from './reader/ReaderRuler.tsx';
+import { ReaderAtlas } from './reader/ReaderAtlas.tsx';
+import { ReaderScaleControl } from './reader/ReaderScaleControl.tsx';
 
 function ReaderProse({
   page,
@@ -445,6 +447,7 @@ function ReaderProseDrawer({
           </p>
         </div>
         <div className="reader-header-actions">
+          <ReaderScaleControl />
           <button
             id="reader-settings-open"
             type="button"
@@ -581,17 +584,17 @@ export function ReaderDrawer({
   const seek = useApp((state) => state.rsvpSeek);
   const exit = useApp((state) => state.exitRsvp);
   const retry = useApp((state) => state.retryReader);
+  const readerScale = useApp((state) => state.readerScale);
 
   if (
     interaction.kind !== 'rsvp'
     || place === null
     || place.snapshot !== interaction.rsvp.snapshot
     || place.doc !== interaction.rsvp.doc
-  ) return (
-    <ReaderProseDrawer
-      onOpenHelp={onOpenHelp}
-      onOpenSettings={onOpenSettings}
-    />
+  ) return readerScale === 'atlas' ? (
+    <ReaderAtlas onOpenHelp={onOpenHelp} onOpenSettings={onOpenSettings} />
+  ) : (
+    <ReaderProseDrawer onOpenHelp={onOpenHelp} onOpenSettings={onOpenSettings} />
   );
 
   const current = result && sameReaderPlace(result.place, place) ? result : null;

@@ -267,6 +267,48 @@ export interface AtlasDeviceRows {
   readonly maxValue: number;
 }
 
+/** The one device-row allocation rule shared by paint and hit testing. */
+export function atlasDeviceRowCount(
+  cssHeight: number,
+  devicePixelRatio: number,
+): number {
+  const height = Number.isFinite(cssHeight) ? Math.max(0, cssHeight) : 0;
+  const dpr = Number.isFinite(devicePixelRatio) ? Math.max(0, devicePixelRatio) : 0;
+  return Math.min(ATLAS_MAX_DEVICE_ROWS, Math.ceil(height * dpr));
+}
+
+export interface AtlasTrackRail {
+  readonly x: number;
+  readonly width: number;
+}
+
+/** Shared horizontal rail geometry for paint and hit testing. */
+export function atlasTrackRail(
+  columnWidth: number,
+  trackCount: number,
+  trackOrdinal: number,
+  padding = 10,
+  gap = 3,
+): AtlasTrackRail | null {
+  if (
+    !Number.isFinite(columnWidth)
+    || columnWidth <= 0
+    || !Number.isSafeInteger(trackCount)
+    || trackCount < 1
+    || !Number.isSafeInteger(trackOrdinal)
+    || trackOrdinal < 0
+    || trackOrdinal >= trackCount
+  ) return null;
+  const safePadding = Number.isFinite(padding) ? Math.max(0, padding) : 0;
+  const safeGap = Number.isFinite(gap) ? Math.max(0, gap) : 0;
+  const available = Math.max(1, columnWidth - safePadding * 2 - safeGap * (trackCount - 1));
+  const width = available / trackCount;
+  return {
+    x: safePadding + trackOrdinal * (width + safeGap),
+    width,
+  };
+}
+
 /** Accumulate intervals with a difference array: O(segments + device rows),
  * never O(segments × span). Density uses its corpus-wide intensity; exact
  * occurrences contribute one and naturally darken when they share a row. */
@@ -276,12 +318,7 @@ export function atlasDeviceRows(
   cssHeight: number,
   devicePixelRatio: number,
 ): AtlasDeviceRows {
-  const height = Number.isFinite(cssHeight) ? Math.max(0, cssHeight) : 0;
-  const dpr = Number.isFinite(devicePixelRatio) ? Math.max(0, devicePixelRatio) : 0;
-  const rowCount = Math.min(
-    ATLAS_MAX_DEVICE_ROWS,
-    Math.ceil(height * dpr),
-  );
+  const rowCount = atlasDeviceRowCount(cssHeight, devicePixelRatio);
   if (rowCount === 0 || !Number.isSafeInteger(domainTokenCount) || domainTokenCount < 1) {
     return { rowCount: 0, values: new Float64Array(), maxValue: 0 };
   }
@@ -311,6 +348,53 @@ export function atlasDeviceRows(
     if (value > maxValue) maxValue = value;
   }
   return { rowCount, values, maxValue };
+}
+
+export type AtlasTrackActivation =
+  | { readonly kind: 'occurrence'; readonly token: number }
+  | { readonly kind: 'bucket'; readonly token: number; readonly count: number }
+  | { readonly kind: 'position'; readonly token: number };
+
+/** Hit-test the same device-row projection the painter uses. Exact evidence is
+ * claimed only when exactly one tick owns the row; compressed/overlapping rows
+ * fall back to a position. Density cells keep their approximate bucket claim. */
+export function atlasTrackActivationAt(
+  track: AtlasColumnTrackVM,
+  column: AtlasLayoutColumn,
+  y: number,
+  rowCount: number,
+): AtlasTrackActivation | null {
+  const token = atlasTokenAtY(column, y);
+  if (token === null) return null;
+  if (track.representation === 'density') {
+    const cell = track.segments.find((segment) =>
+      segment.kind === 'cell' && token >= segment.t0 && token < segment.t1);
+    return cell?.kind === 'cell'
+      ? { kind: 'bucket', token: cell.midToken, count: cell.count }
+      : { kind: 'position', token };
+  }
+  if (!Number.isSafeInteger(rowCount) || rowCount < 1 || column.plotHeight <= 0) {
+    return { kind: 'position', token };
+  }
+  const row = Math.min(rowCount - 1, Math.floor((y / column.plotHeight) * rowCount));
+  const candidates = track.segments.filter((segment) => {
+    if (segment.kind !== 'tick') return false;
+    const start = Math.max(0, Math.min(column.domainTokenCount, segment.t0));
+    const end = Math.max(start, Math.min(column.domainTokenCount, segment.t1));
+    if (end <= start) return false;
+    const from = Math.min(
+      rowCount - 1,
+      Math.floor((start / column.domainTokenCount) * rowCount),
+    );
+    const to = Math.min(
+      rowCount,
+      Math.max(from + 1, Math.ceil((end / column.domainTokenCount) * rowCount)),
+    );
+    return row >= from && row < to;
+  });
+  return candidates.length === 1 && candidates[0]?.kind === 'tick'
+    ? { kind: 'occurrence', token: candidates[0].t0 }
+    : { kind: 'position', token };
 }
 
 /** Exact overlap counts normalize within their visible column so compressed

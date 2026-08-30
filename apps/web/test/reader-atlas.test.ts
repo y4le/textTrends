@@ -7,9 +7,12 @@ import {
   atlasColumns,
   atlasDensityResolution,
   atlasDensitySummary,
+  atlasDeviceRowCount,
   atlasDeviceRows,
   atlasLayout,
   atlasRowOpacity,
+  atlasTrackActivationAt,
+  atlasTrackRail,
   atlasTokenAtY,
   atlasYForToken,
 } from '../src/lib/reader-atlas.ts';
@@ -154,6 +157,8 @@ describe('Atlas bounded paint rows', () => {
   });
 
   it('caps pathological DPR/height and maps opacity monotonically', () => {
+    expect(atlasDeviceRowCount(100, 2)).toBe(200);
+    expect(atlasDeviceRowCount(100_000, 10)).toBe(ATLAS_MAX_DEVICE_ROWS);
     expect(atlasDeviceRows([], 100, 100_000, 10).rowCount).toBe(ATLAS_MAX_DEVICE_ROWS);
     expect(atlasDeviceRows([], 100, Number.NaN, 2).rowCount).toBe(0);
     expect(atlasDeviceRows([], 100, 100, Number.POSITIVE_INFINITY).rowCount).toBe(0);
@@ -165,6 +170,55 @@ describe('Atlas bounded paint rows', () => {
     const strongDensity = atlasRowOpacity(0.5, 0.5, 'density');
     expect(sparseDensity).toBeLessThan(strongDensity);
     expect(sparseDensity).toBe(atlasRowOpacity(0.25, 1, 'density'));
+  });
+
+  it('shares rail geometry and refuses ambiguous exact-row claims', () => {
+    expect(atlasTrackRail(100, 2, 0)).toEqual({ x: 10, width: 38.5 });
+    expect(atlasTrackRail(100, 2, 1)).toEqual({ x: 51.5, width: 38.5 });
+    const [column] = atlasLayout(
+      atlasColumns(
+        barcodeTracks(exactResult(), ['a', 'b']),
+        null,
+        ['a'],
+        new Map([['a', 100]]),
+      ),
+      'equal',
+      { plotHeight: 100, columnWidth: 100, columnGap: 0 },
+    ).columns;
+    const track = atlasColumns(
+      barcodeTracks(exactResult(), ['a', 'b']),
+      null,
+      ['a'],
+      new Map([['a', 100]]),
+    )[0]!.tracks[0]!;
+    expect(atlasTrackActivationAt(track, column!, 10, 100)).toEqual({
+      kind: 'occurrence', token: 10,
+    });
+    expect(atlasTrackActivationAt({
+      ...track,
+      segments: [
+        { kind: 'tick', doc: 'a', t0: 10, t1: 11, ordinal: 0 },
+        { kind: 'tick', doc: 'a', t0: 10, t1: 11, ordinal: 1 },
+      ],
+    }, column!, 10, 100)).toEqual({ kind: 'position', token: 10 });
+  });
+
+  it('keeps density activation approximate and rejects a To-scale tail', () => {
+    const columns = atlasColumns(
+      barcodeTracks(densityResult(), ['a', 'b']),
+      densityResult().geometry,
+      ['a', 'b'],
+      new Map([['a', 100], ['b', 50]]),
+    );
+    const scaled = atlasLayout(columns, 'to-scale', {
+      plotHeight: 100, columnWidth: 100, columnGap: 0,
+    });
+    expect(atlasTrackActivationAt(
+      columns[1]!.tracks[0]!, scaled.columns[1]!, 10, 100,
+    )).toEqual({ kind: 'bucket', token: 12, count: 4 });
+    expect(atlasTrackActivationAt(
+      columns[1]!.tracks[0]!, scaled.columns[1]!, 75, 100,
+    )).toBeNull();
   });
 });
 
