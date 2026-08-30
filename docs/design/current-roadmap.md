@@ -55,6 +55,12 @@ measurement gates, and method contracts.
 
 ## In progress
 
+- **Guided learning:** the accepted field-guide direction teaches one round trip
+  from a resident analytical mark to canonical source text and back, then offers
+  deeper contextual notes through Help. It writes no durable research state,
+  performs no guide-specific analysis, and ships behind exact accessibility,
+  history, compact-layout, and no-durable-write gates. See
+  [the guided-learning authority](guided-learning.md).
 - **Publication hardening:** corpus rights/provenance and repository licensing
   still need an owner-led publication cut. These are tracked in
   [the backlog](backlog.md).

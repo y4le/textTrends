@@ -4,6 +4,33 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-30 — Guided learning follows one source-honest round trip
+
+The first-run tour teaches one relationship: a mark is a place, and a place
+opens. It follows Terms through the ordered trend axis, opens one resident mark
+in Reader, and returns to the chart cursor at that passage. It does not survey
+all five places, create a tutorial corpus, stage research settings, or perform
+analysis of its own. Its closed staging surface contains only place replacement,
+Reader open, and Reader close. The session is absent from the workspace and URL,
+owns no global key, creates no history beyond the equivalent product action, and
+sends no telemetry.
+
+Deeper learning is pull-only through short Guides for this view in contextual
+Help. Statistical method notes and self-explaining empty states remain ordinary
+product obligations rather than tutorial machinery. The optional tour
+invitation is local, non-modal, once per version, and ships only after the
+complete tour is demonstrable. The detailed product, copy, architecture,
+accessibility, and verification contract is recorded in
+[guided-learning.md](guided-learning.md).
+
+The direction was developed through independent Codex and pinned Claude Opus
+passes and a joint working-tree synthesis (Parley requests
+`req_texttrends_tutorial_ideation_opus` and
+`req_texttrends_tutorial_synthesis_opus_final`). Its first staged review
+(`req_review_diff_b36d391ee5cfe4d8`) caught the need to attribute Reader-closing
+`popstate` separately from external Back and to branch native mark guidance on
+live row interactivity rather than pointer class alone.
+
 ## 2026-08-30 — Reader has a fitted Read scale and a document-comparison Atlas
 
 Reader now separates two jobs without pretending they are one continuous
