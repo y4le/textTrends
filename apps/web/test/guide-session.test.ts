@@ -312,6 +312,50 @@ describe('guide session transitions', () => {
     expect(replayed.stage).toBeUndefined();
   });
 
+  it('abridges from Mark to the declared Finish scene without a stage or announcement', () => {
+    const abridged = transitionGuideSession(at(3), STEPS, { type: 'abridge' });
+    expect(abridged).toMatchObject({
+      session: {
+        stepIndex: 6,
+        stepPhase: 'abridged',
+        revision: 1,
+        readerFence: null,
+      },
+      focus: { kind: 'heading' },
+    });
+    expect(abridged.stage).toBeUndefined();
+    expect(abridged.announcement).toBeUndefined();
+
+    const replayed = transitionGuideSession(abridged.session!, STEPS, { type: 'replay' });
+    expect(replayed.session).toMatchObject({ stepIndex: 0, stepPhase: 'presenting' });
+  });
+
+  it('refuses to abridge an owned open Reader or an active restoration', () => {
+    const fenced = at(4, { readerFence: FENCE });
+    expect(transitionGuideSession(fenced, STEPS, { type: 'abridge' }))
+      .toEqual({ session: fenced });
+    const restoring = at(4, {
+      readerFence: FENCE,
+      restore: { kind: 'closing-reader', deadlineMs: 1_200 },
+    });
+    expect(transitionGuideSession(restoring, STEPS, { type: 'abridge' }))
+      .toEqual({ session: restoring });
+  });
+
+  it('ends at origin when an abridged guide has no Finish scene', () => {
+    const short = [step('welcome'), step('mark', {
+      kind: 'action', event: 'reader-opened',
+    })];
+    const active = startGuideSession(
+      { id: 'reading-the-strip', version: 1, steps: short },
+      { place: 'trends', focusCandidates: ['note-launch'] },
+    )!;
+    expect(transitionGuideSession(active, short, { type: 'abridge' })).toEqual({
+      session: null,
+      focus: { kind: 'origin', candidates: ['note-launch'] },
+    });
+  });
+
   it('ends foreign navigation without staging or stealing focus', () => {
     expect(transitionGuideSession(at(4, { readerFence: FENCE }), STEPS, {
       type: 'foreign-navigation',

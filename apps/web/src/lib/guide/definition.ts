@@ -13,21 +13,36 @@ export const GUIDE_IDS = Object.freeze([
 
 export type GuideId = (typeof GUIDE_IDS)[number];
 export type GuideEvent = 'reader-opened' | 'reader-closed';
-export type GuideStepPhase = 'presenting' | 'awaiting-action' | 'revealed';
+export type GuideStepPhase =
+  | 'presenting'
+  | 'awaiting-action'
+  | 'revealed'
+  | 'abridged';
+
+export interface GuideReadinessRemedy {
+  readonly id: 'add-text' | 'track-term';
+  readonly label: string;
+}
 
 export type GuideReadiness =
   | { readonly status: 'ready' }
   | {
       readonly status: 'disabled';
       readonly reason: string;
-      readonly remedy?: { readonly label: string; readonly place: Place };
+      readonly remedy?: GuideReadinessRemedy;
     };
 
-export type GuideActionId = 'primary' | 'exit' | 'restore-origin' | 'replay';
+export type GuideActionId =
+  | 'primary'
+  | 'abridge'
+  | 'exit'
+  | 'restore-origin'
+  | 'replay';
 
 export interface GuideCopyAction {
   readonly id: GuideActionId;
   readonly label: string;
+  readonly disabled?: boolean;
 }
 
 export interface GuideCopy {
@@ -50,7 +65,6 @@ export interface GuideStep {
   readonly cardSide: 'block-start' | 'block-end';
   readonly copy: (context: GuideContext, phase: GuideStepPhase) => GuideCopy;
   readonly stage?: (context: GuideContext) => GuideStageIntent | null;
-  readonly requires?: (context: GuideContext) => GuideReadiness;
   readonly advance:
     | { readonly kind: 'manual' }
     | { readonly kind: 'action'; readonly event: GuideEvent };

@@ -74,6 +74,7 @@ export type GuideSessionCommand =
     }
   | { readonly type: 'place-restored' }
   | { readonly type: 'restore-timeout'; readonly nowMs: number }
+  | { readonly type: 'abridge' }
   | { readonly type: 'replay' };
 
 export type GuideNavigationChange =
@@ -390,6 +391,23 @@ export function transitionGuideSession(
       return {
         ...endAtOrigin(session),
         announcement: 'origin-restored',
+      };
+    }
+    case 'abridge': {
+      if (session.readerFence !== null) return { session };
+      const finishIndex = steps.findIndex((candidate, index) => (
+        index > session.stepIndex && candidate.kind === 'finish'
+      ));
+      if (finishIndex < 0) return endAtOrigin(session);
+      return {
+        session: {
+          ...session,
+          stepIndex: finishIndex,
+          stepPhase: 'abridged',
+          revision: session.revision + 1,
+          readerFence: null,
+        },
+        focus: focusHeading(),
       };
     }
     case 'place-restored':
