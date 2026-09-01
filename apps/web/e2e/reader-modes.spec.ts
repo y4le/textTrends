@@ -137,6 +137,38 @@ test('Reader has one full-viewport presentation with its compressed analytical f
   await expect(reader.getByRole('button', { name: 'back', exact: true })).toBeVisible();
   await expectReaderFillsViewport(page, reader, 1440, 900);
 
+  // The Reader position describes fitted prose, not an analytical scrub that
+  // moves independently underneath the open Reader.
+  const rulerMeta = reader.locator('.reader-ruler-meta');
+  const rulerProgress = reader.locator('.reader-ruler-progress');
+  const fittedPage = reader.locator('[data-reader-page]');
+  const rulerBefore = await rulerMeta.textContent();
+  const progressBefore = await rulerProgress.getAttribute('aria-valuenow');
+  const fittedBefore = await fittedPage.getAttribute('data-reader-page');
+  const footerPosition = reader.getByRole('slider', { name: 'Corpus footer position' });
+  const scrubBefore = await footerPosition.getAttribute('aria-valuenow');
+  const footerBox = await footerPosition.boundingBox();
+  expect(footerBox).not.toBeNull();
+  const footerPoint = {
+    x: footerBox!.x + footerBox!.width * 0.02,
+    y: footerBox!.y + footerBox!.height / 2,
+  };
+  const footerPointer = {
+    pointerId: 41,
+    pointerType: 'touch',
+    isPrimary: true,
+    button: 0,
+    buttons: 1,
+    clientX: footerPoint.x,
+    clientY: footerPoint.y,
+  };
+  await footerPosition.dispatchEvent('pointerdown', footerPointer);
+  await footerPosition.dispatchEvent('pointerup', { ...footerPointer, buttons: 0 });
+  await expect(footerPosition).not.toHaveAttribute('aria-valuenow', scrubBefore ?? '');
+  await expect(rulerMeta).toHaveText(rulerBefore ?? '');
+  await expect(rulerProgress).toHaveAttribute('aria-valuenow', progressBefore ?? '');
+  await expect(fittedPage).toHaveAttribute('data-reader-page', fittedBefore ?? '');
+
   await page.goBack();
   await expect(reader).toHaveCount(0);
   await expect(grid).toBeFocused();

@@ -1,61 +1,18 @@
-import { readerCursorToken, sameReaderPlace } from '../../lib/reader-intent.ts';
-import {
-  adjacentReadableDocumentAtRelativePosition,
-  readyReaderDocumentOrder,
-} from '../../lib/reader-order.ts';
-import { readerCursorWord, readerSpeedEntryLabel } from '../../lib/reader-cursor.ts';
+import { readerCommand } from '../../lib/reader-commands.ts';
 import { shortcutAria } from '../../lib/shortcuts.ts';
 import { useApp } from '../../lib/store-instance.ts';
-
-function percentAt(token: number, tokenCount: number): number {
-  if (tokenCount <= 1) return 0;
-  return Math.round((Math.max(0, Math.min(tokenCount - 1, token)) / (tokenCount - 1)) * 100);
-}
+import { useReaderChromeModel } from './useReaderChromeModel.ts';
 
 export function ReaderRuler() {
-  const place = useApp((state) => state.readerPlace);
   const scale = useApp((state) => state.readerScale);
-  const snapshot = useApp((state) => state.snapshot);
-  const project = useApp((state) => state.projectSession?.project ?? null);
-  const tokenCounts = useApp((state) => state.corpusTokenCounts);
-  const scrub = useApp((state) => state.scrub);
-  const readingCursor = useApp((state) => state.readerCursorToken);
-  const pageState = useApp((state) => state.readerPage);
   const enterRsvp = useApp((state) => state.enterRsvp);
   const stepDocument = useApp((state) => state.stepReaderDocument);
-  if (place === null || snapshot === null || scale !== 'read') return null;
-
-  const order = readyReaderDocumentOrder(project?.data.order, snapshot.readyDocs);
-  const hasMultipleTexts = order.length > 1;
-  const activeIndex = order.indexOf(place.doc);
-  const activeToken = scrub?.doc === place.doc
-    ? scrub.token
-    : readerCursorToken(place.cursor);
-  const tokenCount = tokenCounts.get(place.doc);
-  const countOf = (doc: string) => tokenCounts.get(doc);
-  const previous = adjacentReadableDocumentAtRelativePosition(
-    order, place.doc, -1, activeToken, countOf,
-  );
-  const next = adjacentReadableDocumentAtRelativePosition(
-    order, place.doc, 1, activeToken, countOf,
-  );
-  const titleOf = (doc: string) =>
-    project?.data.docs.find((entry) => entry.doc === doc)?.meta.title ?? doc;
-  const title = titleOf(place.doc);
-  const percent = tokenCount === undefined || tokenCount < 1
-    ? null
-    : percentAt(activeToken, tokenCount);
-  const readyPage = pageState
-    && sameReaderPlace(pageState.place, place)
-    && pageState.state.status === 'ready'
-    ? pageState.state.page
-    : null;
-  const speedWord = readyPage === null
-    ? null
-    : readerCursorWord(readyPage, readingCursor);
-  // enterRsvp owns start-token validation and can fall back to the source
-  // anchor or fitted-page start before the reader chooses an explicit word.
-  const speedAvailable = readyPage !== null;
+  const { position, progress, commands } = useReaderChromeModel();
+  if (position === null || scale !== 'read') return null;
+  const hasMultipleTexts = position.textCount > 1;
+  const previousCommand = readerCommand(commands, 'text-previous');
+  const nextCommand = readerCommand(commands, 'text-next');
+  const speedCommand = readerCommand(commands, 'speed');
 
   return (
     <nav
@@ -64,13 +21,13 @@ export function ReaderRuler() {
       data-reader-scale="read"
       data-multiple-texts={hasMultipleTexts || undefined}
     >
-      {hasMultipleTexts && (
+      {previousCommand.present && (
         <button
           type="button"
           className="reader-ruler-previous"
-          aria-label={previous ? `Previous text: ${titleOf(previous.doc)}` : 'At first readable text'}
+          aria-label={previousCommand.accessibleName}
           aria-keyshortcuts={shortcutAria(['reader-text-previous'])}
-          disabled={previous === null}
+          disabled={!previousCommand.enabled}
           onClick={() => stepDocument(-1)}
         >
           <span aria-hidden="true">←</span>{' '}
@@ -80,35 +37,35 @@ export function ReaderRuler() {
       <div className="reader-ruler-current">
         {hasMultipleTexts && (
           <span className="reader-ruler-ordinal">
-            text {Math.max(1, activeIndex + 1).toLocaleString()} of {order.length.toLocaleString()}
+            text {Math.max(1, position.ordinal).toLocaleString()} of {position.textCount.toLocaleString()}
           </span>
         )}
-        <strong title={title}>{title}</strong>
+        <strong title={position.title}>{position.title}</strong>
         <span className="reader-ruler-meta">
-          {tokenCount === undefined || tokenCount < 1
+          {progress === null
             ? 'position unavailable'
-            : `token ${Math.min(tokenCount, activeToken + 1).toLocaleString()} of ${tokenCount.toLocaleString()} · ${percent}%`}
+            : `token ${Math.min(position.tokenCount, position.token + 1).toLocaleString()} of ${position.tokenCount.toLocaleString()} · ${progress.percent}%`}
         </span>
-        {percent !== null && (
+        {progress !== null && (
           <span
             className="reader-ruler-progress"
             role="progressbar"
-            aria-label={`Position in ${title}`}
+            aria-label={`Position in ${position.title}`}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-valuenow={percent}
+            aria-valuenow={progress.percent}
           >
-            <span style={{ inlineSize: `${percent}%` }} />
+            <span style={{ inlineSize: `${progress.percent}%` }} />
           </span>
         )}
       </div>
-      {hasMultipleTexts && (
+      {nextCommand.present && (
         <button
           type="button"
           className="reader-ruler-next"
-          aria-label={next ? `Next text: ${titleOf(next.doc)}` : 'At last readable text'}
+          aria-label={nextCommand.accessibleName}
           aria-keyshortcuts={shortcutAria(['reader-text-next'])}
-          disabled={next === null}
+          disabled={!nextCommand.enabled}
           onClick={() => stepDocument(1)}
         >
           <span className="reader-ruler-button-label">next text</span>{' '}
@@ -118,9 +75,9 @@ export function ReaderRuler() {
       <button
         type="button"
         className="reader-ruler-speed"
-        aria-label={readerSpeedEntryLabel(speedWord)}
+        aria-label={speedCommand.accessibleName}
         aria-keyshortcuts={shortcutAria(['reader-rsvp-toggle'])}
-        disabled={!speedAvailable}
+        disabled={!speedCommand.enabled}
         onClick={() => enterRsvp(false)}
       >
         <span aria-hidden="true">▶</span>{' '}speed

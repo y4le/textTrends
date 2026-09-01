@@ -35,8 +35,10 @@ import { ReaderAtlas } from './reader/ReaderAtlas.tsx';
 import { ReaderScaleControl } from './reader/ReaderScaleControl.tsx';
 import { guideAnchorProps } from '../lib/guide/anchors.ts';
 import { readerCursorChars, readerTokenAtChar } from '../lib/reader-cursor.ts';
+import { readerCommand } from '../lib/reader-commands.ts';
 import { readerTapIntent } from '../lib/reader-tap.ts';
 import { hitsSourceToken, proseCharOffsetAtPoint } from './reader/prose-cursor.ts';
+import { useReaderChromeModel } from './reader/useReaderChromeModel.ts';
 
 interface ReaderProsePointer {
   readonly id: number;
@@ -233,6 +235,7 @@ function ReaderProseDrawer({
   readonly onOpenSettings: (returnFocus: HTMLElement) => void;
   readonly onAnnounce: (message: string) => void;
 }) {
+  const chrome = useReaderChromeModel();
   const place = useApp((state) => state.readerPlace);
   const result = useApp((state) => state.readerPage);
   const navigation = useApp((state) => state.readerNavigation);
@@ -246,9 +249,7 @@ function ReaderProseDrawer({
   const refitReaderAt = useApp((state) => state.refitReaderAt);
   const retryReader = useApp((state) => state.retryReader);
   const setReadingCursor = useApp((state) => state.setReadingCursor);
-  const occurrenceNavigation = useApp((state) => state.occurrenceNavigation);
   const stepOccurrence = useApp((state) => state.stepOccurrence);
-  const series = useApp((state) => state.series);
   const interaction = useApp((state) => state.interaction);
   const scopedFind = findScope(interaction);
   const findMode = scopedFind !== null;
@@ -464,16 +465,10 @@ function ReaderProseDrawer({
     presentedSeries,
   );
   const hasStaleMarks = legend.some((entry) => entry.stale);
-  const hasPresentedTerms = findMode ? find !== null : series.length > 0;
-  const occurrencePending = findMode
-    ? find?.state.status === 'pending'
-    : occurrenceNavigation?.state.status === 'pending';
-  const occurrenceTitle = (direction: 'Previous' | 'Next') => {
-    if (!hasPresentedTerms) return findMode ? 'No active Find query' : 'No active terms';
-    return findMode
-      ? `${direction} exact Find match`
-      : `${direction} exact reference from any term`;
-  };
+  const previousPageCommand = readerCommand(chrome.commands, 'page-previous');
+  const nextPageCommand = readerCommand(chrome.commands, 'page-next');
+  const previousReferenceCommand = readerCommand(chrome.commands, 'reference-previous');
+  const nextReferenceCommand = readerCommand(chrome.commands, 'reference-next');
   const turnPage = (direction: -1 | 1) => {
     const cursor = direction === -1 ? navigation?.previous : navigation?.next;
     if (cursor) {
@@ -651,20 +646,22 @@ function ReaderProseDrawer({
           className="reader-occurrence-previous"
           type="button"
           aria-keyshortcuts={shortcutAria(['reader-occurrence-previous'])}
-          disabled={!hasPresentedTerms || occurrencePending}
+          disabled={!previousReferenceCommand.enabled}
           onClick={() => stepOccurrence(-1)}
-          title={occurrenceTitle('Previous')}
-          style={{ ...SMALL_BUTTON_STYLE, opacity: hasPresentedTerms && !occurrencePending ? 1 : 0.45 }}
+          title={previousReferenceCommand.present
+            ? previousReferenceCommand.accessibleName
+            : previousReferenceCommand.reason}
+          style={{ ...SMALL_BUTTON_STYLE, opacity: previousReferenceCommand.enabled ? 1 : 0.45 }}
         >
-          {findMode ? 'previous find match' : 'previous reference'}
+          {previousReferenceCommand.label}
         </button>
         <button
           className="reader-page-previous"
           type="button"
           aria-keyshortcuts={shortcutAria(['reader-page-previous'])}
-          disabled={!navigation?.previous}
+          disabled={!previousPageCommand.enabled}
           onClick={() => turnPage(-1)}
-          style={{ ...SMALL_BUTTON_STYLE, cursor: navigation?.previous ? 'pointer' : 'default', opacity: navigation?.previous ? 1 : 0.45 }}
+          style={{ ...SMALL_BUTTON_STYLE, cursor: previousPageCommand.enabled ? 'pointer' : 'default', opacity: previousPageCommand.enabled ? 1 : 0.45 }}
         >
           ← previous
         </button>
@@ -672,9 +669,9 @@ function ReaderProseDrawer({
           className="reader-page-next"
           type="button"
           aria-keyshortcuts={shortcutAria(['reader-page-next'])}
-          disabled={!navigation?.next}
+          disabled={!nextPageCommand.enabled}
           onClick={() => turnPage(1)}
-          style={{ ...SMALL_BUTTON_STYLE, cursor: navigation?.next ? 'pointer' : 'default', opacity: navigation?.next ? 1 : 0.45 }}
+          style={{ ...SMALL_BUTTON_STYLE, cursor: nextPageCommand.enabled ? 'pointer' : 'default', opacity: nextPageCommand.enabled ? 1 : 0.45 }}
         >
           next →
         </button>
@@ -682,12 +679,14 @@ function ReaderProseDrawer({
           className="reader-occurrence-next"
           type="button"
           aria-keyshortcuts={shortcutAria(['reader-occurrence-next'])}
-          disabled={!hasPresentedTerms || occurrencePending}
+          disabled={!nextReferenceCommand.enabled}
           onClick={() => stepOccurrence(1)}
-          title={occurrenceTitle('Next')}
-          style={{ ...SMALL_BUTTON_STYLE, opacity: hasPresentedTerms && !occurrencePending ? 1 : 0.45 }}
+          title={nextReferenceCommand.present
+            ? nextReferenceCommand.accessibleName
+            : nextReferenceCommand.reason}
+          style={{ ...SMALL_BUTTON_STYLE, opacity: nextReferenceCommand.enabled ? 1 : 0.45 }}
         >
-          {findMode ? 'next find match' : 'next reference'}
+          {nextReferenceCommand.label}
         </button>
       </nav>
     </>
