@@ -212,11 +212,35 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
   );
 });
 
-test('Escape and a consumed click elsewhere return to the exact Reader token', async ({ page }) => {
+test('stage taps toggle playback while only explicit exits return to Reader', async ({ page }) => {
   const reader = await openReader(page);
   await enterRsvp(reader);
-  await page.keyboard.press('Space');
+  const stage = reader.getByRole('region', { name: 'Speed reading word' });
+  const status = reader.locator('.reader-rsvp-shell [role="status"]');
   const position = reader.locator('.reader-position');
+  await expect(status).toContainText('playing');
+
+  await stage.click({ position: { x: 8, y: 8 } });
+  await expect(status).toContainText('paused');
+  await expect(stage).toBeVisible();
+  await stage.click({ position: { x: 8, y: 8 } });
+  await expect(status).toContainText('playing');
+
+  const stageBox = await stage.boundingBox();
+  expect(stageBox).not.toBeNull();
+  await stage.dispatchEvent('pointerdown', {
+    pointerType: 'touch', pointerId: 31, isPrimary: true, button: 0,
+    clientX: stageBox!.x + 20, clientY: stageBox!.y + 20,
+  });
+  await stage.dispatchEvent('pointerup', {
+    pointerType: 'touch', pointerId: 31, isPrimary: true, button: 0,
+    clientX: stageBox!.x + 40, clientY: stageBox!.y + 20,
+  });
+  await expect(status).toContainText('playing');
+
+  await reader.locator('.reader-header > div').first().click();
+  await expect(stage).toBeVisible();
+  await expect(status).toContainText('playing');
   const escapeToken = displayedToken(await position.textContent());
   await page.keyboard.press('Escape');
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute(
@@ -227,29 +251,23 @@ test('Escape and a consumed click elsewhere return to the exact Reader token', a
   await expect(reader.locator('.reader-prose-pane')).not.toHaveAttribute('data-reader-fitting');
   await enterRsvp(reader);
   await page.keyboard.press('Space');
-  const clickToken = displayedToken(await position.textContent());
-  await reader.getByRole('region', { name: 'Speed reading word' }).click({ position: { x: 8, y: 8 } });
-  await expect(reader.getByRole('region', { name: 'Speed reading word' })).toHaveCount(0);
-  await expect(reader.locator('[data-reader-page]')).toHaveAttribute(
-    'data-reader-page',
-    new RegExp(`^${clickToken}:`),
-  );
-
-  await expect(reader).toHaveAttribute('data-reader-fit-size', /^\d+x\d+$/);
-  await enterRsvp(reader);
-  await page.keyboard.press('Space');
-  const footerToken = displayedToken(await position.textContent());
+  const returnToken = displayedToken(await position.textContent());
   const footerBox = await reader.locator('.workbench-dock').boundingBox();
   expect(footerBox).not.toBeNull();
   await page.mouse.click(
     footerBox!.x + footerBox!.width / 2,
     footerBox!.y + footerBox!.height / 2,
   );
+  await expect(reader.getByRole('region', { name: 'Speed reading word' })).toBeVisible();
+  await expect(status).toContainText('paused');
+
+  await reader.getByRole('button', { name: 'return to Reader', exact: true }).click();
   await expect(reader.getByRole('region', { name: 'Speed reading word' })).toHaveCount(0);
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute(
     'data-reader-page',
-    new RegExp(`^${footerToken}:`),
+    new RegExp(`^${returnToken}:`),
   );
+  await expect(reader.locator('[data-reader-cursor-start="true"]')).toBeVisible();
 });
 
 test('display and rhythm controls preserve pace, responsive grouping, and exact exit', async ({ page }) => {

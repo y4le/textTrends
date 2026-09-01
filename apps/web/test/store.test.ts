@@ -5056,6 +5056,7 @@ describe('RSVP interaction ownership', () => {
       doc: 'a', token: 6, origin: 'reader',
     });
     expect(f.store.getState().readerPlace?.cursor).toEqual({ kind: 'from', token: 6 });
+    expect(f.store.getState().readerCursorToken).toBe(6);
     expect(f.store.getState().readerNavigation).toBe(navigation);
     f.runtime.dispose();
   });

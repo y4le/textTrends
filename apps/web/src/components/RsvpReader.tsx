@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { RsvpState } from '../lib/interaction.ts';
 import {
@@ -68,6 +69,14 @@ interface PlaybackPhase {
   readonly frameKey: string;
   readonly kind: 'word' | 'rest';
   readonly startedAt: number;
+}
+
+interface StagePointer {
+  readonly id: number;
+  readonly x: number;
+  readonly y: number;
+  readonly time: number;
+  readonly target: EventTarget | null;
 }
 
 type NumberSettingKey =
@@ -154,6 +163,7 @@ export function RsvpReader({
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playRef = useRef<HTMLButtonElement | null>(null);
   const exitRef = useRef<HTMLButtonElement | null>(null);
+  const stagePointer = useRef<StagePointer | null>(null);
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
 
@@ -387,6 +397,34 @@ export function RsvpReader({
     onPublish(cursor);
     onSetPlaying(!mode.playing);
   };
+  const stageControlAt = (target: EventTarget | null) =>
+    target instanceof Element && target.closest('[data-rsvp-control]') !== null;
+  const handleStagePointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    stagePointer.current = null;
+    if (!event.isPrimary || event.button !== 0 || stageControlAt(event.target)) return;
+    stagePointer.current = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      time: event.timeStamp,
+      target: event.target,
+    };
+  };
+  const handleStagePointerUp = (event: ReactPointerEvent<HTMLElement>) => {
+    const down = stagePointer.current;
+    stagePointer.current = null;
+    if (
+      down === null
+      || down.id !== event.pointerId
+      || !event.isPrimary
+      || event.timeStamp - down.time > 500
+      || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 8
+      || stageControlAt(down.target)
+      || stageControlAt(event.target)
+    ) return;
+    event.preventDefault();
+    togglePlaying();
+  };
   const goBack = () => {
     if (!resident || !canGoBack) return;
     const next = resident.tokens.start + previousRelative;
@@ -589,6 +627,9 @@ export function RsvpReader({
         data-rsvp-words={effectiveWords}
         data-rsvp-rest={restCue ? 'true' : undefined}
         aria-label="Speed reading word"
+        onPointerDown={handleStagePointerDown}
+        onPointerUp={handleStagePointerUp}
+        onPointerCancel={() => { stagePointer.current = null; }}
       >
         <div className="reader-rsvp-word" aria-hidden="true">
           {frame ? (

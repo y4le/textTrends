@@ -232,7 +232,6 @@ export function App() {
   const restoreFindFocus = useRef(false);
   const previousFindScope = useRef(findScope(interaction) !== null);
   const readerEdgePointer = useRef<ReaderEdgePointer | null>(null);
-  const consumeRsvpClick = useRef(false);
   const shortcutSequence = useRef<ShortcutSequenceState | null>(null);
   const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyboardNavigationStatus, setKeyboardNavigationStatus] = useState('');
@@ -754,27 +753,6 @@ export function App() {
       ? direction === 1 ? 'last readable text' : 'first readable text'
       : '');
   };
-  const onReaderPointerDownCapture = (event: ReactPointerEvent<HTMLElement>) => {
-    if (useApp.getState().interaction.kind !== 'rsvp') return;
-    const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest('[data-rsvp-control]')) return;
-    consumeRsvpClick.current = true;
-    event.preventDefault();
-    event.stopPropagation();
-    exitActiveRsvp();
-  };
-  const onReaderPointerUpCapture = (event: ReactPointerEvent<HTMLElement>) => {
-    if (!consumeRsvpClick.current) return;
-    event.preventDefault();
-    event.stopPropagation();
-    window.setTimeout(() => { consumeRsvpClick.current = false; }, 0);
-  };
-  const onReaderClickCapture = (event: React.MouseEvent<HTMLElement>) => {
-    if (!consumeRsvpClick.current) return;
-    consumeRsvpClick.current = false;
-    event.preventDefault();
-    event.stopPropagation();
-  };
   const onReaderPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     readerEdgePointer.current = null;
     if (useApp.getState().interaction.kind === 'rsvp') return;
@@ -868,14 +846,10 @@ export function App() {
         data-reader-fit-size={readerVisibleRange?.geometry.split(':', 1)[0]}
         aria-labelledby="reader-title"
         tabIndex={-1}
-        onPointerDownCapture={onReaderPointerDownCapture}
-        onPointerUpCapture={onReaderPointerUpCapture}
-        onClickCapture={onReaderClickCapture}
         onPointerDown={onReaderPointerDown}
         onPointerUp={onReaderPointerUp}
         onPointerCancel={() => {
           readerEdgePointer.current = null;
-          consumeRsvpClick.current = false;
         }}
         onKeyDown={(event) => {
           if (handleInteractionShortcut(event)) return;

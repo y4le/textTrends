@@ -4142,6 +4142,10 @@ export function createAppRuntime(
           interactionError: null,
         });
         replaceReaderTarget({ doc, cursor: { kind: 'from', token } });
+        // runReader clears presentation state while the exact return page is
+        // loading; publish the cursor after navigation so the fitted page can
+        // preserve and render the Speed exit position.
+        set({ readerCursorToken: token });
       },
 
       stepOccurrence(direction) {
