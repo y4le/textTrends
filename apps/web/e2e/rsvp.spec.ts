@@ -87,6 +87,8 @@ test('a visible Reader control starts paused Speed reading at the selected word'
     exact: true,
   });
   await expect(speed).toBeVisible();
+  const readerProgress = reader.getByRole('progressbar');
+  const selectedPercent = await readerProgress.getAttribute('aria-valuenow');
   if (testInfo.project.name === 'webkit-compact') {
     expect((await speed.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   }
@@ -95,6 +97,12 @@ test('a visible Reader control starts paused Speed reading at the selected word'
   await expect(reader.locator('.reader-rsvp-shell [role="status"]')).toContainText('paused');
   await expect(reader.getByRole('region', { name: 'Speed reading word' })
     .locator('.reader-rsvp-word')).toHaveText(selectedWord);
+  const speedProgress = reader.getByRole('progressbar');
+  await expect(speedProgress).toHaveCount(1);
+  await expect(speedProgress).toHaveAttribute('aria-valuenow', selectedPercent ?? '');
+  await expect(speedProgress).not.toHaveAttribute('aria-live');
+  await page.keyboard.press('Space');
+  await expect(speedProgress).not.toHaveAttribute('aria-valuenow', selectedPercent ?? '');
 });
 
 test('mobile Speed reading gives the word stage the portrait and landscape viewport', async ({ page }) => {
@@ -105,7 +113,17 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
   const stage = reader.getByRole('region', { name: 'Speed reading word' });
   const dock = reader.locator('.workbench-dock');
   const controls = reader.locator('.reader-rsvp-controls');
+  const progress = reader.getByRole('progressbar');
   await expect(dock).toHaveAttribute('data-collapsed', 'true');
+  await expect(progress).toHaveCount(1);
+  await expect(progress).toBeVisible();
+  await expect(progress.locator('.reader-progress-fill')).toHaveCSS('transition-duration', '0s');
+  const railBox = await progress.boundingBox();
+  const cursorBox = await progress.locator('.reader-progress-cursor').boundingBox();
+  expect(railBox).not.toBeNull();
+  expect(cursorBox).not.toBeNull();
+  expect(cursorBox!.x).toBeGreaterThanOrEqual(railBox!.x);
+  expect(cursorBox!.x + cursorBox!.width).toBeLessThanOrEqual(railBox!.x + railBox!.width + 0.5);
   await expect(reader).toHaveAttribute('data-reader-footer', 'true');
   await expect.poll(async () => (await dock.boundingBox())?.height ?? -1).toBeLessThanOrEqual(3);
   await expect.poll(() => controls.evaluate((element) =>

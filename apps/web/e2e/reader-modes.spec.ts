@@ -136,6 +136,8 @@ test('Reader has one full-viewport presentation with its compressed analytical f
   await expect(page.locator('.app-header')).toHaveCount(0);
   await expect(reader.getByRole('button', { name: 'back', exact: true })).toBeVisible();
   await expectReaderFillsViewport(page, reader, 1440, 900);
+  await expect(reader.getByRole('progressbar')).toHaveCount(1);
+  await expect(reader.getByRole('progressbar')).not.toHaveAttribute('aria-live');
 
   // The Reader position describes fitted prose, not an analytical scrub that
   // moves independently underneath the open Reader.

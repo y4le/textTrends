@@ -41,10 +41,12 @@ import {
   type RsvpRhythmPreset,
 } from '@texttrends/rsvp';
 import { RSVP_WPM_INPUT_ID } from '../lib/rsvp-ui.ts';
+import { readerProgress } from '../lib/reader-progress.ts';
 import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
+import { ReaderProgressRail } from './reader/ReaderProgressRail.tsx';
 
 export type RsvpReaderSource =
   | { readonly status: 'pending' }
@@ -578,6 +580,7 @@ export function RsvpReader({
     && phase.kind === 'rest'
     && (timing?.pauseMs ?? 0) >= RSVP_REST_CUE_MIN_MS;
   const preset = rsvpPresetSelection(mode);
+  const progress = readerProgress(cursor, mode.docTokenCount, title);
 
   return (
     <div ref={shellRef} className="reader-rsvp-shell" onKeyDown={trapTab}>
@@ -677,6 +680,11 @@ export function RsvpReader({
       </section>
 
       <div className="reader-rsvp-controls-region">
+        <ReaderProgressRail
+          className="reader-rsvp-progress"
+          progress={progress}
+          accessibleName={`Position in ${title}`}
+        />
         <nav className="reader-rsvp-controls" aria-label="Speed reading controls">
           <button
             className="reader-rsvp-back"

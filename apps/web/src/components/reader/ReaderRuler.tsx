@@ -1,6 +1,7 @@
 import { readerCommand } from '../../lib/reader-commands.ts';
 import { shortcutAria } from '../../lib/shortcuts.ts';
 import { useApp } from '../../lib/store-instance.ts';
+import { ReaderProgressRail } from './ReaderProgressRail.tsx';
 import { useReaderChromeModel } from './useReaderChromeModel.ts';
 
 export function ReaderRuler() {
@@ -47,16 +48,11 @@ export function ReaderRuler() {
             : `token ${Math.min(position.tokenCount, position.token + 1).toLocaleString()} of ${position.tokenCount.toLocaleString()} · ${progress.percent}%`}
         </span>
         {progress !== null && (
-          <span
+          <ReaderProgressRail
             className="reader-ruler-progress"
-            role="progressbar"
-            aria-label={`Position in ${position.title}`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={progress.percent}
-          >
-            <span style={{ inlineSize: `${progress.percent}%` }} />
-          </span>
+            progress={progress}
+            accessibleName={`Position in ${position.title}`}
+          />
         )}
       </div>
       {nextCommand.present && (

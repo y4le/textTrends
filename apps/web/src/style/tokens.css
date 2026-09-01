@@ -785,18 +785,47 @@ canvas {
   font-size: var(--text-xs);
 }
 
-.reader-ruler-progress {
+.reader-progress-rail {
+  position: relative;
   display: block;
+  box-sizing: border-box;
   overflow: hidden;
-  inline-size: min(18rem, 100%);
-  block-size: 2px;
+  block-size: 3px;
   background: var(--rule);
+  pointer-events: none;
 }
 
-.reader-ruler-progress > span {
-  display: block;
-  block-size: 100%;
+.reader-progress-fill,
+.reader-progress-cursor {
+  position: absolute;
+  inset-block: 0;
   background: var(--accent);
+}
+
+.reader-progress-fill {
+  inset-inline-start: 0;
+}
+
+.reader-progress-cursor {
+  inline-size: 2px;
+  background: var(--accent-text);
+}
+
+@media (forced-colors: active) {
+  .reader-progress-rail {
+    border-block-start: 1px solid CanvasText;
+    background: Canvas;
+    forced-color-adjust: none;
+  }
+
+  .reader-progress-fill,
+  .reader-progress-cursor {
+    background: Highlight;
+  }
+}
+
+.reader-ruler-progress {
+  inline-size: min(18rem, 100%);
 }
 
 .reader-atlas-ruler {
@@ -1257,10 +1286,18 @@ canvas {
 
 .reader-rsvp-controls-region {
   grid-area: reader-pages;
+  position: relative;
   min-block-size: 0;
   padding-block: var(--space-2);
   overflow: auto;
   border-top: 1px solid var(--rule);
+}
+
+.reader-rsvp-progress {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: -1px;
+  inset-inline: 0;
 }
 
 .reader-rsvp-controls {
@@ -1629,8 +1666,7 @@ canvas {
     margin-block-start: 0;
   }
 
-  .reader-ruler-meta,
-  .reader-ruler-progress {
+  .reader-ruler-meta {
     display: none;
   }
 
