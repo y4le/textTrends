@@ -12,6 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
+import type { ReaderVisibleRangeV1 } from '../lib/store.ts';
 import { findScope } from '../lib/interaction.ts';
 import { groupIdentity, groupTitle } from '../lib/notebook.ts';
 import { trackLegend, type TrackLegendEntry } from '../lib/track-legend.ts';
@@ -34,37 +35,55 @@ import { ReaderAtlas } from './reader/ReaderAtlas.tsx';
 import { ReaderScaleControl } from './reader/ReaderScaleControl.tsx';
 import { guideAnchorProps } from '../lib/guide/anchors.ts';
 import { readerCursorChars, readerTokenAtChar } from '../lib/reader-cursor.ts';
-import { proseCharOffsetAtPoint } from './reader/prose-cursor.ts';
+import { readerTapIntent } from '../lib/reader-tap.ts';
+import { hitsSourceToken, proseCharOffsetAtPoint } from './reader/prose-cursor.ts';
 
-interface ProseCursorPointer {
+interface ReaderProsePointer {
   readonly id: number;
+  readonly pointerType: string;
   readonly x: number;
   readonly y: number;
   readonly time: number;
   readonly target: EventTarget | null;
   readonly selectionOpen: boolean;
+  readonly sourceToken: boolean;
+  readonly geometry: string;
 }
 
 function isReaderMarkTarget(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest('[data-reader-mark]') !== null;
 }
 
+function isInteractiveReaderTarget(target: EventTarget | null): boolean {
+  return target instanceof Element
+    && target.closest('button, a, input, select, textarea, [role="button"]') !== null;
+}
+
+function settledReaderGeometry(
+  pane: HTMLElement,
+  visible: ReaderVisibleRangeV1 | null,
+): string | null {
+  if (
+    pane.hasAttribute('data-reader-fitting')
+    || visible === null
+    || !visible.geometry.startsWith(`${pane.clientWidth}x${pane.clientHeight}:`)
+  ) return null;
+  return visible.geometry;
+}
+
 function ReaderProse({
   page,
   snapshot,
   legend,
-  onAnnounce,
 }: {
   page: ReaderPageResultV1;
   snapshot: string;
   legend: readonly TrackLegendEntry[];
-  onAnnounce: (message: string) => void;
 }) {
   const selection = useApp((state) => state.linkedSelection);
   const scrub = useApp((state) => state.scrub);
   const setReadingCursor = useApp((state) => state.setReadingCursor);
   const centerKwicAt = useApp((state) => state.centerKwicAt);
-  const pointer = useRef<ProseCursorPointer | null>(null);
   const selected = readerSelectionChars(page, selection, snapshot);
   const cursor = readerCursorChars(
     page,
@@ -98,43 +117,6 @@ function ReaderProse({
       className="source-text"
       data-reader-page={`${page.tokens.start}:${page.tokens.end}`}
       data-reader-anchor={page.anchor?.token}
-      onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
-        pointer.current = null;
-        if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
-        pointer.current = {
-          id: event.pointerId,
-          x: event.clientX,
-          y: event.clientY,
-          time: event.timeStamp,
-          target: event.target,
-          selectionOpen: window.getSelection()?.isCollapsed === false,
-        };
-      }}
-      onPointerUp={(event: ReactPointerEvent<HTMLDivElement>) => {
-        const down = pointer.current;
-        pointer.current = null;
-        if (
-          down === null
-          || down.id !== event.pointerId
-          || !event.isPrimary
-          || event.timeStamp - down.time > 500
-          || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 8
-          || isReaderMarkTarget(down.target)
-          || isReaderMarkTarget(event.target)
-          || down.selectionOpen
-          || window.getSelection()?.isCollapsed === false
-        ) return;
-        const char = proseCharOffsetAtPoint(event.currentTarget, event.clientX, event.clientY);
-        const token = char === null ? null : readerTokenAtChar(page, char);
-        if (token === null) return;
-        setReadingCursor(token);
-        const chars = readerCursorChars(page, token);
-        const word = chars === null ? '' : page.text.slice(chars.start, chars.end);
-        onAnnounce(
-          `Reading position: ${word === '' ? '' : `“${word}”, `}token ${(token + 1).toLocaleString()}`,
-        );
-      }}
-      onPointerCancel={() => { pointer.current = null; }}
       style={{
         fontFamily: 'var(--font-serif)',
         fontSize: '1.05rem',
@@ -254,6 +236,7 @@ function ReaderProseDrawer({
   const place = useApp((state) => state.readerPlace);
   const result = useApp((state) => state.readerPage);
   const navigation = useApp((state) => state.readerNavigation);
+  const publishedVisibleRange = useApp((state) => state.readerVisibleRange);
   const notebook = useApp((state) => state.notebook);
   const styles = useApp((state) => state.styles);
   const project = useApp((state) => state.projectSession?.project ?? null);
@@ -262,6 +245,7 @@ function ReaderProseDrawer({
   const setReaderVisibleRange = useApp((state) => state.setReaderVisibleRange);
   const refitReaderAt = useApp((state) => state.refitReaderAt);
   const retryReader = useApp((state) => state.retryReader);
+  const setReadingCursor = useApp((state) => state.setReadingCursor);
   const occurrenceNavigation = useApp((state) => state.occurrenceNavigation);
   const stepOccurrence = useApp((state) => state.stepOccurrence);
   const series = useApp((state) => state.series);
@@ -286,6 +270,7 @@ function ReaderProseDrawer({
     return group ? groupIdentity(group) : null;
   };
   const paneRef = useRef<HTMLDivElement | null>(null);
+  const prosePointer = useRef<ReaderProsePointer | null>(null);
   const sourceRef = useRef<{ readonly key: string; readonly page: ReaderPageResultV1 } | null>(null);
   const visibleRef = useRef<{ readonly start: number; readonly end: number } | null>(null);
   const lastPaneSize = useRef<string | null>(null);
@@ -491,7 +476,73 @@ function ReaderProseDrawer({
   };
   const turnPage = (direction: -1 | 1) => {
     const cursor = direction === -1 ? navigation?.previous : navigation?.next;
-    if (cursor) navigateReader(cursor);
+    if (cursor) {
+      onAnnounce('');
+      navigateReader(cursor);
+    }
+  };
+  const onProsePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    prosePointer.current = null;
+    const primary = event.isPrimary
+      && (event.pointerType !== 'mouse' || event.button === 0);
+    if (!primary) return;
+    const geometry = settledReaderGeometry(event.currentTarget, publishedVisibleRange);
+    const source = event.currentTarget.querySelector<HTMLElement>('[data-reader-page]');
+    if (geometry === null || source === null) return;
+    prosePointer.current = {
+      id: event.pointerId,
+      pointerType: event.pointerType,
+      x: event.clientX,
+      y: event.clientY,
+      time: event.timeStamp,
+      target: event.target,
+      selectionOpen: window.getSelection()?.isCollapsed === false,
+      sourceToken: hitsSourceToken(source, event.clientX, event.clientY),
+      geometry,
+    };
+  };
+  const onProsePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const down = prosePointer.current;
+    prosePointer.current = null;
+    if (down === null) return;
+    const pane = event.currentTarget;
+    const source = pane.querySelector<HTMLElement>('[data-reader-page]');
+    const rect = pane.getBoundingClientRect();
+    const intent = readerTapIntent({
+      primary: down.id === event.pointerId
+        && down.pointerType === event.pointerType
+        && event.isPrimary
+        && (event.pointerType !== 'mouse' || event.button === 0),
+      movedPx: Math.hypot(event.clientX - down.x, event.clientY - down.y),
+      elapsedMs: event.timeStamp - down.time,
+      selectionOpen: down.selectionOpen || window.getSelection()?.isCollapsed === false,
+      onInteractiveTarget: isInteractiveReaderTarget(down.target)
+        || isInteractiveReaderTarget(event.target),
+      onMarkTarget: isReaderMarkTarget(down.target) || isReaderMarkTarget(event.target),
+      onSourceToken: down.sourceToken
+        || (source !== null && hitsSourceToken(source, event.clientX, event.clientY)),
+      edgePaging: event.pointerType === 'touch',
+      xWithinPane: event.clientX - rect.left,
+      paneWidth: rect.width,
+      canPagePrevious: navigation?.previous != null,
+      canPageNext: navigation?.next != null,
+      geometrySettled: down.geometry === settledReaderGeometry(pane, publishedVisibleRange),
+    });
+    if (intent === 'page-previous' || intent === 'page-next') {
+      event.preventDefault();
+      turnPage(intent === 'page-previous' ? -1 : 1);
+      return;
+    }
+    if (intent !== 'cursor' || source === null || visualPage === null) return;
+    const char = proseCharOffsetAtPoint(source, event.clientX, event.clientY);
+    const token = char === null ? null : readerTokenAtChar(visualPage, char);
+    if (token === null) return;
+    setReadingCursor(token);
+    const chars = readerCursorChars(visualPage, token);
+    const word = chars === null ? '' : visualPage.text.slice(chars.start, chars.end);
+    onAnnounce(
+      `Reading position: ${word === '' ? '' : `“${word}”, `}token ${(token + 1).toLocaleString()}`,
+    );
   };
 
   return (
@@ -554,6 +605,9 @@ function ReaderProseDrawer({
         className="reader-prose-pane"
         data-reader-fitting={!fitSettled || undefined}
         data-reader-saturated={activeFit?.saturated || undefined}
+        onPointerDown={onProsePointerDown}
+        onPointerUp={onProsePointerUp}
+        onPointerCancel={() => { prosePointer.current = null; }}
       >
         <div
           aria-busy={current?.state.status === 'pending' || !fitSettled || undefined}
@@ -582,7 +636,6 @@ function ReaderProseDrawer({
               page={visualPage}
               snapshot={current.snapshot}
               legend={legend}
-              onAnnounce={onAnnounce}
             />
           ) : (
             <div aria-label="Fitting reader page" style={{ minHeight: '12em' }} />

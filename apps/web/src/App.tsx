@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { useApp } from './lib/store-instance.ts';
@@ -22,7 +21,7 @@ import {
   type SettingsEntry,
 } from './lib/settings-entry.ts';
 import { SettingsEntryProvider } from './components/SettingsEntryContext.tsx';
-import { occurrenceNavigationText, type ReaderVisibleRangeV1 } from './lib/store.ts';
+import { occurrenceNavigationText } from './lib/store.ts';
 import {
   advanceShortcutSequence,
   chordShortcutAllowed,
@@ -74,15 +73,6 @@ const DebugSurface = lazy(() =>
   import('./components/DebugSurface.tsx').then(({ DebugSurface: surface }) => ({ default: surface })),
 );
 
-interface ReaderEdgePointer {
-  readonly id: number;
-  readonly x: number;
-  readonly y: number;
-  readonly time: number;
-  readonly target: EventTarget | null;
-  readonly geometry: string;
-}
-
 type OpenUtilityPane =
   | { readonly kind: 'settings'; readonly entry: SettingsEntry }
   | { readonly kind: 'debug' }
@@ -91,27 +81,6 @@ type OpenUtilityPane =
 interface CloseUtilityPaneOptions {
   readonly restoreFocus?: boolean;
   readonly onSettled?: (interactive: boolean) => void;
-}
-
-function isInteractiveReaderTarget(target: EventTarget | null): boolean {
-  return target instanceof Element
-    && target.closest(
-      'button, a, input, select, textarea, [role="button"], [data-reader-mark]',
-    ) !== null;
-}
-
-function settledReaderGeometry(
-  region: HTMLElement,
-  visible: ReaderVisibleRangeV1 | null,
-): string | null {
-  const pane = region.querySelector<HTMLElement>('.reader-prose-pane');
-  if (
-    pane === null
-    || pane.hasAttribute('data-reader-fitting')
-    || visible === null
-    || !visible.geometry.startsWith(`${pane.clientWidth}x${pane.clientHeight}:`)
-  ) return null;
-  return visible.geometry;
 }
 
 function PlaceSurface({
@@ -231,7 +200,6 @@ export function App() {
   const findReturnFocus = useRef<HTMLElement | null>(null);
   const restoreFindFocus = useRef(false);
   const previousFindScope = useRef(findScope(interaction) !== null);
-  const readerEdgePointer = useRef<ReaderEdgePointer | null>(null);
   const shortcutSequence = useRef<ShortcutSequenceState | null>(null);
   const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyboardNavigationStatus, setKeyboardNavigationStatus] = useState('');
@@ -753,49 +721,6 @@ export function App() {
       ? direction === 1 ? 'last readable text' : 'first readable text'
       : '');
   };
-  const onReaderPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
-    readerEdgePointer.current = null;
-    if (useApp.getState().interaction.kind === 'rsvp') return;
-    if (event.pointerType !== 'touch' || !event.isPrimary) return;
-    const geometry = settledReaderGeometry(event.currentTarget, readerVisibleRange);
-    if (geometry === null) return;
-    readerEdgePointer.current = {
-      id: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-      time: event.timeStamp,
-      target: event.target,
-      geometry,
-    };
-  };
-  const onReaderPointerUp = (event: ReactPointerEvent<HTMLElement>) => {
-    const down = readerEdgePointer.current;
-    readerEdgePointer.current = null;
-    if (
-      down === null
-      || down.id !== event.pointerId
-      || event.pointerType !== 'touch'
-      || event.timeStamp - down.time > 500
-      || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 8
-      || isInteractiveReaderTarget(down.target)
-      || isInteractiveReaderTarget(event.target)
-      || (down.target instanceof Element && down.target.closest('.source-text') !== null)
-      || (event.target instanceof Element && event.target.closest('.source-text') !== null)
-      || window.getSelection()?.isCollapsed === false
-      || down.geometry !== settledReaderGeometry(event.currentTarget, readerVisibleRange)
-    ) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const edge = Math.max(44, Math.min(120, rect.width * 0.18));
-    const x = event.clientX - rect.left;
-    if (x <= edge && readerNavigation?.previous) {
-      event.preventDefault();
-      moveReaderPage(-1);
-    } else if (x >= rect.width - edge && readerNavigation?.next) {
-      event.preventDefault();
-      moveReaderPage(1);
-    }
-  };
-
   const utilityPaneSurface = utilityPane?.kind === 'help'
     ? (
         <HelpPane
@@ -848,11 +773,6 @@ export function App() {
         data-reader-fit-size={readerVisibleRange?.geometry.split(':', 1)[0]}
         aria-labelledby="reader-title"
         tabIndex={-1}
-        onPointerDown={onReaderPointerDown}
-        onPointerUp={onReaderPointerUp}
-        onPointerCancel={() => {
-          readerEdgePointer.current = null;
-        }}
         onKeyDown={(event) => {
           if (handleInteractionShortcut(event)) return;
           if (!rootShortcutAllowed(event)) return;

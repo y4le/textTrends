@@ -428,11 +428,11 @@ test('prose taps select a reading cursor while blank gutters retain page turns',
   await expectReaderFillsViewport(page, reader, 390, 844);
   const pane = reader.locator('.reader-prose-pane');
   const source = reader.locator('[data-reader-page]');
-  const box = await reader.boundingBox();
-  expect(box).not.toBeNull();
-  const y = box!.y + box!.height / 2;
-  const center = { x: box!.x + box!.width / 2, y };
-  const right = { x: box!.x + box!.width - 4, y };
+  const paneBox = await pane.boundingBox();
+  expect(paneBox).not.toBeNull();
+  const y = paneBox!.y + paneBox!.height / 2;
+  const center = { x: paneBox!.x + paneBox!.width / 2, y };
+  const right = { x: paneBox!.x + paneBox!.width - 4, y };
   const initial = await settledReaderRange(reader);
   const before = await trace(page);
   const queryMark = before.events.at(-1)?.seq ?? 0;
@@ -456,7 +456,10 @@ test('prose taps select a reading cursor while blank gutters retain page turns',
     const span = root.querySelector<HTMLElement>('[data-reader-offset]');
     const text = span?.firstChild;
     if (!span || !text) throw new Error('reader offset span is unavailable');
-    const rect = span.getBoundingClientRect();
+    const rect = Array.from(span.getClientRects()).find(
+      (candidate) => candidate.width > 0 && candidate.height > 0,
+    );
+    if (!rect) throw new Error('reader offset span has no painted fragment');
     const init = {
       bubbles: true,
       pointerType: 'mouse',
@@ -523,10 +526,60 @@ test('prose taps select a reading cursor while blank gutters retain page turns',
     }
     return { legacy, elementNode, fallback };
   });
-  expect(caretFallbacks).toEqual({ legacy: 1, elementNode: 1, fallback: 1 });
+  expect(caretFallbacks).toEqual({ legacy: 1, elementNode: 1, fallback: 2 });
 
-  await dispatchReaderPointer(reader, 'touch', center);
-  await dispatchReaderPointer(reader, 'mouse', right);
+  const nearEdgeToken = await source.evaluate((root) => {
+    const paneElement = root.closest<HTMLElement>('.reader-prose-pane');
+    if (!paneElement) throw new Error('reader prose pane is unavailable');
+    const paneRect = paneElement.getBoundingClientRect();
+    const edge = Math.max(44, Math.min(120, paneRect.width * 0.18));
+    for (const span of root.querySelectorAll<HTMLElement>('[data-reader-offset]')) {
+      const text = span.firstChild;
+      if (text?.nodeType !== Node.TEXT_NODE || !text.textContent) continue;
+      for (let index = 0; index < text.textContent.length; index += 1) {
+        if (!/\S/.test(text.textContent[index] ?? '')) continue;
+        const range = document.createRange();
+        range.setStart(text, index);
+        range.setEnd(text, index + 1);
+        const rect = Array.from(range.getClientRects()).find(
+          (candidate) => candidate.width > 0 && candidate.height > 0,
+        );
+        if (!rect) continue;
+        const x = rect.left + rect.width / 2;
+        if (x <= paneRect.left + edge || x >= paneRect.right - edge) {
+          return { x, y: rect.top + rect.height / 2 };
+        }
+      }
+    }
+    return null;
+  });
+  expect(nearEdgeToken).not.toBeNull();
+  await dispatchReaderPointer(source, 'touch', nearEdgeToken!);
+  await expect(source.locator('[data-reader-cursor="true"]')).toBeVisible();
+  expect(await settledReaderRange(reader)).toEqual(initial);
+
+  const blankInlineEdge = await source.evaluate((root) => {
+    const paneElement = root.closest<HTMLElement>('.reader-prose-pane');
+    if (!paneElement) throw new Error('reader prose pane is unavailable');
+    const paneRect = paneElement.getBoundingClientRect();
+    const sourceRect = root.getBoundingClientRect();
+    const edge = Math.max(44, Math.min(120, paneRect.width * 0.18));
+    const x = Math.min(sourceRect.right - 2, paneRect.right - 4);
+    if (x < paneRect.right - edge) return null;
+    for (let y = sourceRect.top + 2; y < sourceRect.bottom - 2; y += 2) {
+      if (document.elementFromPoint(x, y) === root) return { x, y };
+    }
+    return null;
+  });
+  expect(blankInlineEdge).not.toBeNull();
+  await dispatchReaderPointer(source, 'touch', blankInlineEdge!);
+  await expect(source).toHaveAttribute('data-reader-page', new RegExp(`^${initial[1]}:`));
+  await reader.locator('.reader-page-previous').click();
+  await expect(source).toHaveAttribute('data-reader-page', new RegExp(`^${initial[0]}:`));
+  expect(await settledReaderRange(reader)).toEqual(initial);
+
+  await dispatchReaderPointer(pane, 'touch', center);
+  await dispatchReaderPointer(pane, 'mouse', right);
   const mark = reader.locator('[data-reader-mark]').first();
   await expect(mark).toBeVisible();
   await dispatchReaderPointer(mark, 'touch', right);
@@ -537,11 +590,11 @@ test('prose taps select a reading cursor while blank gutters retain page turns',
   );
   const pointer = { pointerType: 'touch', isPrimary: true, button: 0 };
   const rightPointer = { ...pointer, clientX: right.x, clientY: right.y };
-  await reader.dispatchEvent('pointerdown', { ...rightPointer, pointerId: 8 });
-  await reader.dispatchEvent('pointercancel', { ...rightPointer, pointerId: 8 });
-  await reader.dispatchEvent('pointerup', { ...rightPointer, pointerId: 8 });
-  await reader.dispatchEvent('pointerdown', { ...rightPointer, pointerId: 9 });
-  await reader.dispatchEvent('pointerup', { ...rightPointer, pointerId: 10 });
+  await pane.dispatchEvent('pointerdown', { ...rightPointer, pointerId: 8 });
+  await pane.dispatchEvent('pointercancel', { ...rightPointer, pointerId: 8 });
+  await pane.dispatchEvent('pointerup', { ...rightPointer, pointerId: 8 });
+  await pane.dispatchEvent('pointerdown', { ...rightPointer, pointerId: 9 });
+  await pane.dispatchEvent('pointerup', { ...rightPointer, pointerId: 10 });
   await page.waitForTimeout(100);
   expect(await settledReaderRange(reader)).toEqual(initial);
 
@@ -561,39 +614,27 @@ test('prose taps select a reading cursor while blank gutters retain page turns',
   expect(await settledReaderRange(reader)).toEqual(initial);
   await page.evaluate(() => window.getSelection()?.removeAllRanges());
 
-  await dispatchReaderPointer(reader, 'touch', right, { x: center.x, y: center.y + 20 });
+  await dispatchReaderPointer(pane, 'touch', right, { x: center.x, y: center.y + 20 });
   await page.waitForTimeout(100);
-  expect(await settledReaderRange(reader)).toEqual(initial);
-
-  // Even the compact 8px blank gutter remains a page-turn target.
-  await dispatchReaderPointer(reader, 'touch', right);
-  await expect(reader.locator('[data-reader-page]'))
-    .toHaveAttribute('data-reader-page', new RegExp(`^${initial[1]}:`));
-  const compactNext = await settledReaderRange(reader);
-  expect(compactNext[0]).toBe(initial[1]);
-  const compactLeft = { x: box!.x + 4, y };
-  await dispatchReaderPointer(reader, 'touch', compactLeft);
-  await expect(reader.locator('[data-reader-page]'))
-    .toHaveAttribute('data-reader-page', new RegExp(`^${initial[0]}:`));
   expect(await settledReaderRange(reader)).toEqual(initial);
 
   // A wide viewport has real blank gutters; their existing page-turn gesture remains.
   await expectReaderFillsViewport(page, reader, 1440, 900);
   const wideInitial = await settledReaderRange(reader);
-  const wideBox = await reader.boundingBox();
+  const wideBox = await pane.boundingBox();
   expect(wideBox).not.toBeNull();
   const wideRight = {
     x: wideBox!.x + wideBox!.width - 4,
     y: wideBox!.y + wideBox!.height / 2,
   };
-  await dispatchReaderPointer(reader, 'touch', wideRight);
+  await dispatchReaderPointer(pane, 'touch', wideRight);
   await expect(reader.locator('[data-reader-page]'))
     .toHaveAttribute('data-reader-page', new RegExp(`^${wideInitial[1]}:`));
   const next = await settledReaderRange(reader);
   expect(next[0]).toBe(wideInitial[1]);
 
   const wideLeft = { x: wideBox!.x + 4, y: wideRight.y };
-  await dispatchReaderPointer(reader, 'touch', wideLeft);
+  await dispatchReaderPointer(pane, 'touch', wideLeft);
   await expect(reader.locator('[data-reader-page]'))
     .toHaveAttribute('data-reader-page', new RegExp(`^${wideInitial[0]}:`));
   expect(await settledReaderRange(reader)).toEqual(wideInitial);

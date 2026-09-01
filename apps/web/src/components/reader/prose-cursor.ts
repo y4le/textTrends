@@ -10,6 +10,23 @@ function offsetSpan(root: HTMLElement, node: Node): HTMLElement | null {
   return span !== null && root.contains(span) ? span : null;
 }
 
+/** True only when a viewport point intersects a painted source span. */
+export function hitsSourceToken(
+  root: HTMLElement,
+  clientX: number,
+  clientY: number,
+): boolean {
+  const hit = document.elementFromPoint(clientX, clientY);
+  const span = hit === null ? null : offsetSpan(root, hit);
+  if (span === null) return false;
+  return Array.from(span.getClientRects()).some(
+    (rect) => clientX >= rect.left
+      && clientX <= rect.right
+      && clientY >= rect.top
+      && clientY <= rect.bottom,
+  );
+}
+
 /** Resolve a viewport point to an authenticated Reader-page UTF-16 offset. */
 export function proseCharOffsetAtPoint(
   root: HTMLElement,
