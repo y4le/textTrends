@@ -729,12 +729,20 @@ canvas {
 .reader-ruler {
   grid-area: reader-ruler;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   padding-block: min(var(--space-2), 1.5dvh);
   border-bottom: 1px solid var(--rule);
   font-family: var(--font-mono);
+}
+
+.reader-ruler[data-multiple-texts='true'] {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.reader-ruler > .reader-ruler-speed {
+  color: var(--accent-text);
 }
 
 .reader-ruler > button {

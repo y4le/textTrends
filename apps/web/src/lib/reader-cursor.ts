@@ -76,6 +76,23 @@ export function readerCursorChars(
     : { start, end };
 }
 
+/** Return the authenticated source text for one Reader token. */
+export function readerCursorWord(
+  page: ReaderTokenOffsets,
+  token: number | null,
+): string | null {
+  const chars = readerCursorChars(page, token);
+  if (chars === null) return null;
+  const word = page.text.slice(chars.start, chars.end).trim();
+  return word.length > 0 ? word : null;
+}
+
+export function readerSpeedEntryLabel(word: string | null): string {
+  return word === null
+    ? 'Open Speed reader paused at the reading cursor'
+    : `Open Speed reader paused from “${word}”`;
+}
+
 export function preservedReadingCursor(
   cursor: number | null,
   range: { readonly start: number; readonly end: number },

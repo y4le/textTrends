@@ -4,6 +4,7 @@ import {
   awaitReadyCount,
   clearDemoInputs,
   gotoPlace,
+  submitAndAwaitFreshResults,
 } from './helpers.ts';
 
 async function openReader(page: Page): Promise<Locator> {
@@ -41,12 +42,68 @@ async function chooseWordsAtOnce(group: Locator, value: 1 | 2 | 3): Promise<void
   await group.locator(`.reader-rsvp-words-option:has(input[value="${value}"])`).click();
 }
 
+test('a visible Reader control starts paused Speed reading at the selected word', async ({ page }, testInfo) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
+    name: 'one.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from(
+      'wolf alpha beta gamma delta epsilon zeta eta theta iota kappa lambda. '.repeat(20),
+      'utf-8',
+    ),
+  });
+  await awaitReadyCount(page, 1);
+  await submitAndAwaitFreshResults(page, 'wolf');
+  await gotoPlace(page, 'matches');
+  await page.getByRole('grid', { name: 'Matches' })
+    .getByRole('rowgroup').getByRole('button').first().click();
+
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  const source = reader.locator('[data-reader-page]');
+  await expect(source).toBeVisible();
+  const ruler = reader.getByRole('navigation', { name: 'Text navigation' });
+  await expect(ruler).toBeVisible();
+  await expect(ruler).toContainText('one');
+  await expect(ruler).not.toContainText(/text \d+ of/);
+  await expect(ruler.getByRole('button', { name: /text:/i })).toHaveCount(0);
+  const arrivalSpeed = ruler.getByRole('button', {
+    name: 'Open Speed reader paused at the reading cursor',
+    exact: true,
+  });
+  await expect(arrivalSpeed).toBeEnabled();
+
+  const target = source.locator('[data-reader-offset]').filter({ hasText: /\S/ }).nth(2);
+  await target.click();
+  const cursor = source.locator('[data-reader-cursor-start="true"]');
+  await expect(cursor).toBeVisible();
+  const selectedWord = (await cursor.textContent())?.trim() ?? '';
+  expect(selectedWord.length).toBeGreaterThan(0);
+
+  const speed = ruler.getByRole('button', {
+    name: `Open Speed reader paused from “${selectedWord}”`,
+    exact: true,
+  });
+  await expect(speed).toBeVisible();
+  if (testInfo.project.name === 'webkit-compact') {
+    expect((await speed.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  }
+  await speed.click();
+
+  await expect(reader.locator('.reader-rsvp-shell [role="status"]')).toContainText('paused');
+  await expect(reader.getByRole('region', { name: 'Speed reading word' })
+    .locator('.reader-rsvp-word')).toHaveText(selectedWord);
+});
+
 test('the semi-hidden RSVP surface anchors words and owns its keyboard controls', async ({ page }) => {
   const reader = await openReader(page);
 
   await reader.getByRole('button', { name: 'help', exact: true }).click();
   let shortcuts = page.getByRole('dialog', { name: 'Help' });
-  await expect(shortcuts.getByRole('heading', { name: 'Speed reader' })).toHaveCount(0);
+  await expect(shortcuts.getByRole('heading', { name: 'Speed reader' })).toBeVisible();
+  await expect(shortcuts.getByText('Toggle Speed reader', { exact: true })).toBeVisible();
   await page.keyboard.press('?');
 
   await enterRsvp(reader);

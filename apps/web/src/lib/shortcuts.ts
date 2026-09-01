@@ -798,8 +798,8 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
   {
     id: 'reader-rsvp-toggle',
     group: 'Speed reader',
-    helpContexts: ['rsvp'],
-    label: 'Return to normal Reader',
+    helpContexts: ['reader', 'rsvp'],
+    label: 'Toggle Speed reader',
     strokes: [{ key: 'S', shift: true, explicitShift: true }],
   },
   {
@@ -1046,11 +1046,12 @@ const ATLAS_READER_SHORTCUTS = new Set<ShortcutId>([
 const READ_READER_SHORTCUTS = new Set<ShortcutId>([
   'reader-page-previous',
   'reader-page-next',
+  'reader-rsvp-toggle',
 ]);
 
 export function shortcutHelpSections(scope: ShortcutHelpScope): readonly ShortcutHelpSection[] {
   const order: readonly ShortcutDefinition['group'][] = scope.context === 'reader'
-    ? ['Global', 'Find', 'Reading position history', 'Reader']
+    ? ['Global', 'Find', 'Reading position history', 'Reader', 'Speed reader']
     : scope.context === 'rsvp'
       ? ['Global', 'Speed reader']
       : [

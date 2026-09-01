@@ -4012,7 +4012,12 @@ export function createAppRuntime(
           && visible.tokens.start < source.tokens.end
           ? visible.tokens.start
           : null;
-        const startToken = source.anchor?.token ?? published;
+        const explicit = state.readerCursorToken !== null
+          && state.readerCursorToken >= source.tokens.start
+          && state.readerCursorToken < source.tokens.end
+          ? state.readerCursorToken
+          : null;
+        const startToken = explicit ?? source.anchor?.token ?? published;
         if (
           startToken === null
           || startToken < source.tokens.start

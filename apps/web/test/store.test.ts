@@ -4930,6 +4930,23 @@ describe('RSVP interaction ownership', () => {
     f.runtime.dispose();
   });
 
+  it('starts paused Speed reading at the explicit Reader cursor ahead of the source anchor', async () => {
+    const f = harness();
+    await readyReader(f, 4);
+    const issuedBeforeCursor = f.issued.length;
+
+    f.store.getState().setReadingCursor(6);
+    f.store.getState().enterRsvp(false);
+
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'rsvp',
+      rsvp: { startToken: 6, playing: false },
+    });
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 6 });
+    expect(f.issued).toHaveLength(issuedBeforeCursor);
+    f.runtime.dispose();
+  });
+
   it('preserves frame preferences when applying a rhythm preset or reset', async () => {
     const f = harness(undefined, {
       rsvpPacing: {

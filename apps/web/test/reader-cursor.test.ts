@@ -4,6 +4,8 @@ import {
   preservedReadingCursor,
   publishedReadingToken,
   readerCursorChars,
+  readerCursorWord,
+  readerSpeedEntryLabel,
   readerTokenAtChar,
 } from '../src/lib/reader-cursor.ts';
 
@@ -51,6 +53,15 @@ describe('Reader reading cursor', () => {
     expect(readerCursorChars(page(), 11)).toEqual({ start: 4, end: 7 });
     expect(readerCursorChars(page(), 9)).toBeNull();
     expect(readerCursorChars(page(), null)).toBeNull();
+  });
+
+  it('names the cursor word in the paused Speed entry', () => {
+    expect(readerCursorWord(page(), 11)).toBe('two');
+    expect(readerCursorWord(page(), 20)).toBeNull();
+    expect(readerSpeedEntryLabel('two'))
+      .toBe('Open Speed reader paused from “two”');
+    expect(readerSpeedEntryLabel(null))
+      .toBe('Open Speed reader paused at the reading cursor');
   });
 
   it('preserves only a cursor inside the newly visible range', () => {
