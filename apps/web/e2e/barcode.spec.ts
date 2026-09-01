@@ -147,7 +147,7 @@ test('the barcode summarizes exact occurrences, steps into Matches, and never qu
     }, { timeout: 30_000 })
     .toBe('answered');
   await page.getByRole('main', { name: /Reader: beasts/ })
-    .getByRole('button', { name: 'back', exact: true })
+    .getByRole('button', { name: 'Return to workbench', exact: true })
     .click();
   await gotoPlace(page, 'matches');
   await expect(page.getByRole('grid', { name: 'Matches' })

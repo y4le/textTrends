@@ -237,7 +237,7 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   await firstOccurrence.click();
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
-  await reader.getByRole('button', { name: 'back' }).click();
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(grid).toBeFocused();
 
   await expect.poll(async () => {

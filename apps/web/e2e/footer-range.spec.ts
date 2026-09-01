@@ -69,7 +69,7 @@ test('the footer graph double-press clears or brushes without stealing shuttle a
   );
   let reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
-  await reader.getByRole('button', { name: 'back' }).click();
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(page.getByTestId('linked-selection')).toBeVisible();
 
   const barcode = footer.locator('canvas[data-barcode-band="series"]').first();
@@ -78,7 +78,7 @@ test('the footer graph double-press clears or brushes without stealing shuttle a
   await barcode.dblclick({ position: { x: barcodeBox.width / 2, y: 3 } });
   reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
-  await reader.getByRole('button', { name: 'back' }).click();
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(page.getByTestId('linked-selection')).toBeVisible();
 
   const [sliderBox, sparklineBox] = await Promise.all([

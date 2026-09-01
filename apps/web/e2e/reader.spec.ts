@@ -289,42 +289,9 @@ test('Matches opens the lazy reader; navigation and edited highlights stay corre
   const drawer = page.getByRole('main', { name: /Reader: reader/ });
   await expect(drawer).toBeVisible();
   await expect(drawer.locator('.reader-prose-pane')).not.toHaveAttribute('data-reader-fitting');
-  const footer = drawer.getByRole('complementary', { name: 'Reading position' });
-  const footerPosition = footer.getByRole('slider', { name: 'Corpus footer position' });
-  const footerResize = drawer.getByRole('separator', { name: 'Resize reading footer' });
-  const dock = drawer.locator('.workbench-dock');
-  const terms = drawer.getByRole('complementary', { name: 'Terms' });
-  await expect(terms).toBeVisible();
-  await expect(dock).toHaveAttribute('data-terms-compressed', 'true');
-  await expect(footer).toBeVisible();
-  await expect(footer.locator('.footer-sparkline')).toBeVisible();
-  await expect(footer.locator('canvas[data-barcode-band="series"]')).toBeVisible();
-  await expect(footer.locator('.footer-passage')).toHaveCount(0);
-  await expect(footer.locator('.footer-reading-status')).toHaveCount(0);
-  const defaultFooterSize = Number(await footerResize.getAttribute('aria-valuenow'));
-  const minimumFooterSize = Number(await footerResize.getAttribute('aria-valuemin'));
-  expect(defaultFooterSize).toBeGreaterThan(minimumFooterSize);
-
-  // Reader collapse is deliberately ordered: Terms, then barcode, then the
-  // graph. Its final three pixels are one border plus the progress line.
-  await footerResize.focus();
-  await footerResize.press('ArrowDown');
-  await expect(terms).toBeVisible();
-  await expect(footer.locator('canvas[data-barcode-band="series"]')).toBeVisible();
-  await footerResize.press('ArrowDown');
-  await expect(terms).toBeHidden();
-  await expect(dock).toHaveAttribute('data-terms-dropped', 'true');
-  await expect(footer.locator('canvas[data-barcode-band="series"]')).toBeVisible();
-  await footerResize.press('ArrowDown');
-  await expect(footer.locator('canvas[data-barcode-band="series"]')).toHaveCount(0);
-  await expect(footer.locator('.footer-sparkline')).not.toHaveAttribute('height', '2');
-  await footerResize.press('Home');
-  await expect(footerResize).toHaveAttribute('aria-valuenow', '3');
-  await expect(footer.locator('.footer-sparkline')).toHaveAttribute('height', '2');
-  await expect(footerResize).toHaveAttribute('aria-valuetext', /progress/);
-  await footerResize.press('Enter');
-  await expect(terms).toBeVisible();
-  await expect(footer.locator('canvas[data-barcode-band="series"]')).toBeVisible();
+  await expect(drawer.locator('.workbench-dock')).toHaveCount(0);
+  await expect(drawer).toHaveAttribute('data-reader-footer', 'false');
+  await expect(drawer.getByRole('progressbar')).toHaveCount(1);
   const initialRange = await drawer.locator('[data-reader-page]').getAttribute('data-reader-page');
   const initialMatch = /^(\d+):(\d+)$/.exec(initialRange ?? '');
   expect(initialMatch).not.toBeNull();
@@ -334,13 +301,11 @@ test('Matches opens the lazy reader; navigation and edited highlights stay corre
 
   await drawer.press('Home');
   await expect(drawer.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', /^0:\d+$/);
-  await expect(footerPosition).toHaveAttribute('aria-valuenow', '0');
   await drawer.press('End');
   await expect(drawer.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', /^\d+:900$/);
   const endRange = await drawer.locator('[data-reader-page]').getAttribute('data-reader-page');
   const endStart = /^(\d+):/.exec(endRange ?? '')?.[1];
   expect(endStart).toBeTruthy();
-  await expect(footerPosition).toHaveAttribute('aria-valuenow', endStart!);
   await drawer.press('h');
   const middleRange = await drawer.locator('[data-reader-page]').getAttribute('data-reader-page');
   expect(middleRange).toMatch(/^\d+:\d+$/);

@@ -213,6 +213,6 @@ test('continuous Matches virtualizes rows and synchronizes scrolling with the sh
   await grid.press('Enter');
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
-  await reader.getByRole('button', { name: 'back', exact: true }).click();
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(grid).toBeFocused();
 });

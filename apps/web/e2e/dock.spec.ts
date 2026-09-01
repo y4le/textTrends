@@ -81,9 +81,66 @@ test('the fixed dock adds Reading only when active inputs exist', async ({ page 
   await slider.press('Enter');
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
+  await expect(reader.locator('.workbench-dock')).toHaveCount(0);
+  await reader.getByRole('button', { name: /Open Reader controls for/ }).click();
+  await page.getByRole('dialog', { name: 'Reader controls', exact: true })
+    .getByRole('button', { name: 'Open document Atlas', exact: true }).click();
   await expect(reader.locator('.workbench-dock[data-mode="reader"]')).toBeVisible();
   await expect(reader.getByRole('complementary', { name: 'Terms' })).toBeVisible();
   await expect(reader.locator('.footer-passage')).toHaveCount(0);
+});
+
+test('Atlas preserves the reader dock collapse ladder down to progress', async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const workbenchFooter = page.getByRole('complementary', { name: 'Reading position' });
+  const position = workbenchFooter.getByRole('slider', { name: 'Corpus footer position' });
+  await position.focus();
+  await position.press('ArrowRight');
+  await position.press('Enter');
+
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  await expect(reader).toBeVisible();
+  await reader.getByRole('button', { name: /Open Reader controls for/ }).click();
+  await page.getByRole('dialog', { name: 'Reader controls', exact: true })
+    .getByRole('button', { name: 'Open document Atlas', exact: true }).click();
+
+  const dock = reader.locator('.workbench-dock[data-mode="reader"]');
+  const terms = reader.getByRole('complementary', { name: 'Terms' });
+  const footer = reader.getByRole('complementary', { name: 'Reading position' });
+  const handle = reader.getByRole('separator', { name: 'Resize reading footer' });
+  const barcode = footer.locator('canvas[data-barcode-band="series"]');
+  const graph = footer.locator('.footer-sparkline');
+  await expect(dock).toHaveAttribute('data-terms-compressed', 'true');
+  await expect(terms).toBeVisible();
+  await expect(barcode).toBeVisible();
+  expect(Number(await handle.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(Number(await handle.getAttribute('aria-valuemin')));
+
+  // Atlas spends Terms, then the barcode, then the graph as its analytical
+  // dock shrinks. The final three pixels are one border plus progress.
+  await handle.focus();
+  await handle.press('ArrowDown');
+  await expect(terms).toBeVisible();
+  await expect(barcode).toBeVisible();
+  await handle.press('ArrowDown');
+  await expect(terms).toBeHidden();
+  await expect(dock).toHaveAttribute('data-terms-dropped', 'true');
+  await expect(barcode).toBeVisible();
+  for (let step = 0; step < 8 && await barcode.count() > 0; step += 1) {
+    await handle.press('ArrowDown');
+  }
+  await expect(barcode).toHaveCount(0);
+  await expect(graph).not.toHaveAttribute('height', '2');
+  await handle.press('Home');
+  await expect(handle).toHaveAttribute('aria-valuenow', '3');
+  await expect(graph).toHaveAttribute('height', '2');
+  await expect(handle).toHaveAttribute('aria-valuetext', /progress/);
+  await handle.press('Enter');
+  await expect(terms).toBeVisible();
+  await expect(barcode).toBeVisible();
 });
 
 test('the reading dock resizes through its full range and caps barcode growth', async ({

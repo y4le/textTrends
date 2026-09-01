@@ -40,11 +40,13 @@ export function ReaderControlsPane({
   onClose,
   onOpenSettings,
   onOpenHelp,
+  onOpenFind,
   onAnnounce,
 }: {
   readonly onClose: () => void;
   readonly onOpenSettings: () => void;
   readonly onOpenHelp: () => void;
+  readonly onOpenFind: () => void;
   readonly onAnnounce: (message: string) => void;
 }) {
   const place = useApp((state) => state.readerPlace);
@@ -220,6 +222,7 @@ export function ReaderControlsPane({
         <section aria-labelledby="reader-controls-utility-heading">
           <h3 id="reader-controls-utility-heading">Display and help</h3>
           <div className="reader-controls-actions">
+            <ReaderCommandButton command={command('find')} onClick={onOpenFind} />
             <ReaderCommandButton command={command('settings')} onClick={onOpenSettings}>
               Display settings
             </ReaderCommandButton>

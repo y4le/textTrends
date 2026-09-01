@@ -35,6 +35,7 @@ import { readerCursorChars, readerTokenAtChar } from '../lib/reader-cursor.ts';
 import { readerTapIntent } from '../lib/reader-tap.ts';
 import { hitsSourceToken, proseCharOffsetAtPoint } from './reader/prose-cursor.ts';
 import { ReaderControlBar } from './reader/ReaderControlBar.tsx';
+import { ReaderFindBar } from './reader/ReaderFindBar.tsx';
 
 interface ReaderProsePointer {
   readonly id: number;
@@ -224,9 +225,11 @@ function readerSourceKey(page: ReaderPageResultV1): string {
 
 function ReaderProseDrawer({
   onOpenControls,
+  onCloseFind,
   onAnnounce,
 }: {
   readonly onOpenControls: (returnFocus: HTMLElement) => void;
+  readonly onCloseFind: () => void;
   readonly onAnnounce: (message: string) => void;
 }) {
   const place = useApp((state) => state.readerPlace);
@@ -596,11 +599,15 @@ function ReaderProseDrawer({
         </div>
       </div>
 
-      <ReaderControlBar
-        title={title}
-        onOpenControls={onOpenControls}
-        onAnnounce={onAnnounce}
-      />
+      {findMode ? (
+        <ReaderFindBar onClose={onCloseFind} />
+      ) : (
+        <ReaderControlBar
+          title={title}
+          onOpenControls={onOpenControls}
+          onAnnounce={onAnnounce}
+        />
+      )}
     </>
   );
 }
@@ -609,11 +616,13 @@ export function ReaderDrawer({
   onOpenHelp,
   onOpenSettings,
   onOpenControls,
+  onCloseFind,
   onAnnounce,
 }: {
   readonly onOpenHelp: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement) => void;
   readonly onOpenControls: (returnFocus: HTMLElement) => void;
+  readonly onCloseFind: () => void;
   readonly onAnnounce: (message: string) => void;
 }) {
   const interaction = useApp((state) => state.interaction);
@@ -642,6 +651,7 @@ export function ReaderDrawer({
   ) : (
     <ReaderProseDrawer
       onOpenControls={onOpenControls}
+      onCloseFind={onCloseFind}
       onAnnounce={onAnnounce}
     />
   );

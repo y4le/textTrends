@@ -80,7 +80,7 @@ test('coarse pointers read the dense barcode through the first shown term\'s 48p
   await footerReader.click();
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
-  await reader.getByRole('button', { name: 'back' }).click();
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(footerSlider).toBeVisible();
 
   // A mouse on a coarse-presentation device keeps the barcode Reader door
@@ -92,7 +92,7 @@ test('coarse pointers read the dense barcode through the first shown term\'s 48p
   await footerSlider.focus();
   await page.mouse.dblclick(barcodeBox.x + 8, barcodeBox.y + 3);
   await expect(reader).toBeVisible();
-  await reader.getByRole('button', { name: 'back' }).click();
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(footerSlider).toBeFocused();
 
   const captions = [await scrubber.getAttribute('aria-valuetext')];

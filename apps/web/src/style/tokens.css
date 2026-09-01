@@ -851,6 +851,119 @@ canvas {
   padding-block-end: env(safe-area-inset-bottom, 0px);
 }
 
+.reader-find-takeover {
+  position: relative;
+  z-index: 2;
+  grid-area: reader-pages;
+  min-inline-size: 0;
+  padding-block-start: 3px;
+  border-block-start: 1px solid var(--rule-strong);
+  background: var(--bg);
+  transform: translateY(calc(-1 * var(--keyboard-inset)));
+}
+
+.reader-region[data-reader-footer='false'] .reader-find-takeover {
+  padding-block-end: env(safe-area-inset-bottom, 0px);
+}
+
+.find-bar--reader {
+  min-inline-size: 0;
+  font-family: var(--font-mono);
+}
+
+.reader-find-form {
+  display: grid;
+  min-inline-size: 0;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  min-block-size: 44px;
+  align-items: stretch;
+}
+
+.reader-find-exit {
+  display: flex;
+  grid-column: 1;
+  min-inline-size: 44px;
+  min-block-size: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 0 !important;
+  border-inline-end: 1px solid var(--rule) !important;
+  color: var(--accent-text) !important;
+}
+
+.reader-find-label {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  padding-inline: var(--space-2);
+  border-inline-end: 1px solid var(--rule);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.reader-find-field {
+  position: relative;
+  grid-column: 3;
+  min-inline-size: 0;
+}
+
+.reader-find-field > input {
+  inline-size: 100%;
+  min-inline-size: 0;
+  block-size: 44px;
+  box-sizing: border-box;
+  border: 0;
+  padding-inline: var(--space-2);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px;
+}
+
+.reader-find-field:has(.reader-find-progress) > input {
+  padding-inline-end: 7ch;
+}
+
+.reader-find-progress {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: var(--space-2);
+  overflow: hidden;
+  max-inline-size: 6ch;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.reader-find-actions {
+  display: flex;
+  grid-column: 4;
+  min-inline-size: 0;
+  align-items: stretch;
+}
+
+.reader-find-actions > button {
+  min-inline-size: 44px;
+  min-block-size: 44px;
+  flex: 0 0 auto;
+  border: 0;
+  border-inline-start: 1px solid var(--rule) !important;
+  padding-inline: var(--space-2);
+}
+
+.find-bar--reader .reader-find-actions > button.find-bar-icon-action {
+  inline-size: 44px;
+  min-inline-size: 44px;
+  flex-basis: 44px;
+}
+
+.reader-find-save-compact {
+  display: none;
+}
+
 .reader-atlas-ruler {
   grid-area: reader-ruler;
   display: grid;
@@ -1540,7 +1653,8 @@ canvas {
       calc(var(--space-2) + env(safe-area-inset-right, 0px));
   }
 
-  .reader-control-bar {
+  .reader-control-bar,
+  .reader-find-takeover {
     margin-inline:
       calc(-1 * (var(--space-2) + env(safe-area-inset-left, 0px)))
       calc(-1 * (var(--space-2) + env(safe-area-inset-right, 0px)));
@@ -1630,8 +1744,15 @@ canvas {
 
 @media (max-width: 359.98px) {
   .reader-control-page-label,
-  .reader-control-speed-label {
+  .reader-control-speed-label,
+  .reader-find-label,
+  .reader-find-exit-label,
+  .reader-find-save-wide {
     display: none;
+  }
+
+  .reader-find-save-compact {
+    display: inline;
   }
 
   .reader-control-bar > button {
@@ -6127,8 +6248,8 @@ html[data-trend-row-resizing='true'] * {
   }
 }
 
-/* Find owns the Terms row in either retained workbench dock. The floating
- * variant remains available to standalone hosts outside the dock. */
+/* Find owns the Terms row in retained workbench/Atlas docks. Reader uses its
+ * one-row takeover above; the floating variant remains for standalone hosts. */
 .find-bar--floating {
   position: fixed;
   z-index: 79;

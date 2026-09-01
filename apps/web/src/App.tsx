@@ -772,6 +772,7 @@ export function App() {
               <ReaderControlsPane
                 onClose={() => closeUtilityPane()}
                 onAnnounce={setReaderKeyboardStatus}
+                onOpenFind={() => openFind(true)}
                 onOpenSettings={() => openSettingsEntry(
                   globalSettingsEntry('reader'),
                   null,
@@ -786,8 +787,7 @@ export function App() {
   if (readerPlace) {
     const readerTitle = project?.data.docs.find((document) => document.doc === readerPlace.doc)?.meta.title
       ?? readerPlace.doc;
-    const speedReading = interaction.kind === 'rsvp';
-    const readerDockPresent = !(speedReading && presentation.shortViewport);
+    const readerDockPresent = readerScale === 'atlas';
     return (
       <>
       <main
@@ -908,6 +908,7 @@ export function App() {
         >
           <ReaderDrawer
             onAnnounce={setReaderKeyboardStatus}
+            onCloseFind={closeFind}
             onOpenControls={openReaderControls}
             onOpenSettings={(returnFocus) => openSettings('reader', returnFocus)}
             onOpenHelp={() => openHelp(
@@ -915,16 +916,13 @@ export function App() {
             )}
           />
         </Suspense>
-        <WorkbenchDock
-          mode="reader"
-          globalShortcuts={false}
-          inactive={speedReading}
-          collapsed={speedReading
-            && presentation.width === 'compact'
-            && !presentation.shortViewport}
-          suppressed={!readerDockPresent}
-          onCloseFind={closeFind}
-        />
+        {readerDockPresent && (
+          <WorkbenchDock
+            mode="reader"
+            globalShortcuts={false}
+            onCloseFind={closeFind}
+          />
+        )}
       </main>
       {utilityPaneSurface}
       </>

@@ -327,7 +327,7 @@ test('accepts a precise native occurrence and reveals Return on the Reader Back 
   const source = page.getByRole('dialog', { name: 'The text is the evidence' });
   await expect(source).toBeVisible();
   await page.getByRole('main', { name: /Reader:/ })
-    .getByRole('button', { name: 'back', exact: true }).click();
+    .getByRole('button', { name: 'Return to workbench', exact: true }).click();
   const returned = page.getByRole('dialog', { name: 'The place comes with you' });
   await expect(returned).toContainText('You are back on the chart, at the passage you just read.');
   await expect(returned.getByRole('button', { name: 'Finish' })).toBeVisible();

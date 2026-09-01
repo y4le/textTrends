@@ -216,7 +216,7 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await result.press('Enter');
   const resultReader = page.getByRole('main', { name: /Reader:/ });
   await expect(resultReader).toBeVisible();
-  await resultReader.getByRole('button', { name: 'back', exact: true }).click();
+  await resultReader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(resultReader).toHaveCount(0);
   await expect(result).toBeFocused();
   await page.getByRole('button', { name: 'Combined sequence', exact: true }).click();
@@ -364,7 +364,11 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await input.fill('moriarty');
   await input.press('Enter');
   await expect(status).not.toContainText('Searching');
-  await expect(find.locator('.dock-takeover-status')).toBeVisible();
+  await expect(find).toHaveClass(/find-bar--reader/);
+  await expect(find.locator('.reader-find-progress')).toBeVisible();
+  await expect(reader.locator('.workbench-dock')).toHaveCount(0);
+  await expect(reader.getByRole('navigation', { name: 'Reader controls' })).toHaveCount(0);
+  await expect(reader.getByRole('progressbar')).toHaveCount(1);
   await expect(reader).toBeVisible();
   await expect(reader.getByLabel('Reader query highlights')).toHaveCount(0);
   await expect(reader.locator('[data-reader-mark]').filter({ hasText: 'moriarty' }).first())
@@ -379,10 +383,6 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
     const box = await find.getByRole('button', { name }).boundingBox();
     expect(box?.height).toBeGreaterThanOrEqual(44);
   }
-  const resultBox = await find.getByRole('button', {
-    name: /Open current Find result in Reader:/,
-  }).boundingBox();
-  expect(resultBox?.height).toBeGreaterThanOrEqual(44);
   if (testInfo.project.name === 'webkit-compact') {
     await simulateKeyboard(page, 280);
     const [box, viewport] = await Promise.all([
@@ -395,13 +395,12 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
       .toBeLessThanOrEqual(viewport.height - viewport.inset);
     await simulateKeyboard(page, 0);
   }
-  const nextFindMatch = reader.getByRole('button', { name: 'next find match', exact: true });
-  await expect(nextFindMatch).toBeEnabled();
-  await expect(nextFindMatch).toHaveAttribute('title', 'Next exact Find match');
+  await expect(find.getByRole('button', { name: 'Next match', exact: true })).toBeEnabled();
   await expect.poll(() => readerPosition.textContent()).not.toBe(readerBefore);
   await page.keyboard.press('Escape');
   await expect(find).toHaveCount(0);
   await expect(reader).toBeVisible();
+  await expect(reader.getByRole('navigation', { name: 'Reader controls' })).toBeVisible();
 
   await reader.press('/');
   await expect(input).toBeFocused();
@@ -475,7 +474,8 @@ test('store-driven Find teardown restores focus instead of orphaning it', async 
   await expect(inputsRegion).toBeFocused();
 });
 
-test('Reader Help exposes a touch-sized Find entry in the keyboard-safe rail', async ({ page }, testInfo) => {
+test('Reader controls exposes a touch-sized Find takeover in the reading bar', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 320, height: 800 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
 
@@ -485,9 +485,12 @@ test('Reader Help exposes a touch-sized Find entry in the keyboard-safe rail', a
   await scrubber.press('ArrowRight');
   await scrubber.press('Enter');
   const reader = page.getByRole('main', { name: /Reader:/ });
-  await reader.getByRole('button', { name: 'help', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Help' });
-  await expect(dialog.getByRole('heading', { name: 'Quick actions', exact: true })).toBeVisible();
+  const prosePane = reader.locator('.reader-prose-pane');
+  await expect(reader.locator('[data-reader-page]')).toBeVisible();
+  const paneBox = await prosePane.boundingBox();
+  const pageRange = await reader.locator('[data-reader-page]').getAttribute('data-reader-page');
+  await reader.getByRole('button', { name: /Open Reader controls for/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Reader controls', exact: true });
   const tool = dialog.getByRole('button', { name: /Find in corpus/ });
   if (testInfo.project.name === 'webkit-compact') {
     const box = await tool.boundingBox();
@@ -500,6 +503,12 @@ test('Reader Help exposes a touch-sized Find entry in the keyboard-safe rail', a
   const input = find.getByRole('searchbox', { name: 'Find term or aliases' });
   await expect(dialog).toHaveCount(0);
   await expect(input).toBeFocused();
+  await expect(reader.locator('.workbench-dock')).toHaveCount(0);
+  await expect(reader.getByRole('progressbar')).toHaveCount(1);
+  expect(await prosePane.boundingBox()).toEqual(paneBox);
+  await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
+  await expect.poll(async () => (await reader.locator('.reader-find-takeover').boundingBox())?.height ?? 0)
+    .toBeLessThanOrEqual(48);
   const glyphs = find.locator('.find-bar-action-glyph');
   await expect(glyphs).toHaveText(['×']);
   const glyphMetrics = await glyphs.evaluateAll((nodes) => nodes.map((node) => {
@@ -508,7 +517,7 @@ test('Reader Help exposes a touch-sized Find entry in the keyboard-safe rail', a
   }));
   expect(new Set(glyphMetrics).size).toBe(1);
 
-  for (const name of ['Submit find', 'Clear and close find']) {
+  for (const name of ['Return to workbench', 'Submit find', 'Clear and close find']) {
     const box = await find.getByRole('button', { name }).boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(44);
     expect(box?.height).toBeGreaterThanOrEqual(44);
@@ -518,6 +527,7 @@ test('Reader Help exposes a touch-sized Find entry in the keyboard-safe rail', a
   await expect(find.getByRole('button', { name: 'Next match' })).toBeFocused();
   await expect(glyphs).toHaveText(['←', '→', '×']);
   for (const name of [
+    'Return to workbench',
     'Save Find as term',
     'Previous match',
     'Next match',
@@ -526,7 +536,14 @@ test('Reader Help exposes a touch-sized Find entry in the keyboard-safe rail', a
     const box = await find.getByRole('button', { name }).boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(44);
     expect(box?.height).toBeGreaterThanOrEqual(44);
+    expect(box?.x).toBeGreaterThanOrEqual(0);
+    expect(
+      (box?.x ?? 321) + (box?.width ?? 321),
+      `${name} stays inside the 320px Reader takeover`,
+    ).toBeLessThanOrEqual(320.5);
   }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(320);
   if (testInfo.project.name === 'webkit-compact') {
     await simulateKeyboard(page, 280);
     const [box, viewport] = await Promise.all([
@@ -537,5 +554,10 @@ test('Reader Help exposes a touch-sized Find entry in the keyboard-safe rail', a
     ]);
     expect(box ? box.y + box.height : Number.POSITIVE_INFINITY)
       .toBeLessThanOrEqual(viewport.height - viewport.inset);
+    await simulateKeyboard(page, 0);
   }
+  await find.getByRole('button', { name: 'Clear and close find' }).click();
+  await expect(find).toHaveCount(0);
+  await expect(reader.getByRole('button', { name: /Open Reader controls for/ })).toBeFocused();
+  expect(await prosePane.boundingBox()).toEqual(paneBox);
 });

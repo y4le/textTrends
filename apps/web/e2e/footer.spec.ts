@@ -127,14 +127,13 @@ test('the workbench footer shares one corpus axis and opens the current passage'
   await page.getByRole('button', { name: /Open reader at .* token/ }).click();
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
-  await expect(reader.getByRole('complementary', { name: 'Reading position' }))
-    .toBeVisible();
-  await expect(reader.locator('.footer-passage')).toHaveCount(0);
-  await page.getByRole('button', { name: 'back' }).click();
+  await expect(reader.locator('.workbench-dock')).toHaveCount(0);
+  await expect(reader.getByRole('progressbar')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(footer).toBeVisible();
 });
 
-test('footer keyboard reading enters a cold corpus and exposes page, fine, and open actions', async ({ page }) => {
+test('footer keyboard reading exposes page, fine, and open actions', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
 
@@ -178,8 +177,6 @@ test('footer keyboard reading enters a cold corpus and exposes page, fine, and o
   await slider.press('Enter');
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
-  await expect(reader.getByRole('button', { name: 'previous reference' })).toBeVisible();
-  await expect(reader.getByRole('button', { name: 'next reference' })).toBeVisible();
   const readerProse = reader.locator('[data-reader-page]');
   await expect(readerProse).toHaveAttribute('data-reader-anchor', String(firstOccurrence));
   await reader.press('w');
@@ -187,21 +184,27 @@ test('footer keyboard reading enters a cold corpus and exposes page, fine, and o
     .toBeGreaterThan(firstOccurrence);
   await reader.press('b');
   await expect(readerProse).toHaveAttribute('data-reader-anchor', String(firstOccurrence));
-  await reader.getByRole('button', { name: 'back' }).click();
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(slider).toBeFocused();
   await slider.press('o');
   await expect(reader).toBeVisible();
-  await reader.getByRole('button', { name: 'back' }).click();
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
+  await expect(reader).toHaveCount(0);
+  await expect(slider).toBeFocused();
+});
 
-  await page.reload();
-  await awaitAllReady(page);
-  const coldSlider = page.getByRole('slider', { name: 'Corpus footer position' });
-  await coldSlider.focus();
-  await coldSlider.press('ArrowLeft');
-  await expect(coldSlider).not.toHaveAttribute('aria-valuetext', 'no position');
-  await expect(coldSlider).toHaveAttribute(
+test('a cold footer wraps backward from the corpus end', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  await expect(slider).toHaveAttribute('aria-valuetext', 'no position');
+  await slider.focus();
+  await slider.press('ArrowLeft');
+  await expect(slider).not.toHaveAttribute('aria-valuetext', 'no position');
+  await expect(slider).toHaveAttribute(
     'aria-valuenow',
-    await coldSlider.getAttribute('aria-valuemax') ?? '',
+    await slider.getAttribute('aria-valuemax') ?? '',
   );
 });
 
@@ -431,7 +434,7 @@ test('status double-click opens Reader at its raw corpus point', async ({ page }
   await expect(reader).toBeVisible();
   await expect(reader.getByText('saw', { exact: true }))
     .toHaveCSS('text-decoration-line', 'underline');
-  await reader.getByRole('button', { name: 'back' }).click();
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(slider).toBeFocused();
 });
 

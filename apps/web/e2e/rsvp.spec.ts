@@ -64,12 +64,11 @@ test('a visible Reader control starts paused Speed reading at the selected word'
   const reader = page.getByRole('main', { name: /Reader:/ });
   const source = reader.locator('[data-reader-page]');
   await expect(source).toBeVisible();
-  const ruler = reader.getByRole('navigation', { name: 'Text navigation' });
-  await expect(ruler).toBeVisible();
-  await expect(ruler).toContainText('one');
-  await expect(ruler).not.toContainText(/text \d+ of/);
-  await expect(ruler.getByRole('button', { name: /text:/i })).toHaveCount(0);
-  const arrivalSpeed = ruler.getByRole('button', {
+  const controls = reader.getByRole('navigation', { name: 'Reader controls' });
+  await expect(controls).toBeVisible();
+  await expect(controls.locator('.reader-control-position > strong')).toHaveText('one');
+  await expect(controls).not.toContainText(/text \d+ of/);
+  const arrivalSpeed = controls.getByRole('button', {
     name: 'Open Speed reader paused at the reading cursor',
     exact: true,
   });
@@ -82,7 +81,7 @@ test('a visible Reader control starts paused Speed reading at the selected word'
   const selectedWord = (await cursor.textContent())?.trim() ?? '';
   expect(selectedWord.length).toBeGreaterThan(0);
 
-  const speed = ruler.getByRole('button', {
+  const speed = controls.getByRole('button', {
     name: `Open Speed reader paused from “${selectedWord}”`,
     exact: true,
   });
@@ -111,10 +110,9 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
   await enterRsvp(reader);
 
   const stage = reader.getByRole('region', { name: 'Speed reading word' });
-  const dock = reader.locator('.workbench-dock');
   const controls = reader.locator('.reader-rsvp-controls');
   const progress = reader.getByRole('progressbar');
-  await expect(dock).toHaveAttribute('data-collapsed', 'true');
+  await expect(reader.locator('.workbench-dock')).toHaveCount(0);
   await expect(progress).toHaveCount(1);
   await expect(progress).toBeVisible();
   await expect(progress.locator('.reader-progress-fill')).toHaveCSS('transition-duration', '0s');
@@ -124,8 +122,7 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
   expect(cursorBox).not.toBeNull();
   expect(cursorBox!.x).toBeGreaterThanOrEqual(railBox!.x);
   expect(cursorBox!.x + cursorBox!.width).toBeLessThanOrEqual(railBox!.x + railBox!.width + 0.5);
-  await expect(reader).toHaveAttribute('data-reader-footer', 'true');
-  await expect.poll(async () => (await dock.boundingBox())?.height ?? -1).toBeLessThanOrEqual(3);
+  await expect(reader).toHaveAttribute('data-reader-footer', 'false');
   await expect.poll(() => controls.evaluate((element) =>
     element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   const portraitTargets = await reader.locator(
@@ -139,7 +136,6 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
   expect((await stage.boundingBox())?.height).toBeGreaterThan(200);
 
   await page.setViewportSize({ width: 844, height: 390 });
-  await expect(dock).toHaveCount(0);
   await expect(reader).toHaveAttribute('data-reader-footer', 'false');
   await expect(stage).toBeVisible();
   await expect.poll(() => controls.evaluate((element) =>
@@ -163,8 +159,8 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
   expect((await stage.boundingBox())?.height).toBeGreaterThan(100);
 
   await reader.getByRole('button', { name: 'return to Reader', exact: true }).click();
-  await expect(reader).toHaveAttribute('data-reader-footer', 'true');
-  await expect(dock).toBeVisible();
+  await expect(reader).toHaveAttribute('data-reader-footer', 'false');
+  await expect(reader.locator('.workbench-dock')).toHaveCount(0);
   const entrance = reader.getByRole('button', { name: /Open Speed reader paused/ });
   await expect(entrance).toBeVisible();
   expect((await entrance.boundingBox())?.height).toBeGreaterThanOrEqual(44);
@@ -173,7 +169,9 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
 test('the semi-hidden RSVP surface anchors words and owns its keyboard controls', async ({ page }) => {
   const reader = await openReader(page);
 
-  await reader.getByRole('button', { name: 'help', exact: true }).click();
+  await reader.getByRole('button', { name: /Open Reader controls for/ }).click();
+  await page.getByRole('dialog', { name: 'Reader controls', exact: true })
+    .getByRole('button', { name: 'Open Reader help', exact: true }).click();
   let shortcuts = page.getByRole('dialog', { name: 'Help' });
   await expect(shortcuts.getByRole('heading', { name: 'Speed reader' })).toBeVisible();
   await expect(shortcuts.getByText('Toggle Speed reader', { exact: true })).toBeVisible();
@@ -184,7 +182,7 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
   const word = stage.locator('.reader-rsvp-word');
   const anchor = stage.locator('.reader-rsvp-anchor');
   await expect(reader.locator('[data-reader-page]')).toHaveCount(0);
-  await expect(reader.locator('.workbench-dock')).toHaveAttribute('inert', '');
+  await expect(reader.locator('.workbench-dock')).toHaveCount(0);
   await expect(reader.locator('.reader-rsvp-shell [role="status"]')).toContainText('playing');
 
   const initialWord = await word.textContent();
@@ -325,14 +323,7 @@ test('stage taps toggle playback while only explicit exits return to Reader', as
   await enterRsvp(reader);
   await page.keyboard.press('Space');
   const returnToken = displayedToken(await position.textContent());
-  const footerBox = await reader.locator('.workbench-dock').boundingBox();
-  expect(footerBox).not.toBeNull();
-  await page.mouse.click(
-    footerBox!.x + footerBox!.width / 2,
-    footerBox!.y + footerBox!.height / 2,
-  );
-  await expect(reader.getByRole('region', { name: 'Speed reading word' })).toBeVisible();
-  await expect(status).toContainText('paused');
+  await expect(reader.locator('.workbench-dock')).toHaveCount(0);
 
   await reader.getByRole('button', { name: 'return to Reader', exact: true }).click();
   await expect(reader.getByRole('region', { name: 'Speed reading word' })).toHaveCount(0);
