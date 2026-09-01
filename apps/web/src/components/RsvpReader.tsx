@@ -14,15 +14,18 @@ import {
   RSVP_MAX_WPM,
   RSVP_MIN_WPM,
   RSVP_REST_CUE_MIN_MS,
+  RSVP_RHYTHM_PRESETS,
   RSVP_WPM_STEP,
   effectiveRsvpWordsPerFrame,
   rsvpFrameAt,
   rsvpFrameTiming,
   rsvpPausedContext,
   rsvpPreviousFrameStart,
+  rsvpPresetSelection,
   rsvpSpanAt,
   rsvpSpanPlan,
   type RsvpPacing,
+  type RsvpRhythmPreset,
 } from '@texttrends/rsvp';
 import { RSVP_WPM_INPUT_ID } from '../lib/rsvp-ui.ts';
 import { readerProgress } from '../lib/reader-progress.ts';
@@ -48,7 +51,6 @@ export interface RsvpReaderProps {
   readonly onSeek: (token: number) => void;
   readonly onExit: (token: number) => void;
   readonly onRetry: () => void;
-  readonly onOpenHelp: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement, restSummary: string) => void;
 }
 
@@ -90,7 +92,6 @@ export function RsvpReader({
   onSeek,
   onExit,
   onRetry,
-  onOpenHelp,
   onOpenSettings,
 }: RsvpReaderProps) {
   const presentation = usePresentation();
@@ -368,7 +369,7 @@ export function RsvpReader({
     setCompleted(false);
     setCursor(next);
     onPublish(next);
-    setSettingStatus('back one frame');
+    setSettingStatus('previous frame');
   };
   const beginPaceEdit = () => {
     if (editingPaceRef.current) return;
@@ -453,49 +454,54 @@ export function RsvpReader({
   const restCue = phase.frameKey === frameKey
     && phase.kind === 'rest'
     && (timing?.pauseMs ?? 0) >= RSVP_REST_CUE_MIN_MS;
+  const preset = rsvpPresetSelection(mode);
   const progress = readerProgress(cursor, mode.docTokenCount, title);
 
   return (
     <div ref={shellRef} className="reader-rsvp-shell" onKeyDown={trapTab}>
-      <header className="reader-header">
-        <div>
-          <h2 id="reader-title" style={{ margin: 0, fontSize: 'var(--text-lg)' }}>
+      <header className="reader-rsvp-topbar">
+        <button
+          ref={exitRef}
+          className="reader-rsvp-exit"
+          type="button"
+          data-rsvp-control="true"
+          aria-label="Return to Reader"
+          aria-keyshortcuts={shortcutAria(['reader-rsvp-toggle', 'rsvp-exit'])}
+          onClick={exit}
+          onKeyDown={stopControlSpace}
+        >
+          <span aria-hidden="true">←</span>{' '}Reader
+        </button>
+        <div className="reader-rsvp-identity">
+          <h2 id="reader-title">
             <span className="visually-hidden">Reader: </span>{title}
           </h2>
           <p className="reader-position" aria-hidden="true">
-            token {(cursor + 1).toLocaleString()} of {mode.docTokenCount.toLocaleString()}
-            {' · '}{mode.wpm.toLocaleString()} WPM pace
-            {effectiveWords > 1 ? ` · ${effectiveWords} words at once` : ''}
-            {restSummary === '' ? '' : ` · ${restSummary}`}
+            token {(cursor + 1).toLocaleString()}
+            {' · '}{progress?.percent ?? 0}%
+            {' · '}{mode.wpm.toLocaleString()} WPM
           </p>
           <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
             {settingStatus === '' ? stableStatus : `${stableStatus} ${settingStatus}.`}
           </p>
           {restSummary !== '' && <p className="visually-hidden">{restSummary}</p>}
         </div>
-        <div className="reader-header-actions">
-          <button
-            type="button"
-            data-rsvp-control="true"
-            aria-keyshortcuts={shortcutAria(['show-help'])}
-            onClick={onOpenHelp}
-            onKeyDown={stopControlSpace}
-            style={SMALL_BUTTON_STYLE}
-          >
-            help
-          </button>
-          <button
-            ref={exitRef}
-            type="button"
-            data-rsvp-control="true"
-            aria-keyshortcuts={shortcutAria(['reader-rsvp-toggle', 'rsvp-exit'])}
-            onClick={exit}
-            onKeyDown={stopControlSpace}
-            style={SMALL_BUTTON_STYLE}
-          >
-            return to Reader
-          </button>
-        </div>
+        <button
+          id="reader-rsvp-settings-open"
+          className="reader-rsvp-settings-open"
+          type="button"
+          data-rsvp-control="true"
+          aria-label="Open Speed settings"
+          onClick={(event) => {
+            onPublish(cursor);
+            onSetPlaying(false);
+            onOpenSettings(event.currentTarget, restSummary);
+          }}
+          onKeyDown={stopControlSpace}
+        >
+          <span className="reader-rsvp-settings-label">settings</span>
+          <span className="reader-rsvp-settings-icon" aria-hidden="true">⋯</span>
+        </button>
       </header>
 
       <section
@@ -558,17 +564,18 @@ export function RsvpReader({
           progress={progress}
           accessibleName={`Position in ${title}`}
         />
-        <nav className="reader-rsvp-controls" aria-label="Speed reading controls">
+        <nav className="reader-rsvp-transport" aria-label="Speed reading transport">
           <button
-            className="reader-rsvp-back"
+            className="reader-rsvp-previous"
             type="button"
             data-rsvp-control="true"
+            aria-label="Previous frame"
             disabled={!canGoBack}
             onClick={goBack}
             onKeyDown={stopControlSpace}
-            style={SMALL_BUTTON_STYLE}
           >
-            back
+            <span aria-hidden="true">⟲</span>{' '}
+            <span className="reader-rsvp-previous-label">frame</span>
           </button>
           <button
             className="reader-rsvp-toggle"
@@ -580,7 +587,6 @@ export function RsvpReader({
             aria-keyshortcuts={shortcutAria(['rsvp-toggle-play'])}
             onClick={togglePlaying}
             onKeyDown={stopControlSpace}
-            style={SMALL_BUTTON_STYLE}
           >
             {completed ? 'completed' : mode.playing ? 'pause' : 'play'}
           </button>
@@ -592,9 +598,8 @@ export function RsvpReader({
             aria-keyshortcuts={shortcutAria(['rsvp-pace-down'])}
             onClick={() => onSetPacing({ wpm: mode.wpm - RSVP_WPM_STEP })}
             onKeyDown={stopControlSpace}
-            style={SMALL_BUTTON_STYLE}
           >
-            slower
+            <span aria-hidden="true">−</span>
           </button>
           <label className="reader-rsvp-pace" data-rsvp-control="true" htmlFor={RSVP_WPM_INPUT_ID}>
             <span className="reader-rsvp-pace-caption">
@@ -631,10 +636,11 @@ export function RsvpReader({
             aria-keyshortcuts={shortcutAria(['rsvp-pace-up'])}
             onClick={() => onSetPacing({ wpm: mode.wpm + RSVP_WPM_STEP })}
             onKeyDown={stopControlSpace}
-            style={SMALL_BUTTON_STYLE}
           >
-            faster
+            <span aria-hidden="true">+</span>
           </button>
+        </nav>
+        <div className="reader-rsvp-shape" aria-label="Speed frame shape">
           <fieldset className="reader-rsvp-words" data-rsvp-control="true">
             <legend className="visually-hidden">
               {presentation.width === 'compact'
@@ -642,10 +648,7 @@ export function RsvpReader({
                 : 'Words at once (maximum)'}
             </legend>
             <span className="reader-rsvp-words-caption" aria-hidden="true">
-              words at once
-              <span>
-                {presentation.width === 'compact' ? 'max · 3 becomes 2 here' : 'maximum'}
-              </span>
+              frame
             </span>
             <span className="reader-rsvp-words-options">
               {[1, 2, 3].map((value) => (
@@ -658,6 +661,8 @@ export function RsvpReader({
                     checked={mode.wordsPerFrame === value}
                     aria-label={`${value} ${value === 1 ? 'word' : 'words'} at once`}
                     onChange={() => {
+                      onPublish(cursor);
+                      onSetPlaying(false);
                       updatePacing(
                         { wordsPerFrame: value },
                         `${effectiveRsvpWordsPerFrame(value, presentation.width === 'compact')} words at once`,
@@ -670,20 +675,31 @@ export function RsvpReader({
               ))}
             </span>
           </fieldset>
-        </nav>
-        <button
-          className="reader-rsvp-settings-trigger"
-          type="button"
-          data-rsvp-control="true"
-          onClick={(event) => {
-            onPublish(cursor);
-            onSetPlaying(false);
-            onOpenSettings(event.currentTarget, restSummary);
-          }}
-          onKeyDown={stopControlSpace}
-        >
-          frame &amp; rhythm settings
-        </button>
+          <label className="reader-rsvp-preset" data-rsvp-control="true">
+            <span>rhythm</span>
+            <select
+              data-rsvp-control="true"
+              aria-label="Rhythm preset"
+              value={preset}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                if (value === 'custom') return;
+                onPublish(cursor);
+                onSetPlaying(false);
+                updatePacing(
+                  RSVP_RHYTHM_PRESETS[value as RsvpRhythmPreset],
+                  `rhythm preset ${value}`,
+                );
+              }}
+              onKeyDown={stopControlSpace}
+            >
+              <option value="natural">Natural</option>
+              <option value="even">Even</option>
+              <option value="study">Study</option>
+              <option value="custom" disabled>Custom</option>
+            </select>
+          </label>
+        </div>
       </div>
     </div>
   );

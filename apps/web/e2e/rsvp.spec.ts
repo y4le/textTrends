@@ -27,7 +27,7 @@ async function openReader(page: Page): Promise<Locator> {
 }
 
 function displayedToken(position: string | null): number {
-  const match = /token ([\d,]+) of/.exec(position ?? '');
+  const match = /token ([\d,]+)/.exec(position ?? '');
   expect(match).not.toBeNull();
   return Number(match![1]!.replaceAll(',', '')) - 1;
 }
@@ -114,7 +114,7 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
   await enterRsvp(reader);
 
   const stage = reader.getByRole('region', { name: 'Speed reading word' });
-  const controls = reader.locator('.reader-rsvp-controls');
+  const controls = reader.locator('.reader-rsvp-controls-region');
   const progress = reader.getByRole('progressbar');
   await expect(reader.locator('.workbench-dock')).toHaveCount(0);
   await expect(progress).toHaveCount(1);
@@ -130,8 +130,8 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
   await expect.poll(() => controls.evaluate((element) =>
     element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   const portraitTargets = await reader.locator(
-    '.reader-header-actions > button, .reader-rsvp-controls > button, '
-      + '.reader-rsvp-pace input, .reader-rsvp-words-option',
+    '.reader-rsvp-topbar > button, .reader-rsvp-transport > button, '
+      + '.reader-rsvp-pace input, .reader-rsvp-words-option, .reader-rsvp-preset select',
   ).evaluateAll((elements) => elements
     .filter((element) => (element as HTMLElement).offsetParent !== null)
     .map((element) => element.getBoundingClientRect().height));
@@ -145,8 +145,8 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
   await expect.poll(() => controls.evaluate((element) =>
     element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   const landscapeTargets = await reader.locator(
-    '.reader-header-actions > button, .reader-rsvp-controls > button, '
-      + '.reader-rsvp-pace input, .reader-rsvp-words-option',
+    '.reader-rsvp-topbar > button, .reader-rsvp-transport > button, '
+      + '.reader-rsvp-pace input, .reader-rsvp-words-option, .reader-rsvp-preset select',
   ).evaluateAll((elements) => elements
     .filter((element) => (element as HTMLElement).offsetParent !== null)
     .map((element) => element.getBoundingClientRect().height));
@@ -162,7 +162,33 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
   expect(landscapeViewport.scrollHeight).toBeLessThanOrEqual(landscapeViewport.clientHeight);
   expect((await stage.boundingBox())?.height).toBeGreaterThan(100);
 
-  await reader.getByRole('button', { name: 'return to Reader', exact: true }).click();
+  await page.setViewportSize({ width: 320, height: 800 });
+  await expect(reader.getByRole('button', { name: 'Return to Reader', exact: true })).toBeVisible();
+  await expect(reader.getByRole('button', { name: 'Open Speed settings', exact: true })).toBeVisible();
+  await expect(progress).toHaveCount(1);
+  await expect.poll(() => controls.evaluate((element) =>
+    element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  const compactViewport = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    root: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth,
+  }));
+  expect(compactViewport.root).toBeLessThanOrEqual(compactViewport.client);
+  expect(compactViewport.body).toBeLessThanOrEqual(compactViewport.client);
+  await page.locator('html').evaluate((element) => { element.style.fontSize = '200%'; });
+  await expect.poll(() => controls.evaluate((element) =>
+    element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  const zoomedViewport = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    root: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth,
+  }));
+  expect(zoomedViewport.root).toBeLessThanOrEqual(zoomedViewport.client);
+  expect(zoomedViewport.body).toBeLessThanOrEqual(zoomedViewport.client);
+  await expect(reader.getByRole('button', { name: 'Return to Reader', exact: true })).toBeVisible();
+  await expect(reader.getByRole('button', { name: 'Open Speed settings', exact: true })).toBeVisible();
+
+  await reader.getByRole('button', { name: 'Return to Reader', exact: true }).click();
   await expect(reader).toHaveAttribute('data-reader-footer', 'false');
   await expect(reader.locator('.workbench-dock')).toHaveCount(0);
   const entrance = reader.getByRole('button', { name: /Open Speed reader paused/ });
@@ -228,17 +254,14 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
     await expect(position).toHaveText(protectedPosition!);
   }
 
-  const back = reader.getByRole('button', { name: 'back', exact: true });
-  const play = reader.locator('.reader-rsvp-controls > button').nth(1);
-  const firstControl = reader.getByRole('button', { name: 'help', exact: true });
-  const settingsTrigger = reader.getByRole('button', {
-    name: 'frame & rhythm settings',
-    exact: true,
-  });
+  const back = reader.getByRole('button', { name: 'Previous frame', exact: true });
+  const play = reader.getByRole('button', { name: /^(play|pause)$/ });
+  const firstControl = reader.getByRole('button', { name: 'Return to Reader', exact: true });
+  const lastControl = reader.getByRole('combobox', { name: 'Rhythm preset' });
   await firstControl.focus();
   await firstControl.press('Shift+Tab');
-  await expect(settingsTrigger).toBeFocused();
-  await settingsTrigger.press('Tab');
+  await expect(lastControl).toBeFocused();
+  await lastControl.press('Tab');
   await expect(firstControl).toBeFocused();
   await play.focus();
   await play.press('Space');
@@ -314,7 +337,7 @@ test('stage taps toggle playback while only explicit exits return to Reader', as
   });
   await expect(status).toContainText('playing');
 
-  await reader.locator('.reader-header > div').first().click();
+  await reader.locator('.reader-rsvp-identity').click();
   await expect(stage).toBeVisible();
   await expect(status).toContainText('playing');
   const escapeToken = displayedToken(await position.textContent());
@@ -330,7 +353,7 @@ test('stage taps toggle playback while only explicit exits return to Reader', as
   const returnToken = displayedToken(await position.textContent());
   await expect(reader.locator('.workbench-dock')).toHaveCount(0);
 
-  await reader.getByRole('button', { name: 'return to Reader', exact: true }).click();
+  await reader.getByRole('button', { name: 'Return to Reader', exact: true }).click();
   await expect(reader.getByRole('region', { name: 'Speed reading word' })).toHaveCount(0);
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute(
     'data-reader-page',
@@ -347,14 +370,16 @@ test('display and rhythm controls preserve pace, responsive grouping, and exact 
   const stage = reader.getByRole('region', { name: 'Speed reading word' });
   const pace = reader.getByRole('spinbutton', { name: 'Pace in words per minute' });
   const settingsTrigger = reader.getByRole('button', {
-    name: 'frame & rhythm settings',
+    name: 'Open Speed settings',
     exact: true,
   });
   const settings = page.getByRole('dialog', { name: 'Speed settings' });
+  const preset = reader.locator('.reader-rsvp-preset select');
   const words = reader.getByRole('group', { name: /^Words at once/ });
   const oneWord = words.getByRole('radio', { name: '1 word at once' });
   const twoWords = words.getByRole('radio', { name: '2 words at once' });
   const threeWords = words.getByRole('radio', { name: '3 words at once' });
+  await expect(reader.getByRole('button', { name: 'help', exact: true })).toHaveCount(0);
 
   await expect(pace).toHaveAttribute('max', '2000');
   await pace.fill('2000');
@@ -364,15 +389,15 @@ test('display and rhythm controls preserve pace, responsive grouping, and exact 
   await settingsTrigger.click();
   await expect(settings).toBeVisible();
   await expect(status).toContainText('paused');
-  await expect(settings.getByRole('heading', { name: 'Effective timing' })).toBeVisible();
+  await expect(settings.getByRole('heading', { name: 'Timing notes' })).toBeVisible();
   await expect(settings).toContainText('Showing 2 or 3 words at once');
   await expect(settings).toContainText('Boundary rests are zero at this pace');
   await expect.poll(() => page.locator('#root').evaluate((root) => (root as HTMLElement).inert))
     .toBe(true);
   expect(await stage.boundingBox()).toEqual(stageBoxBeforeSettings);
 
-  let preset = settings.getByRole('combobox', { name: 'Rhythm preset' });
   let charLimit = settings.getByRole('spinbutton', { name: 'Frame character limit in characters' });
+  let sentence = settings.getByRole('spinbutton', { name: 'Sentence rest in milliseconds' });
   await expect(charLimit).toHaveAttribute('aria-disabled', 'true');
   await charLimit.focus();
   await expect(charLimit).toBeFocused();
@@ -380,9 +405,13 @@ test('display and rhythm controls preserve pace, responsive grouping, and exact 
   await charLimit.press('ArrowUp');
   await expect(charLimit).toHaveValue('30');
   await charLimit.press('Tab');
-  await expect(preset).toBeFocused();
-  await settings.getByRole('button', { name: 'close', exact: true }).click();
+  await expect(sentence).toBeFocused();
+  await settings.getByRole('button', { name: 'Speed reader help', exact: true }).click();
   await expect(settings).toHaveCount(0);
+  const help = page.getByRole('dialog', { name: 'Help' });
+  await expect(help.getByRole('heading', { name: 'Speed reader' })).toBeVisible();
+  await help.getByRole('button', { name: 'close', exact: true }).click();
+  await expect(help).toHaveCount(0);
   await expect(settingsTrigger).toBeFocused();
   expect(await stage.boundingBox()).toEqual(stageBoxBeforeSettings);
 
@@ -396,11 +425,12 @@ test('display and rhythm controls preserve pace, responsive grouping, and exact 
   ))).toBe('solid');
   await oneWord.press('ArrowRight');
   await expect(twoWords).toBeChecked();
+  await preset.selectOption('study');
+  await expect(status).toContainText('paused');
 
   await settingsTrigger.click();
   await expect(settings).toBeVisible();
-  preset = settings.getByRole('combobox', { name: 'Rhythm preset' });
-  const sentence = settings.getByRole('spinbutton', { name: 'Sentence rest in milliseconds' });
+  sentence = settings.getByRole('spinbutton', { name: 'Sentence rest in milliseconds' });
   const paragraph = settings.getByRole('spinbutton', { name: 'Paragraph rest in milliseconds' });
   charLimit = settings.getByRole('spinbutton', { name: 'Frame character limit in characters' });
   await expect(charLimit).not.toHaveAttribute('aria-disabled', 'true');
@@ -409,7 +439,6 @@ test('display and rhythm controls preserve pace, responsive grouping, and exact 
   await expect(charLimit).toHaveValue('12');
   await expect(settings.getByRole('status')).toContainText('character limit 12 characters');
   await expect(position).toContainText('425 WPM');
-  await preset.selectOption('study');
   await expect(sentence).toHaveValue('500');
   await expect(paragraph).toHaveValue('900');
   await expect(position).toContainText('425 WPM');
@@ -435,7 +464,7 @@ test('display and rhythm controls preserve pace, responsive grouping, and exact 
   await page.setViewportSize({ width: 390, height: 800 });
   await expect(stage).toHaveAttribute('data-rsvp-words', '2');
   await expect(threeWords).toBeChecked();
-  await expect(words.locator('.reader-rsvp-words-caption')).toContainText('3 becomes 2 here');
+  await expect(words).toHaveAccessibleName(/3 is limited to 2 on this narrow screen/);
   await page.setViewportSize({ width: 900, height: 800 });
   await expect(stage).toHaveAttribute('data-rsvp-words', '3');
 
@@ -510,7 +539,7 @@ test('a forty-character frame stays anchored and clips locally at 320px', async 
   await enterRsvp(reader);
   const stage = reader.getByRole('region', { name: 'Speed reading word' });
   await chooseWordsAtOnce(reader.getByRole('group', { name: /^Words at once/ }), 2);
-  await reader.getByRole('button', { name: 'frame & rhythm settings', exact: true }).click();
+  await reader.getByRole('button', { name: 'Open Speed settings', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Speed settings' });
   const charLimit = settings.getByRole('spinbutton', { name: 'Frame character limit in characters' });
   await charLimit.fill('40');
@@ -582,7 +611,7 @@ test('migrates v2 preferences and restores the full local frame and rhythm', asy
   await enterRsvp(reader);
   await expect(reader.locator('.reader-position')).toContainText('425 WPM');
   await chooseWordsAtOnce(reader.getByRole('group', { name: /^Words at once/ }), 2);
-  await reader.getByRole('button', { name: 'frame & rhythm settings', exact: true }).click();
+  await reader.getByRole('button', { name: 'Open Speed settings', exact: true }).click();
   let settings = page.getByRole('dialog', { name: 'Speed settings' });
   const sentence = settings.getByRole('spinbutton', { name: 'Sentence rest in milliseconds' });
   await sentence.fill('250');
@@ -602,7 +631,7 @@ test('migrates v2 preferences and restores the full local frame and rhythm', asy
   await expect(reader.locator('.reader-position')).toContainText('425 WPM');
   await expect(reader.getByRole('region', { name: 'Speed reading word' }))
     .toHaveAttribute('data-rsvp-words', '2');
-  await reader.getByRole('button', { name: 'frame & rhythm settings', exact: true }).click();
+  await reader.getByRole('button', { name: 'Open Speed settings', exact: true }).click();
   settings = page.getByRole('dialog', { name: 'Speed settings' });
   await expect(settings.getByRole('spinbutton', { name: 'Sentence rest in milliseconds' }))
     .toHaveValue('250');
@@ -642,15 +671,15 @@ test('document completion pauses and keeps focus inside RSVP', async ({ page }) 
 
   const status = reader.locator('.reader-rsvp-shell [role="status"]');
   const stage = reader.getByRole('region', { name: 'Speed reading word' });
-  const back = reader.getByRole('button', { name: 'back', exact: true });
+  const back = reader.getByRole('button', { name: 'Previous frame', exact: true });
   await expect(back).toBeDisabled();
-  await expect(reader.locator('.reader-position'))
+  await expect(reader.locator('.reader-rsvp-identity'))
     .toContainText('paragraph rest 700 ms (500 ms here)');
   await expect(stage).toHaveAttribute('data-rsvp-rest', 'true', { timeout: 3_000 });
   await expect(stage).not.toHaveAttribute('data-rsvp-rest', 'true', { timeout: 3_000 });
   await expect(status).toContainText('End of document', { timeout: 5_000 });
   await expect(reader.getByRole('button', { name: 'completed', exact: true })).toBeDisabled();
-  await expect(reader.getByRole('button', { name: 'return to Reader', exact: true })).toBeFocused();
+  await expect(reader.getByRole('button', { name: 'Return to Reader', exact: true })).toBeFocused();
   await expect(back).toBeEnabled();
   await back.click();
   await expect(status).toContainText('paused');

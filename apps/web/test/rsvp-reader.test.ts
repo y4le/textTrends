@@ -41,7 +41,6 @@ describe('RSVP Reader presentation', () => {
       onSeek: vi.fn(),
       onExit: vi.fn(),
       onRetry: vi.fn(),
-      onOpenHelp: vi.fn(),
       onOpenSettings: vi.fn(),
     }));
 
@@ -50,16 +49,17 @@ describe('RSVP Reader presentation', () => {
     expect(html).toContain('class="reader-rsvp-after">eed,</span>');
     expect(html).toContain('class="reader-rsvp-word" aria-hidden="true"');
     expect(html).not.toContain('role="note"');
-    expect(html).toContain('return to Reader');
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>back<\/button>/u);
+    expect(html).toContain('aria-label="Return to Reader"');
+    expect(html).toMatch(/<button[^>]*aria-label="Previous frame" disabled=""/u);
     expect(html).toContain('aria-label="Pace in words per minute"');
     expect(html).toContain('including rests');
     expect(html).toContain('min="100" max="2000" step="25"');
-    expect(html).toContain('frame &amp; rhythm settings');
+    expect(html).toContain('aria-label="Open Speed settings"');
     expect(html).toContain('Words at once (maximum)');
     expect(html).toContain('type="radio" aria-label="1 word at once"');
     expect(html).toContain('name="reader-rsvp-words-at-once" checked="" value="1"');
-    expect(html).not.toContain('<span>words at once</span><select');
+    expect(html).toContain('<span>rhythm</span><select');
+    expect(html).toContain('aria-label="Rhythm preset"');
     expect(html).not.toContain('aria-label="Sentence rest in milliseconds"');
     expect(html).not.toContain('aria-label="Frame character limit in characters"');
     expect(html).toContain('paragraph rest 700 ms (100 ms here)');
@@ -80,7 +80,6 @@ describe('RSVP Reader presentation', () => {
       onSeek: vi.fn(),
       onExit: vi.fn(),
       onRetry: vi.fn(),
-      onOpenHelp: vi.fn(),
       onOpenSettings: vi.fn(),
     }));
     expect(pausedHtml).toContain('role="note" aria-label="Paused sentence context" tabindex="0"');
@@ -103,7 +102,6 @@ describe('RSVP Reader presentation', () => {
         onSeek: vi.fn(),
         onExit: vi.fn(),
         onRetry: vi.fn(),
-        onOpenHelp: vi.fn(),
         onOpenSettings: vi.fn(),
       }),
     );

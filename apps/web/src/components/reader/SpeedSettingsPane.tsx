@@ -16,14 +16,11 @@ import {
   RSVP_MIN_FRAME_CHAR_LIMIT,
   RSVP_PARAGRAPH_PAUSE_STEP_MS,
   RSVP_REST_FLOOR_CROSSOVER_WPM,
-  RSVP_RHYTHM_PRESETS,
   RSVP_RHYTHM_RESET,
   RSVP_SENTENCE_PAUSE_STEP_MS,
   clampRsvpPacing,
   effectiveRsvpWordsPerFrame,
-  rsvpPresetSelection,
   type RsvpPacing,
-  type RsvpRhythmPreset,
 } from '@texttrends/rsvp';
 import type { RsvpState } from '../../lib/interaction.ts';
 import { usePresentation } from '../PresentationProvider.tsx';
@@ -87,7 +84,6 @@ export function SpeedSettingsPane({
     presentation.width === 'compact',
   );
   const frameLimitInert = effectiveWords === 1;
-  const preset = rsvpPresetSelection(mode);
 
   useEffect(() => {
     setDrafts((current) => ({
@@ -229,31 +225,8 @@ export function SpeedSettingsPane({
           <h3 id={RSVP_RHYTHM_GROUP_HEADING_ID}>Rhythm</h3>
           <p className="reader-rsvp-settings-note">
             Rest values are maxima taken from the current sentence&rsquo;s time.
-            {restSummary === '' ? '' : ` Current ${restSummary}.`}
+            {restSummary === '' ? '' : ` When this sheet opened: ${restSummary}.`}
           </p>
-          <label>
-            <span>rhythm preset</span>
-            <select
-              aria-label="Rhythm preset"
-              value={preset}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                if (value !== 'custom') {
-                  updatePacing(
-                    RSVP_RHYTHM_PRESETS[value as RsvpRhythmPreset],
-                    `rhythm preset ${value}`,
-                  );
-                }
-              }}
-              onKeyDown={stopControlSpace}
-            >
-              <option value="natural">Natural</option>
-              <option value="even">Even</option>
-              <option value="study">Study</option>
-              <option value="custom" disabled>Custom</option>
-            </select>
-          </label>
-
           <label>
             <span className="reader-rsvp-setting-label">
               sentence rest
@@ -354,8 +327,8 @@ export function SpeedSettingsPane({
 
         {(restSummary !== '' || highSpeedNote !== '') && (
           <section className="speed-settings-diagnostics" aria-labelledby="speed-settings-diagnostics-heading">
-            <h3 id="speed-settings-diagnostics-heading">Effective timing</h3>
-            {restSummary !== '' && <p>{restSummary}</p>}
+            <h3 id="speed-settings-diagnostics-heading">Timing notes</h3>
+            {restSummary !== '' && <p>Frame when opened: {restSummary}</p>}
             {highSpeedNote !== '' && <p>{highSpeedNote}</p>}
           </section>
         )}

@@ -741,7 +741,6 @@ export function ReaderDrawer({
       onSeek={seek}
       onExit={exit}
       onRetry={retry}
-      onOpenHelp={onOpenHelp}
       onOpenSettings={onOpenSpeedSettings}
     />
   );
