@@ -279,6 +279,9 @@ test('compact Reader is a Back/Escape layer and restores its invoking row', asyn
 });
 
 test('Matches opens the lazy reader; navigation and edited highlights stay correct', async ({ page }) => {
+  // Pin this store-ordering proof to a compact Reader geometry so a wide-rail
+  // height refit cannot add a third source request to the two-result gate.
+  await page.setViewportSize({ width: 900, height: 600 });
   await gotoPlace(page, 'matches');
   const table = page.getByRole('grid', { name: 'Matches' });
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;

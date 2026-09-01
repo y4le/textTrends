@@ -400,7 +400,10 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await page.keyboard.press('Escape');
   await expect(find).toHaveCount(0);
   await expect(reader).toBeVisible();
-  await expect(reader.getByRole('navigation', { name: 'Reader controls' })).toBeVisible();
+  await expect(reader.locator('.reader-read-layout')).toHaveAttribute(
+    'data-reader-layout',
+    /^(bar|rails)$/,
+  );
 
   await reader.press('/');
   await expect(input).toBeFocused();

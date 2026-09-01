@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
+  activateReaderCommand,
   awaitAllReady,
   awaitReadyCount,
   clearDemoInputs,
@@ -64,11 +65,14 @@ test('a visible Reader control starts paused Speed reading at the selected word'
   const reader = page.getByRole('main', { name: /Reader:/ });
   const source = reader.locator('[data-reader-page]');
   await expect(source).toBeVisible();
-  const controls = reader.getByRole('navigation', { name: 'Reader controls' });
-  await expect(controls).toBeVisible();
-  await expect(controls.locator('.reader-control-position > strong')).toHaveText('one');
-  await expect(controls).not.toContainText(/text \d+ of/);
-  const arrivalSpeed = controls.getByRole('button', {
+  const layout = reader.locator('.reader-read-layout');
+  await expect(layout).toHaveAttribute('data-reader-layout', /^(bar|rails)$/);
+  const title = await layout.getAttribute('data-reader-layout') === 'rails'
+    ? reader.locator('.reader-wide-position > strong')
+    : reader.locator('.reader-control-position > strong');
+  await expect(title).toHaveText('one');
+  await expect(layout).not.toContainText(/text \d+ of/);
+  const arrivalSpeed = reader.getByRole('button', {
     name: 'Open Speed reader paused at the reading cursor',
     exact: true,
   });
@@ -81,7 +85,7 @@ test('a visible Reader control starts paused Speed reading at the selected word'
   const selectedWord = (await cursor.textContent())?.trim() ?? '';
   expect(selectedWord.length).toBeGreaterThan(0);
 
-  const speed = controls.getByRole('button', {
+  const speed = reader.getByRole('button', {
     name: `Open Speed reader paused from “${selectedWord}”`,
     exact: true,
   });
@@ -169,9 +173,7 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
 test('the semi-hidden RSVP surface anchors words and owns its keyboard controls', async ({ page }) => {
   const reader = await openReader(page);
 
-  await reader.getByRole('button', { name: /Open Reader controls for/ }).click();
-  await page.getByRole('dialog', { name: 'Reader controls', exact: true })
-    .getByRole('button', { name: 'Open Reader help', exact: true }).click();
+  await activateReaderCommand(page, reader, 'Open Reader help');
   let shortcuts = page.getByRole('dialog', { name: 'Help' });
   await expect(shortcuts.getByRole('heading', { name: 'Speed reader' })).toBeVisible();
   await expect(shortcuts.getByText('Toggle Speed reader', { exact: true })).toBeVisible();

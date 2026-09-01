@@ -9,7 +9,12 @@
 
 import { expect, test } from '@playwright/test';
 import { BIBLE } from '../src/lib/project.ts';
-import { awaitReadyCount, gotoPlace, submitAndAwaitFreshResults } from './helpers.ts';
+import {
+  activateReaderCommand,
+  awaitReadyCount,
+  gotoPlace,
+  submitAndAwaitFreshResults,
+} from './helpers.ts';
 
 const TRACKS = ['God', 'Israel', 'Jesus', 'king', 'lord'] as const;
 
@@ -57,9 +62,7 @@ test('66-text Atlas first paint and horizontal fling stay below the long-task ga
   const firstPaintStart = await page.evaluate(() => {
     return performance.now();
   });
-  await reader.getByRole('button', { name: /Open Reader controls for/ }).click();
-  await page.getByRole('dialog', { name: 'Reader controls', exact: true })
-    .getByRole('button', { name: 'Open document Atlas', exact: true }).click();
+  await activateReaderCommand(page, reader, 'Open document Atlas');
 
   const plane = reader.locator('#reader-atlas-plane');
   const columns = reader.locator('[data-atlas-column]');

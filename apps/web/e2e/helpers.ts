@@ -4,7 +4,7 @@
  * IndexedDB from page context; nothing here touches app internals.
  */
 
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import { SHERLOCK } from '../src/lib/project.ts';
 import { PLACE_HEADING, type Place } from '../src/lib/places.ts';
@@ -31,6 +31,27 @@ export async function gotoPlace(page: Page, place: Place): Promise<void> {
     .getByRole('link', { name: PLACE_HEADING[place], exact: true });
   if ((await link.getAttribute('aria-current')) !== 'page') await link.click();
   await expect(page).toHaveURL(new RegExp(`[?&]p=${place}(?:&|#|$)`));
+}
+
+/** Activate a shared Reader command from the presentation that actually fit:
+ * directly from wide rails, or through the compact controls sheet. */
+export async function activateReaderCommand(
+  page: Page,
+  reader: Locator,
+  accessibleName: string,
+): Promise<Locator> {
+  const layout = reader.locator('.reader-read-layout');
+  await expect(layout).toHaveAttribute('data-reader-layout', /^(bar|rails)$/);
+  if (await layout.getAttribute('data-reader-layout') === 'rails') {
+    const command = reader.getByRole('button', { name: accessibleName, exact: true });
+    await command.click();
+    return command;
+  }
+  const trigger = reader.getByRole('button', { name: /Open Reader controls for/ });
+  await trigger.click();
+  await page.getByRole('dialog', { name: 'Reader controls', exact: true })
+    .getByRole('button', { name: accessibleName, exact: true }).click();
+  return trigger;
 }
 
 /** Tests that construct a bespoke corpus opt out of the ordinary additive demo

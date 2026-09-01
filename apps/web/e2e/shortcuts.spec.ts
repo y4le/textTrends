@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, gotoPlace } from './helpers.ts';
+import { activateReaderCommand, awaitAllReady, gotoPlace } from './helpers.ts';
 
 test('contextual Help follows focus and unifies guidance, actions, credits, and shortcuts', async ({ page }) => {
   await page.goto('./');
@@ -133,10 +133,7 @@ test('contextual Help follows focus and unifies guidance, actions, credits, and 
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
   await expect(reader.locator('[data-reader-page]')).toBeVisible();
-  const readerControls = reader.getByRole('button', { name: /Open Reader controls for/ });
-  await readerControls.click();
-  await page.getByRole('dialog', { name: 'Reader controls', exact: true })
-    .getByRole('button', { name: 'Open Reader help', exact: true }).click();
+  const readerHelpReturn = await activateReaderCommand(page, reader, 'Open Reader help');
   dialog = page.getByRole('dialog', { name: 'Help' });
   await expect(dialog).toBeVisible();
   expect(await dialog.evaluate((layer, readerId) => {
@@ -149,7 +146,7 @@ test('contextual Help follows focus and unifies guidance, actions, credits, and 
   await expect(dialog.getByRole('heading', { name: 'Reading footer' })).toHaveCount(0);
   await page.keyboard.press('?');
   await expect(dialog).toHaveCount(0);
-  await expect(readerControls).toBeFocused();
+  await expect(readerHelpReturn).toBeFocused();
 });
 
 test('Help and Credits remain contained at 320px', async ({ page }) => {

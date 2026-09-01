@@ -36,6 +36,8 @@ import { readerTapIntent } from '../lib/reader-tap.ts';
 import { hitsSourceToken, proseCharOffsetAtPoint } from './reader/prose-cursor.ts';
 import { ReaderControlBar } from './reader/ReaderControlBar.tsx';
 import { ReaderFindBar } from './reader/ReaderFindBar.tsx';
+import { ReaderWideRails } from './reader/ReaderWideRails.tsx';
+import { readerRailsFit } from '../lib/reader-rail-fit.ts';
 
 interface ReaderProsePointer {
   readonly id: number;
@@ -225,10 +227,16 @@ function readerSourceKey(page: ReaderPageResultV1): string {
 
 function ReaderProseDrawer({
   onOpenControls,
+  onOpenFind,
+  onOpenHelp,
+  onOpenSettings,
   onCloseFind,
   onAnnounce,
 }: {
   readonly onOpenControls: (returnFocus: HTMLElement) => void;
+  readonly onOpenFind: () => void;
+  readonly onOpenHelp: () => void;
+  readonly onOpenSettings: (returnFocus: HTMLElement) => void;
   readonly onCloseFind: () => void;
   readonly onAnnounce: (message: string) => void;
 }) {
@@ -265,6 +273,8 @@ function ReaderProseDrawer({
     return group ? groupIdentity(group) : null;
   };
   const paneRef = useRef<HTMLDivElement | null>(null);
+  const layoutRef = useRef<HTMLElement | null>(null);
+  const wideFitProbeRef = useRef<HTMLSpanElement | null>(null);
   const prosePointer = useRef<ReaderProsePointer | null>(null);
   const sourceRef = useRef<{ readonly key: string; readonly page: ReaderPageResultV1 } | null>(null);
   const visibleRef = useRef<{ readonly start: number; readonly end: number } | null>(null);
@@ -273,6 +283,7 @@ function ReaderProseDrawer({
   const publishedFit = useRef<string | null>(null);
   const refitAttempt = useRef<string | null>(null);
   const [layoutEpoch, setLayoutEpoch] = useState(0);
+  const [wideRails, setWideRails] = useState(false);
   const [reflow, setReflow] = useState<{
     readonly sourceKey: string;
     readonly token: number;
@@ -327,6 +338,38 @@ function ReaderProseDrawer({
   const fitSettled = activeFit?.settledCount !== null
     && activeFit?.settledCount !== undefined
     && activeFit.settledCount === probeCount;
+
+  useLayoutEffect(() => {
+    const layout = layoutRef.current;
+    const probe = wideFitProbeRef.current;
+    if (!layout || !probe) return undefined;
+    let frame = 0;
+    let live = true;
+    const measure = () => {
+      if (!live) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!live) return;
+        const next = readerRailsFit(
+          layout.clientWidth,
+          probe.getBoundingClientRect().width,
+        );
+        setWideRails((current) => current === next ? current : next);
+      });
+    };
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(measure);
+    observer?.observe(layout);
+    observer?.observe(probe);
+    measure();
+    void document.fonts?.ready.then(measure);
+    return () => {
+      live = false;
+      observer?.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (!ready || !current || !fitKey || !activeFit || !probeRange || !visualPage) return;
@@ -531,7 +574,12 @@ function ReaderProseDrawer({
   };
 
   return (
-    <>
+    <section
+      ref={layoutRef}
+      className="reader-read-layout"
+      data-reader-layout={wideRails ? 'rails' : 'bar'}
+    >
+      <span ref={wideFitProbeRef} className="reader-wide-fit-probe" aria-hidden="true" />
       <h2 id="reader-title" className="visually-hidden">Reader: {title}</h2>
       <p
         className="reader-position visually-hidden"
@@ -599,16 +647,25 @@ function ReaderProseDrawer({
         </div>
       </div>
 
-      {findMode ? (
-        <ReaderFindBar onClose={onCloseFind} />
-      ) : (
+      {wideRails && (
+        <ReaderWideRails
+          legend={findMode ? [] : legend}
+          showProgress={!findMode}
+          showReference={!findMode}
+          onOpenFind={onOpenFind}
+          onOpenSettings={onOpenSettings}
+          onOpenHelp={onOpenHelp}
+          onAnnounce={onAnnounce}
+        />
+      )}
+      {findMode ? <ReaderFindBar onClose={onCloseFind} /> : !wideRails && (
         <ReaderControlBar
           title={title}
           onOpenControls={onOpenControls}
           onAnnounce={onAnnounce}
         />
       )}
-    </>
+    </section>
   );
 }
 
@@ -616,12 +673,14 @@ export function ReaderDrawer({
   onOpenHelp,
   onOpenSettings,
   onOpenControls,
+  onOpenFind,
   onCloseFind,
   onAnnounce,
 }: {
   readonly onOpenHelp: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement) => void;
   readonly onOpenControls: (returnFocus: HTMLElement) => void;
+  readonly onOpenFind: () => void;
   readonly onCloseFind: () => void;
   readonly onAnnounce: (message: string) => void;
 }) {
@@ -651,6 +710,9 @@ export function ReaderDrawer({
   ) : (
     <ReaderProseDrawer
       onOpenControls={onOpenControls}
+      onOpenFind={onOpenFind}
+      onOpenHelp={onOpenHelp}
+      onOpenSettings={onOpenSettings}
       onCloseFind={onCloseFind}
       onAnnounce={onAnnounce}
     />

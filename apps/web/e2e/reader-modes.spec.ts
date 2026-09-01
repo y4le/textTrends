@@ -58,7 +58,16 @@ async function expectReaderFillsViewport(
     );
     return published === current;
   }).toBe(true);
-  await expect(reader.getByRole('navigation', { name: 'Reader controls' })).toBeVisible();
+  const layout = reader.locator('.reader-read-layout');
+  await expect(layout).toHaveAttribute('data-reader-layout', /^(bar|rails)$/);
+  if (await layout.getAttribute('data-reader-layout') === 'rails') {
+    await expect(reader.getByRole('complementary', { name: 'Reader navigation rail' }))
+      .toBeVisible();
+    await expect(reader.getByRole('complementary', { name: 'Reader position rail' }))
+      .toBeVisible();
+  } else {
+    await expect(reader.getByRole('navigation', { name: 'Reader controls' })).toBeVisible();
+  }
   await expect(pane).not.toHaveAttribute('data-reader-fitting');
   await expectNoBodyOverflow(page);
 }
@@ -121,7 +130,7 @@ test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ p
   gate.release?.();
 });
 
-test('Read gives prose the viewport with one compact bar and no analytical dock', async ({ page }) => {
+test('Read uses measured wide rails, falls back to one compact bar, and has no analytical dock', async ({ page }) => {
   const { grid, reader } = await openReader(page);
 
   await expect(reader).not.toHaveAttribute('role', 'dialog');
@@ -136,11 +145,77 @@ test('Read gives prose the viewport with one compact bar and no analytical dock'
   await expect(reader.getByRole('button', { name: 'Return to workbench', exact: true }))
     .toBeVisible();
   await expectReaderFillsViewport(page, reader, 1440, 900);
+  const layout = reader.locator('.reader-read-layout');
+  await expect(layout).toHaveAttribute('data-reader-layout', 'rails');
+  await expect(reader.getByRole('navigation', { name: 'Reader controls' })).toHaveCount(0);
+  const leftRail = reader.getByRole('complementary', { name: 'Reader navigation rail' });
+  const rightRail = reader.getByRole('complementary', { name: 'Reader position rail' });
+  const prose = reader.locator('.reader-prose-pane');
+  const [leftBox, proseBoxWide, rightBox, fit] = await Promise.all([
+    leftRail.boundingBox(),
+    prose.boundingBox(),
+    rightRail.boundingBox(),
+    layout.evaluate((element) => ({
+      available: element.clientWidth,
+      required: element.querySelector('.reader-wide-fit-probe')?.getBoundingClientRect().width ?? 0,
+    })),
+  ]);
+  if (!leftBox || !proseBoxWide || !rightBox) throw new Error('wide Reader geometry unavailable');
+  expect(leftBox.x + leftBox.width).toBeLessThanOrEqual(proseBoxWide.x + 0.5);
+  expect(proseBoxWide.x + proseBoxWide.width).toBeLessThanOrEqual(rightBox.x + 0.5);
+  expect(fit.available + 0.5).toBeGreaterThanOrEqual(fit.required);
+  await expect(reader.getByRole('progressbar')).toHaveAttribute('data-orientation', 'vertical');
+  for (const name of [
+    'Open document Atlas',
+    'Open Speed reader paused at the reading cursor',
+    'Previous page',
+    'Next page',
+    'Start of text',
+    'End of text',
+    'Previous exact reference from any term',
+    'Next exact reference from any term',
+    'Find in corpus',
+    'Open Reader settings',
+    'Open Reader help',
+  ]) {
+    await expect(reader.getByRole('button', { name, exact: true })).toBeVisible();
+  }
+  for (const button of await leftRail.getByRole('button').all()) {
+    expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  }
   await expect(reader.getByRole('progressbar')).toHaveCount(1);
   await expect(reader.getByRole('progressbar')).not.toHaveAttribute('aria-live');
 
+  const railsMeasure = (await reader.locator('.source-text').boundingBox())?.width;
+  await page.setViewportSize({ width: 1_000, height: 900 });
+  await expect(layout).toHaveAttribute('data-reader-layout', 'bar');
+  await expect(reader.locator('.reader-prose-pane')).not.toHaveAttribute('data-reader-fitting');
+  const barMeasure = (await reader.locator('.source-text').boundingBox())?.width;
+  expect(railsMeasure).toBeDefined();
+  expect(barMeasure).toBeCloseTo(railsMeasure!, 0);
+  await expectNoBodyOverflow(page);
+  await page.setViewportSize({ width: 1_440, height: 900 });
+  await expectReaderFillsViewport(page, reader, 1440, 900);
+  await expect(layout).toHaveAttribute('data-reader-layout', 'rails');
+
+  await page.locator('html').evaluate((element) => { element.style.fontSize = '200%'; });
+  await expect(layout).toHaveAttribute('data-reader-layout', 'bar');
+  const zoomedFit = await layout.evaluate((element) => ({
+    available: element.clientWidth,
+    required: element.querySelector('.reader-wide-fit-probe')?.getBoundingClientRect().width ?? 0,
+  }));
+  expect(zoomedFit.available + 0.5).toBeLessThan(zoomedFit.required);
+  await expect(reader.getByRole('navigation', { name: 'Reader controls' })).toBeVisible();
+  await expectNoBodyOverflow(page);
+  await page.locator('html').evaluate((element) => { element.style.fontSize = ''; });
+  await expectReaderFillsViewport(page, reader, 1440, 900);
+  await expect(layout).toHaveAttribute('data-reader-layout', 'rails');
+
   await page.setViewportSize({ width: 390, height: 844 });
   await expectReaderFillsViewport(page, reader, 390, 844);
+  await expect(layout).toHaveAttribute('data-reader-layout', 'bar');
+  await expect(leftRail).toHaveCount(0);
+  await expect(rightRail).toHaveCount(0);
   const barBox = await reader.getByRole('navigation', { name: 'Reader controls' }).boundingBox();
   const proseBox = await reader.locator('.reader-prose-pane').boundingBox();
   expect(barBox).not.toBeNull();
@@ -191,6 +266,39 @@ test('Reader controls overlay fitted prose and return focus without issuing anal
   expect(await pane.boundingBox()).toEqual(paneBox);
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
   expect(workerQueriesAfter((await trace(page)).events, mark)).toEqual([]);
+});
+
+test('wide Reader Find overlays the fitted page without replacing its measured rails', async ({ page }) => {
+  const { reader } = await openReader(page);
+  const layout = reader.locator('.reader-read-layout');
+  const pane = reader.locator('.reader-prose-pane');
+  await expect(layout).toHaveAttribute('data-reader-layout', 'rails');
+  await expect(pane).not.toHaveAttribute('data-reader-fitting');
+  const paneBox = await pane.boundingBox();
+  const pageRange = await reader.locator('[data-reader-page]').getAttribute('data-reader-page');
+  const trigger = reader.getByRole('button', { name: 'Find in corpus', exact: true });
+
+  await trigger.click();
+  const find = reader.getByRole('search', { name: 'Find in corpus' });
+  await expect(find.getByRole('searchbox', { name: 'Find term or aliases' })).toBeFocused();
+  await expect(layout).toHaveAttribute('data-reader-layout', 'rails');
+  await expect(reader.getByRole('complementary', { name: 'Reader navigation rail' })).toBeVisible();
+  await expect(reader.getByRole('complementary', { name: 'Reader position rail' })).toBeVisible();
+  await expect(reader.getByRole('progressbar')).toHaveCount(1);
+  await expect(reader.getByRole('progressbar')).toHaveAttribute('data-orientation', 'horizontal');
+  expect(await pane.boundingBox()).toEqual(paneBox);
+  await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
+  const [findBox, layoutBox] = await Promise.all([find.boundingBox(), layout.boundingBox()]);
+  if (!findBox || !layoutBox) throw new Error('wide Find geometry unavailable');
+  expect(findBox.x).toBeGreaterThanOrEqual(layoutBox.x);
+  expect(findBox.x + findBox.width).toBeLessThanOrEqual(layoutBox.x + layoutBox.width + 0.5);
+
+  await find.getByRole('button', { name: 'Clear and close find' }).click();
+  await expect(find).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(reader.getByRole('progressbar')).toHaveAttribute('data-orientation', 'vertical');
+  expect(await pane.boundingBox()).toEqual(paneBox);
+  await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
 });
 
 test('Atlas compares complete text extents without analysis queries or page overflow', async ({ page }) => {
@@ -367,7 +475,7 @@ test('Atlas compares complete text extents without analysis queries or page over
 
 test('Reader page turns roll over between adjacent texts', async ({ page }) => {
   const { reader } = await openReader(page);
-  const titleControl = reader.locator('.reader-control-position > strong');
+  const titleControl = reader.locator('.reader-wide-position > strong');
   const title = await titleControl.textContent();
   const initialIndex = SHERLOCK.findIndex((entry) => title?.includes(entry.title));
   expect(initialIndex).toBeGreaterThanOrEqual(0);
@@ -381,13 +489,13 @@ test('Reader page turns roll over between adjacent texts', async ({ page }) => {
   await expect.poll(() => reader.locator('[data-reader-page]').getAttribute('data-reader-page'))
     .not.toBe(initialRange);
   await settledReaderRange(reader);
-  const next = reader.locator('.reader-control-page-next');
+  const next = reader.getByRole('button', { name: 'Next page', exact: true });
   await expect(next).toBeEnabled();
   await next.click();
   await expect(titleControl).toContainText(nextTitle);
   expect((await settledReaderRange(reader))[0]).toBe(0);
 
-  const previous = reader.locator('.reader-control-page-previous');
+  const previous = reader.getByRole('button', { name: 'Previous page', exact: true });
   await expect(previous).toBeEnabled();
   await previous.click();
   await expect(titleControl).toContainText(initialTitle);
@@ -684,24 +792,4 @@ test('prose taps select a reading cursor while blank gutters retain page turns',
   await page.waitForTimeout(100);
   expect(await settledReaderRange(reader)).toEqual(initial);
 
-  // A wide viewport has real blank gutters; their existing page-turn gesture remains.
-  await expectReaderFillsViewport(page, reader, 1440, 900);
-  const wideInitial = await settledReaderRange(reader);
-  const wideBox = await pane.boundingBox();
-  expect(wideBox).not.toBeNull();
-  const wideRight = {
-    x: wideBox!.x + wideBox!.width - 4,
-    y: wideBox!.y + wideBox!.height / 2,
-  };
-  await dispatchReaderPointer(pane, 'touch', wideRight);
-  await expect(reader.locator('[data-reader-page]'))
-    .toHaveAttribute('data-reader-page', new RegExp(`^${wideInitial[1]}:`));
-  const next = await settledReaderRange(reader);
-  expect(next[0]).toBe(wideInitial[1]);
-
-  const wideLeft = { x: wideBox!.x + 4, y: wideRight.y };
-  await dispatchReaderPointer(pane, 'touch', wideLeft);
-  await expect(reader.locator('[data-reader-page]'))
-    .toHaveAttribute('data-reader-page', new RegExp(`^${wideInitial[0]}:`));
-  expect(await settledReaderRange(reader)).toEqual(wideInitial);
 });

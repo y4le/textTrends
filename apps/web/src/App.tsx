@@ -909,6 +909,7 @@ export function App() {
           <ReaderDrawer
             onAnnounce={setReaderKeyboardStatus}
             onCloseFind={closeFind}
+            onOpenFind={() => openFind()}
             onOpenControls={openReaderControls}
             onOpenSettings={(returnFocus) => openSettings('reader', returnFocus)}
             onOpenHelp={() => openHelp(
