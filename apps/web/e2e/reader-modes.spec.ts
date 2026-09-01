@@ -423,17 +423,107 @@ test('Reader stays viewport-bound and locks outer scrolling at iPad and phone wi
   expect(workerQueriesAfter((await trace(page)).events, mark)).toEqual([]);
 });
 
-test('touch edge taps turn fitted pages without stealing text interaction', async ({ page }) => {
+test('prose taps select a reading cursor while blank gutters retain page turns', async ({ page }) => {
   const { reader } = await openReader(page);
   await expectReaderFillsViewport(page, reader, 390, 844);
   const pane = reader.locator('.reader-prose-pane');
+  const source = reader.locator('[data-reader-page]');
   const box = await reader.boundingBox();
   expect(box).not.toBeNull();
   const y = box!.y + box!.height / 2;
-  const left = { x: box!.x + 4, y };
   const center = { x: box!.x + box!.width / 2, y };
   const right = { x: box!.x + box!.width - 4, y };
   const initial = await settledReaderRange(reader);
+  const before = await trace(page);
+  const queryMark = before.events.at(-1)?.seq ?? 0;
+
+  const selectable = source.locator('[data-reader-offset]:not([data-reader-mark])')
+    .filter({ hasText: /\S/ }).first();
+  const selectableBox = await selectable.boundingBox();
+  expect(selectableBox).not.toBeNull();
+  const wordPoint = {
+    x: selectableBox!.x + selectableBox!.width / 2,
+    y: selectableBox!.y + selectableBox!.height / 2,
+  };
+  await dispatchReaderPointer(selectable, 'touch', wordPoint);
+  await expect(source.locator('[data-reader-cursor="true"]')).toBeVisible();
+  expect(await settledReaderRange(reader)).toEqual(initial);
+  expect(workerQueriesAfter((await trace(page)).events, queryMark)).toEqual([]);
+  expect(await source.locator('[data-reader-offset]').evaluateAll((spans) => spans.every(
+    (span) => span.childNodes.length === 1 && span.firstChild?.nodeType === Node.TEXT_NODE,
+  ))).toBe(true);
+  const caretFallbacks = await source.evaluate((root) => {
+    const span = root.querySelector<HTMLElement>('[data-reader-offset]');
+    const text = span?.firstChild;
+    if (!span || !text) throw new Error('reader offset span is unavailable');
+    const rect = span.getBoundingClientRect();
+    const init = {
+      bubbles: true,
+      pointerType: 'mouse',
+      pointerId: 91,
+      isPrimary: true,
+      button: 0,
+      clientX: rect.left + 1,
+      clientY: rect.top + rect.height / 2,
+    };
+    const ownPosition = Object.getOwnPropertyDescriptor(document, 'caretPositionFromPoint');
+    const ownRange = Object.getOwnPropertyDescriptor(document, 'caretRangeFromPoint');
+    const ownElement = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+    const restore = (name: string, descriptor: PropertyDescriptor | undefined) => {
+      if (descriptor) Object.defineProperty(document, name, descriptor);
+      else delete (document as unknown as Record<string, unknown>)[name];
+    };
+    const fire = () => {
+      span.dispatchEvent(new PointerEvent('pointerdown', init));
+      span.dispatchEvent(new PointerEvent('pointerup', init));
+    };
+    let legacy = 0;
+    let elementNode = 0;
+    let fallback = 0;
+    try {
+      const range = document.createRange();
+      range.setStart(text, Math.min(1, text.textContent?.length ?? 0));
+      range.collapse(true);
+      Object.defineProperty(document, 'caretPositionFromPoint', {
+        configurable: true,
+        value: () => null,
+      });
+      Object.defineProperty(document, 'caretRangeFromPoint', {
+        configurable: true,
+        value: () => { legacy += 1; return range; },
+      });
+      fire();
+
+      Object.defineProperty(document, 'caretPositionFromPoint', {
+        configurable: true,
+        value: () => {
+          elementNode += 1;
+          return { offsetNode: span, offset: 1, getClientRect: () => rect };
+        },
+      });
+      fire();
+
+      Object.defineProperty(document, 'caretPositionFromPoint', {
+        configurable: true,
+        value: () => null,
+      });
+      Object.defineProperty(document, 'caretRangeFromPoint', {
+        configurable: true,
+        value: () => null,
+      });
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: () => { fallback += 1; return span; },
+      });
+      fire();
+    } finally {
+      restore('caretPositionFromPoint', ownPosition);
+      restore('caretRangeFromPoint', ownRange);
+      restore('elementFromPoint', ownElement);
+    }
+    return { legacy, elementNode, fallback };
+  });
+  expect(caretFallbacks).toEqual({ legacy: 1, elementNode: 1, fallback: 1 });
 
   await dispatchReaderPointer(reader, 'touch', center);
   await dispatchReaderPointer(reader, 'mouse', right);
@@ -475,14 +565,36 @@ test('touch edge taps turn fitted pages without stealing text interaction', asyn
   await page.waitForTimeout(100);
   expect(await settledReaderRange(reader)).toEqual(initial);
 
+  // Even the compact 8px blank gutter remains a page-turn target.
   await dispatchReaderPointer(reader, 'touch', right);
   await expect(reader.locator('[data-reader-page]'))
     .toHaveAttribute('data-reader-page', new RegExp(`^${initial[1]}:`));
-  const next = await settledReaderRange(reader);
-  expect(next[0]).toBe(initial[1]);
-
-  await dispatchReaderPointer(reader, 'touch', left);
+  const compactNext = await settledReaderRange(reader);
+  expect(compactNext[0]).toBe(initial[1]);
+  const compactLeft = { x: box!.x + 4, y };
+  await dispatchReaderPointer(reader, 'touch', compactLeft);
   await expect(reader.locator('[data-reader-page]'))
     .toHaveAttribute('data-reader-page', new RegExp(`^${initial[0]}:`));
   expect(await settledReaderRange(reader)).toEqual(initial);
+
+  // A wide viewport has real blank gutters; their existing page-turn gesture remains.
+  await expectReaderFillsViewport(page, reader, 1440, 900);
+  const wideInitial = await settledReaderRange(reader);
+  const wideBox = await reader.boundingBox();
+  expect(wideBox).not.toBeNull();
+  const wideRight = {
+    x: wideBox!.x + wideBox!.width - 4,
+    y: wideBox!.y + wideBox!.height / 2,
+  };
+  await dispatchReaderPointer(reader, 'touch', wideRight);
+  await expect(reader.locator('[data-reader-page]'))
+    .toHaveAttribute('data-reader-page', new RegExp(`^${wideInitial[1]}:`));
+  const next = await settledReaderRange(reader);
+  expect(next[0]).toBe(wideInitial[1]);
+
+  const wideLeft = { x: wideBox!.x + 4, y: wideRight.y };
+  await dispatchReaderPointer(reader, 'touch', wideLeft);
+  await expect(reader.locator('[data-reader-page]'))
+    .toHaveAttribute('data-reader-page', new RegExp(`^${wideInitial[0]}:`));
+  expect(await settledReaderRange(reader)).toEqual(wideInitial);
 });

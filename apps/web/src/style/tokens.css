@@ -906,6 +906,37 @@ canvas {
   margin-inline: auto;
 }
 
+.reader-prose-pane [data-reader-cursor='true'] {
+  text-decoration-line: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+.reader-prose-pane [data-reader-cursor-start='true'] {
+  position: relative;
+}
+
+.reader-prose-pane [data-reader-cursor-start='true']::before {
+  position: absolute;
+  inset-block: 0.12em;
+  inset-inline-start: 0;
+  border-inline-start: 2px solid var(--accent);
+  content: '';
+  pointer-events: none;
+  transform: translateX(-2px);
+}
+
+@media (forced-colors: active) {
+  .reader-prose-pane [data-reader-cursor='true'] {
+    text-decoration-color: Highlight;
+  }
+
+  .reader-prose-pane [data-reader-cursor-start='true']::before {
+    border-color: Highlight;
+  }
+}
+
 .reader-atlas-plane {
   grid-area: reader-prose;
   min-block-size: 0;

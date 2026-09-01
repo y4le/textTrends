@@ -5497,6 +5497,82 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       .toEqual({ doc: 'a', cursor: { kind: 'before', token: 20 } });
   });
 
+  it('publishes a prose-picked cursor without querying and preserves it only while visible', async () => {
+    const f = setup();
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 40, from: 'barcode', anchor: 'occurrence',
+    });
+    f.readers().at(-1)!.resolve(fakeReaderPage(0, 200, 500));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 20, end: 60 }, geometry: '800x600',
+    });
+    const issued = f.issued.length;
+
+    f.store.getState().setReadingCursor(48);
+    expect(f.store.getState()).toMatchObject({
+      scrub: { doc: 'a', token: 48 },
+      readerCursorToken: 48,
+      readerVisibleRange: { tokens: { start: 20, end: 60 } },
+    });
+    expect(f.issued).toHaveLength(issued);
+
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 20, end: 52 }, geometry: '390x700',
+    });
+    expect(f.store.getState()).toMatchObject({
+      scrub: { doc: 'a', token: 48 },
+      readerCursorToken: 48,
+    });
+
+    f.store.getState().setReadingCursor(60);
+    expect(f.store.getState().readerCursorToken).toBe(48);
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 60, end: 100 }, geometry: '390x700',
+    });
+    expect(f.store.getState()).toMatchObject({
+      scrub: { doc: 'a', token: 60 },
+      readerCursorToken: null,
+    });
+    expect(f.issued).toHaveLength(issued);
+    f.runtime.dispose();
+  });
+
+  it('preserves a prose-picked cursor through a query-free Atlas round trip', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 40, from: 'barcode', anchor: 'occurrence',
+    });
+    f.readers().at(-1)!.resolve(fakeReaderPage(0, 200, 500));
+    await flush();
+    const visible = {
+      snapshot: 's1', doc: 'a', tokens: { start: 20, end: 60 }, geometry: '800x600',
+    } as const;
+    f.store.getState().setReaderVisibleRange(visible);
+    f.store.getState().setReadingCursor(48);
+    const history = f.store.getState().positionHistory;
+    const issued = f.issued.length;
+
+    f.store.getState().setReaderScale('atlas');
+    expect(f.store.getState()).toMatchObject({
+      readerScale: 'atlas',
+      scrub: { doc: 'a', token: 48 },
+      readerCursorToken: 48,
+    });
+    f.store.getState().setReaderScale('read');
+    f.store.getState().setReaderVisibleRange(visible);
+    expect(f.store.getState()).toMatchObject({
+      readerScale: 'read',
+      scrub: { doc: 'a', token: 48 },
+      readerCursorToken: 48,
+      positionHistory: history,
+    });
+    expect(f.issued).toHaveLength(issued);
+    f.runtime.dispose();
+  });
+
   it('rolls fitted page navigation across nonempty texts in declared corpus order', async () => {
     const project: ProjectView = {
       ...BUILTIN_PROJECT,

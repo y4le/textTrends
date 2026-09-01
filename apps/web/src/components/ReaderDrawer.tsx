@@ -9,6 +9,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { findScope } from '../lib/interaction.ts';
@@ -32,24 +33,48 @@ import { ReaderRuler } from './reader/ReaderRuler.tsx';
 import { ReaderAtlas } from './reader/ReaderAtlas.tsx';
 import { ReaderScaleControl } from './reader/ReaderScaleControl.tsx';
 import { guideAnchorProps } from '../lib/guide/anchors.ts';
+import { readerCursorChars, readerTokenAtChar } from '../lib/reader-cursor.ts';
+import { proseCharOffsetAtPoint } from './reader/prose-cursor.ts';
+
+interface ProseCursorPointer {
+  readonly id: number;
+  readonly x: number;
+  readonly y: number;
+  readonly time: number;
+  readonly target: EventTarget | null;
+  readonly selectionOpen: boolean;
+}
+
+function isReaderMarkTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('[data-reader-mark]') !== null;
+}
 
 function ReaderProse({
   page,
   snapshot,
   legend,
+  onAnnounce,
 }: {
   page: ReaderPageResultV1;
   snapshot: string;
   legend: readonly TrackLegendEntry[];
+  onAnnounce: (message: string) => void;
 }) {
   const selection = useApp((state) => state.linkedSelection);
+  const scrub = useApp((state) => state.scrub);
+  const setReadingCursor = useApp((state) => state.setReadingCursor);
   const centerKwicAt = useApp((state) => state.centerKwicAt);
+  const pointer = useRef<ProseCursorPointer | null>(null);
   const selected = readerSelectionChars(page, selection, snapshot);
+  const cursor = readerCursorChars(
+    page,
+    scrub?.doc === page.doc ? scrub.token : page.anchor?.token ?? null,
+  );
   const styleOf = new Map(legend.map((entry) => [entry.seriesId, entry.style]));
   const labelOf = new Map(legend.map((entry) => [entry.seriesId, entry.label]));
   const boundaries = [
     ...(selected ? [selected.start, selected.end] : []),
-    ...(page.anchor ? [page.anchor.charsUtf16.start, page.anchor.charsUtf16.end] : []),
+    ...(cursor ? [cursor.start, cursor.end] : []),
   ];
   const segments = segmentMarks(
     page.text.length,
@@ -73,6 +98,43 @@ function ReaderProse({
       className="source-text"
       data-reader-page={`${page.tokens.start}:${page.tokens.end}`}
       data-reader-anchor={page.anchor?.token}
+      onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
+        pointer.current = null;
+        if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+        pointer.current = {
+          id: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          time: event.timeStamp,
+          target: event.target,
+          selectionOpen: window.getSelection()?.isCollapsed === false,
+        };
+      }}
+      onPointerUp={(event: ReactPointerEvent<HTMLDivElement>) => {
+        const down = pointer.current;
+        pointer.current = null;
+        if (
+          down === null
+          || down.id !== event.pointerId
+          || !event.isPrimary
+          || event.timeStamp - down.time > 500
+          || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 8
+          || isReaderMarkTarget(down.target)
+          || isReaderMarkTarget(event.target)
+          || down.selectionOpen
+          || window.getSelection()?.isCollapsed === false
+        ) return;
+        const char = proseCharOffsetAtPoint(event.currentTarget, event.clientX, event.clientY);
+        const token = char === null ? null : readerTokenAtChar(page, char);
+        if (token === null) return;
+        setReadingCursor(token);
+        const chars = readerCursorChars(page, token);
+        const word = chars === null ? '' : page.text.slice(chars.start, chars.end);
+        onAnnounce(
+          `Reading position: ${word === '' ? '' : `“${word}”, `}token ${(token + 1).toLocaleString()}`,
+        );
+      }}
+      onPointerCancel={() => { pointer.current = null; }}
       style={{
         fontFamily: 'var(--font-serif)',
         fontSize: '1.05rem',
@@ -87,10 +149,9 @@ function ReaderProse({
           selected !== null
           && segment.start >= selected.start
           && segment.end <= selected.end;
-        const inAnchor =
-          page.anchor !== null
-          && segment.start >= page.anchor.charsUtf16.start
-          && segment.end <= page.anchor.charsUtf16.end;
+        const inCursor = cursor !== null
+          && segment.start >= cursor.start
+          && segment.end <= cursor.end;
         const color = mark
           ? seriesColor(styleOf.get(mark.seriesId) ?? DEFAULT_SERIES_STYLE)
           : undefined;
@@ -99,14 +160,14 @@ function ReaderProse({
           return (
             <span
               key={index}
+              data-reader-offset={segment.start}
+              data-reader-cursor={inCursor || undefined}
+              data-reader-cursor-start={inCursor && segment.start === cursor?.start || undefined}
               data-reader-selection={inSelection || undefined}
               style={{
-                background: inAnchor
-                  ? 'color-mix(in srgb, var(--accent) 30%, transparent)'
-                  : inSelection
-                    ? 'color-mix(in srgb, var(--accent) 16%, transparent)'
-                    : undefined,
-                textDecorationLine: inAnchor ? 'underline' : undefined,
+                background: inSelection
+                  ? 'color-mix(in srgb, var(--accent) 16%, transparent)'
+                  : undefined,
               }}
             >
               {text}
@@ -126,14 +187,18 @@ function ReaderProse({
               clippedStart ? 'continues from previous page' : '',
               clippedEnd ? 'continues on next page' : '',
             ].filter(Boolean).join(' · ')}
-            onClick={() => centerKwicAt(mark.seriesId, page.doc, mark.tokens.start, {
-              kind: 'occurrence',
-              groupId: mark.groupId,
-              members: mark.members,
-            })}
+            onClick={() => {
+              setReadingCursor(mark.tokens.start);
+              centerKwicAt(mark.seriesId, page.doc, mark.tokens.start, {
+                kind: 'occurrence',
+                groupId: mark.groupId,
+                members: mark.members,
+              });
+            }}
             onKeyDown={(event) => {
               if (event.key !== 'Enter' && event.key !== ' ') return;
               event.preventDefault();
+              setReadingCursor(mark.tokens.start);
               centerKwicAt(mark.seriesId, page.doc, mark.tokens.start, {
                 kind: 'occurrence',
                 groupId: mark.groupId,
@@ -141,18 +206,18 @@ function ReaderProse({
               });
             }}
             data-reader-mark={mark.seriesId}
+            data-reader-offset={segment.start}
+            data-reader-cursor={inCursor || undefined}
+            data-reader-cursor-start={inCursor && segment.start === cursor?.start || undefined}
             data-reader-selection={inSelection || undefined}
             style={{
-              background: inAnchor
-                ? 'color-mix(in srgb, var(--accent) 30%, transparent)'
-                : inSelection
-                  ? `color-mix(in srgb, ${color} 30%, var(--accent) 16%)`
-                  : `color-mix(in srgb, ${color} 20%, transparent)`,
+              background: inSelection
+                ? `color-mix(in srgb, ${color} 30%, var(--accent) 16%)`
+                : `color-mix(in srgb, ${color} 20%, transparent)`,
               borderBottom: `2px solid ${color}`,
               borderLeft: clippedStart ? `2px dashed ${color}` : undefined,
               borderRight: clippedEnd ? `2px dashed ${color}` : undefined,
               cursor: 'pointer',
-              textDecorationLine: inAnchor ? 'underline' : undefined,
             }}
           >
             {text}
@@ -180,9 +245,11 @@ function readerSourceKey(page: ReaderPageResultV1): string {
 function ReaderProseDrawer({
   onOpenHelp,
   onOpenSettings,
+  onAnnounce,
 }: {
   readonly onOpenHelp: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement) => void;
+  readonly onAnnounce: (message: string) => void;
 }) {
   const place = useApp((state) => state.readerPlace);
   const result = useApp((state) => state.readerPage);
@@ -511,7 +578,12 @@ function ReaderProseDrawer({
               <button type="button" onClick={retryReader} style={SMALL_BUTTON_STYLE}>retry</button>
             </p>
           ) : visualPage ? (
-            <ReaderProse page={visualPage} snapshot={current.snapshot} legend={legend} />
+            <ReaderProse
+              page={visualPage}
+              snapshot={current.snapshot}
+              legend={legend}
+              onAnnounce={onAnnounce}
+            />
           ) : (
             <div aria-label="Fitting reader page" style={{ minHeight: '12em' }} />
           )}
@@ -602,7 +674,11 @@ export function ReaderDrawer({
       onAnnounce={onAnnounce}
     />
   ) : (
-    <ReaderProseDrawer onOpenHelp={onOpenHelp} onOpenSettings={onOpenSettings} />
+    <ReaderProseDrawer
+      onOpenHelp={onOpenHelp}
+      onOpenSettings={onOpenSettings}
+      onAnnounce={onAnnounce}
+    />
   );
 
   const current = result && sameReaderPlace(result.place, place) ? result : null;

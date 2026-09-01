@@ -777,6 +777,7 @@ export function App() {
   };
   const onReaderPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     readerEdgePointer.current = null;
+    if (useApp.getState().interaction.kind === 'rsvp') return;
     if (event.pointerType !== 'touch' || !event.isPrimary) return;
     const geometry = settledReaderGeometry(event.currentTarget, readerVisibleRange);
     if (geometry === null) return;
@@ -800,6 +801,8 @@ export function App() {
       || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 8
       || isInteractiveReaderTarget(down.target)
       || isInteractiveReaderTarget(event.target)
+      || (down.target instanceof Element && down.target.closest('.source-text') !== null)
+      || (event.target instanceof Element && event.target.closest('.source-text') !== null)
       || window.getSelection()?.isCollapsed === false
       || down.geometry !== settledReaderGeometry(event.currentTarget, readerVisibleRange)
     ) return;

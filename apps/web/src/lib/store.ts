@@ -114,6 +114,10 @@ import {
   type ReaderScale,
 } from './reader-view.ts';
 import {
+  preservedReadingCursor,
+  publishedReadingToken,
+} from './reader-cursor.ts';
+import {
   clampPositionHistoryExtents,
   EMPTY_POSITION_HISTORY,
   POSITION_HISTORY_SETTLE_MS,
@@ -938,6 +942,10 @@ export interface AppState {
   atlasNormalization: AtlasNormalization;
   readerPage: ReaderPageState | null;
   readerVisibleRange: ReaderVisibleRangeV1 | null;
+  /** Page-local presentation state that distinguishes a deliberate prose pick
+   * from Reader's automatically published page start. `scrub` remains the one
+   * canonical reading position. */
+  readerCursorToken: number | null;
   /** Navigation derived from browser-fitted boundaries, never from the larger
    * worker source slice. A remembered previous boundary is re-requested from
    * its exact start so immediate backtracking reproduces the page. At a text
@@ -1043,6 +1051,7 @@ export interface AppState {
   setReaderScale(scale: ReaderScale): void;
   setAtlasNormalization(normalization: AtlasNormalization): void;
   setReaderVisibleRange(range: ReaderVisibleRangeV1): void;
+  setReadingCursor(token: number): void;
   refitReaderAt(token: number): void;
   navigateReader(target: ReaderNavigationTarget | ReaderPlace['cursor']): void;
   retryReader(): void;
@@ -1688,6 +1697,7 @@ export function createAppRuntime(
         readerPlace,
         readerPage: readerChanged ? null : state.readerPage,
         readerVisibleRange: readerChanged ? null : state.readerVisibleRange,
+        readerCursorToken: readerChanged ? null : state.readerCursorToken,
         readerNavigation:
           readerChanged && !options.preserveReaderNavigation
             ? null
@@ -3230,6 +3240,7 @@ export function createAppRuntime(
       atlasNormalization: opts?.atlasNormalization ?? DEFAULT_ATLAS_NORMALIZATION,
       readerPage: null,
       readerVisibleRange: null,
+      readerCursorToken: null,
       readerNavigation: null,
 
       quickAdd(input) {
@@ -4458,6 +4469,8 @@ export function createAppRuntime(
             readerPage: state.readerPage?.state.status === 'ready' ? state.readerPage : null,
             readerVisibleRange:
               state.readerPage?.state.status === 'ready' ? state.readerVisibleRange : null,
+            readerCursorToken:
+              state.readerPage?.state.status === 'ready' ? state.readerCursorToken : null,
             readerNavigation:
               state.readerPage?.state.status === 'ready' ? state.readerNavigation : null,
           });
@@ -4546,11 +4559,15 @@ export function createAppRuntime(
         const previousStart = readerWalk.index > 0
           ? readerWalk.boundaries[readerWalk.index - 1]
           : null;
-        const selectionToken = place.cursor.kind === 'around'
-          && place.cursor.token >= range.tokens.start
-          && place.cursor.token < range.tokens.end
-          ? place.cursor.token
-          : range.tokens.start;
+        const preservedCursor = preservedReadingCursor(
+          state.readerCursorToken,
+          range.tokens,
+        );
+        const selectionToken = publishedReadingToken(
+          preservedCursor,
+          place.cursor,
+          range.tokens,
+        );
         const selectionChanged = state.scrub?.doc !== source.doc
           || state.scrub.token !== selectionToken;
         if (selectionChanged) occurrenceLane.supersede();
@@ -4562,6 +4579,7 @@ export function createAppRuntime(
         }
         set({
           readerVisibleRange: range,
+          readerCursorToken: preservedCursor,
           readerNavigation: {
             previous: previousStart !== null && previousStart !== undefined
               ? { doc: source.doc, cursor: { kind: 'from', token: previousStart } }
@@ -4575,6 +4593,43 @@ export function createAppRuntime(
           ...(selectionChanged
             ? {
                 scrub: { doc: source.doc, token: selectionToken },
+                occurrenceNavigation: null,
+                matchesReveal: null,
+              }
+            : {}),
+        });
+      },
+
+      setReadingCursor(token) {
+        const state = get();
+        const place = state.readerPlace;
+        const page = state.readerPage;
+        const visible = state.readerVisibleRange;
+        if (
+          state.interaction.kind === 'rsvp'
+          || state.readerScale !== 'read'
+          || place === null
+          || page === null
+          || page.state.status !== 'ready'
+          || visible === null
+          || page.snapshot !== visible.snapshot
+          || page.snapshot !== place.snapshot
+          || page.state.page.doc !== place.doc
+          || visible.doc !== place.doc
+          || !Number.isSafeInteger(token)
+          || token < visible.tokens.start
+          || token >= visible.tokens.end
+        ) return;
+        const changed = state.scrub?.doc !== place.doc || state.scrub.token !== token;
+        if (changed) {
+          occurrenceLane.supersede();
+          schedulePositionSettle({ doc: place.doc, token }, 'reader');
+        }
+        set({
+          readerCursorToken: token,
+          ...(changed
+            ? {
+                scrub: { doc: place.doc, token },
                 occurrenceNavigation: null,
                 matchesReveal: null,
               }
@@ -4658,13 +4713,23 @@ export function createAppRuntime(
           || place.snapshot !== snapshot.snapshot
           || !snapshot.readyDocs.includes(place.doc)
         ) {
-          set({ readerPage: null, readerVisibleRange: null, readerNavigation: null });
+          set({
+            readerPage: null,
+            readerVisibleRange: null,
+            readerCursorToken: null,
+            readerNavigation: null,
+          });
           return;
         }
         if (readerScale === 'atlas') return;
         const tracks = effectiveTrackSpecs(series);
         if (tracks === null) {
-          set({ readerPage: null, readerVisibleRange: null, readerNavigation: null });
+          set({
+            readerPage: null,
+            readerVisibleRange: null,
+            readerCursorToken: null,
+            readerNavigation: null,
+          });
           return;
         }
         const issuedKey = snapKey(snapshot);
@@ -4682,6 +4747,7 @@ export function createAppRuntime(
             state: { status: 'pending' },
           },
           readerVisibleRange: null,
+          readerCursorToken: null,
         });
         issueOn(
           readerLane,
@@ -6360,6 +6426,7 @@ export function createAppRuntime(
           readerPlace: null,
           readerPage: null,
           readerVisibleRange: null,
+          readerCursorToken: null,
           readerNavigation: null,
         });
       }
@@ -6489,6 +6556,7 @@ export function createAppRuntime(
           readerPlace: null,
           readerPage: null,
           readerVisibleRange: null,
+          readerCursorToken: null,
           readerNavigation: null,
         });
       }
