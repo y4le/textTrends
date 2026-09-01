@@ -13,6 +13,7 @@ import {
   COMPACT_QUERY,
   DARK_SCHEME_QUERY,
   REDUCED_MOTION_QUERY,
+  SHORT_VIEWPORT_QUERY,
   WIDE_QUERY,
   type Presentation,
 } from '../lib/presentation.ts';
@@ -26,6 +27,7 @@ import type { DisplayPreference } from '../lib/display-preference.ts';
 
 const DEFAULT_PRESENTATION: Presentation = {
   width: 'wide',
+  shortViewport: false,
   coarseAvailable: false,
   reducedMotion: false,
   colorScheme: 'dark',
@@ -64,6 +66,7 @@ function useMediaQuery(query: string, serverFallback: boolean): boolean {
 export function PresentationProvider({ children }: { readonly children: ReactNode }) {
   const compact = useMediaQuery(COMPACT_QUERY, false);
   const wide = useMediaQuery(WIDE_QUERY, true);
+  const shortViewport = useMediaQuery(SHORT_VIEWPORT_QUERY, false);
   const primaryCoarse = useMediaQuery(COARSE_POINTER_QUERY, false);
   const anyCoarse = useMediaQuery(ANY_COARSE_POINTER_QUERY, false);
   const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY, false);
@@ -107,6 +110,7 @@ export function PresentationProvider({ children }: { readonly children: ReactNod
 
   const presentation = useMemo<Presentation>(() => ({
     width: compact ? 'compact' : wide ? 'wide' : 'regular',
+    shortViewport,
     coarseAvailable: primaryCoarse || anyCoarse,
     reducedMotion,
     colorScheme: displayPreference.theme === 'system'
@@ -119,6 +123,7 @@ export function PresentationProvider({ children }: { readonly children: ReactNod
     displayPreference.theme,
     primaryCoarse,
     reducedMotion,
+    shortViewport,
     wide,
   ]);
 

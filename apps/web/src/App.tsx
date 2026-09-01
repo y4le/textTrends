@@ -836,12 +836,14 @@ export function App() {
   if (readerPlace) {
     const readerTitle = project?.data.docs.find((document) => document.doc === readerPlace.doc)?.meta.title
       ?? readerPlace.doc;
+    const speedReading = interaction.kind === 'rsvp';
+    const readerDockPresent = !(speedReading && presentation.shortViewport);
     return (
       <>
       <main
         id="reader-region"
         className="reader-region"
-        data-reader-footer="true"
+        data-reader-footer={readerDockPresent ? 'true' : 'false'}
         data-shortcut-context={interaction.kind === 'rsvp' ? 'rsvp' : 'reader'}
         data-reader-fit-size={readerVisibleRange?.geometry.split(':', 1)[0]}
         aria-labelledby="reader-title"
@@ -964,7 +966,11 @@ export function App() {
         <WorkbenchDock
           mode="reader"
           globalShortcuts={false}
-          inactive={interaction.kind === 'rsvp'}
+          inactive={speedReading}
+          collapsed={speedReading
+            && presentation.width === 'compact'
+            && !presentation.shortViewport}
+          suppressed={!readerDockPresent}
           onCloseFind={closeFind}
         />
       </main>

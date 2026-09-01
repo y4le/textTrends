@@ -97,6 +97,61 @@ test('a visible Reader control starts paused Speed reading at the selected word'
     .locator('.reader-rsvp-word')).toHaveText(selectedWord);
 });
 
+test('mobile Speed reading gives the word stage the portrait and landscape viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const reader = await openReader(page);
+  await enterRsvp(reader);
+
+  const stage = reader.getByRole('region', { name: 'Speed reading word' });
+  const dock = reader.locator('.workbench-dock');
+  const controls = reader.locator('.reader-rsvp-controls');
+  await expect(dock).toHaveAttribute('data-collapsed', 'true');
+  await expect(reader).toHaveAttribute('data-reader-footer', 'true');
+  await expect.poll(async () => (await dock.boundingBox())?.height ?? -1).toBeLessThanOrEqual(3);
+  await expect.poll(() => controls.evaluate((element) =>
+    element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  const portraitTargets = await reader.locator(
+    '.reader-header-actions > button, .reader-rsvp-controls > button, '
+      + '.reader-rsvp-pace input, .reader-rsvp-words-option',
+  ).evaluateAll((elements) => elements
+    .filter((element) => (element as HTMLElement).offsetParent !== null)
+    .map((element) => element.getBoundingClientRect().height));
+  expect(portraitTargets.length).toBeGreaterThan(5);
+  expect(Math.min(...portraitTargets)).toBeGreaterThanOrEqual(44);
+  expect((await stage.boundingBox())?.height).toBeGreaterThan(200);
+
+  await page.setViewportSize({ width: 844, height: 390 });
+  await expect(dock).toHaveCount(0);
+  await expect(reader).toHaveAttribute('data-reader-footer', 'false');
+  await expect(stage).toBeVisible();
+  await expect.poll(() => controls.evaluate((element) =>
+    element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  const landscapeTargets = await reader.locator(
+    '.reader-header-actions > button, .reader-rsvp-controls > button, '
+      + '.reader-rsvp-pace input, .reader-rsvp-words-option',
+  ).evaluateAll((elements) => elements
+    .filter((element) => (element as HTMLElement).offsetParent !== null)
+    .map((element) => element.getBoundingClientRect().height));
+  expect(landscapeTargets.length).toBeGreaterThan(5);
+  expect(Math.min(...landscapeTargets)).toBeGreaterThanOrEqual(44);
+  const landscapeViewport = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    clientHeight: document.documentElement.clientHeight,
+    scrollHeight: document.documentElement.scrollHeight,
+  }));
+  expect(landscapeViewport.scrollWidth).toBeLessThanOrEqual(landscapeViewport.clientWidth);
+  expect(landscapeViewport.scrollHeight).toBeLessThanOrEqual(landscapeViewport.clientHeight);
+  expect((await stage.boundingBox())?.height).toBeGreaterThan(100);
+
+  await reader.getByRole('button', { name: 'return to Reader', exact: true }).click();
+  await expect(reader).toHaveAttribute('data-reader-footer', 'true');
+  await expect(dock).toBeVisible();
+  const entrance = reader.getByRole('button', { name: /Open Speed reader paused/ });
+  await expect(entrance).toBeVisible();
+  expect((await entrance.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+});
+
 test('the semi-hidden RSVP surface anchors words and owns its keyboard controls', async ({ page }) => {
   const reader = await openReader(page);
 

@@ -1550,6 +1550,7 @@ canvas {
 
   .reader-ruler > button {
     min-inline-size: 44px;
+    min-block-size: 44px;
     padding-inline: var(--space-1);
   }
 
@@ -1559,17 +1560,26 @@ canvas {
 
   .reader-rsvp-controls {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      'back toggle slower faster'
+      'pace pace words words';
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--space-1);
   }
 
+  .reader-rsvp-back { grid-area: back; }
+  .reader-rsvp-toggle { grid-area: toggle; }
+  .reader-rsvp-slower { grid-area: slower; }
+  .reader-rsvp-faster { grid-area: faster; }
+
   .reader-rsvp-pace {
+    grid-area: pace;
     justify-content: center;
   }
 
   .reader-rsvp-words {
+    grid-area: words;
     display: grid;
-    grid-column: 1 / -1;
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -1598,6 +1608,27 @@ canvas {
 }
 
 @media (max-height: 520px) {
+  .reader-ruler > button {
+    min-block-size: 44px;
+  }
+
+  .reader-rsvp-stage {
+    padding-block: var(--space-2);
+  }
+
+  .reader-rsvp-context-slot {
+    inset-block-end: var(--space-1);
+    block-size: clamp(3.5rem, 35%, 5rem);
+  }
+
+  .reader-rsvp-controls-region {
+    padding-block: var(--space-1);
+  }
+
+  .reader-rsvp-rhythm {
+    margin-block-start: 0;
+  }
+
   .reader-ruler-meta,
   .reader-ruler-progress {
     display: none;

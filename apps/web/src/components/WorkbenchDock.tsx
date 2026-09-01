@@ -47,9 +47,21 @@ function TermsRailFallback() {
 /** Fixed layout host for the authored query state and transient reading
  * instrument. The two named asides remain independent accessibility regions;
  * this wrapper owns only viewport placement and the pre-mount reservation. */
-export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, mode = 'workbench' }: {
+export function WorkbenchDock({
+  globalShortcuts,
+  inactive = false,
+  collapsed = false,
+  suppressed = false,
+  onCloseFind,
+  mode = 'workbench',
+}: {
   readonly globalShortcuts: boolean;
   readonly inactive?: boolean;
+  /** Presentation-only minimum: retain Reader progress without mutating the
+   * reader's remembered footer size. */
+  readonly collapsed?: boolean;
+  /** Temporarily render no dock while keeping local resize state resident. */
+  readonly suppressed?: boolean;
   readonly onCloseFind: () => void;
   readonly mode?: 'workbench' | 'reader';
 }) {
@@ -76,7 +88,7 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
   const displayedTrackCount = scopedFind !== null
     ? Math.max(seriesCount, scopedFind.find === null ? 0 : 1)
     : seriesCount;
-  const takeoverLine = scopedFind !== null || termTakeoverOpen;
+  const takeoverLine = !collapsed && (scopedFind !== null || termTakeoverOpen);
   const resizeHandleInward = presentation.coarseAvailable
     ? DOCK_RESIZE_HANDLE_INWARD_COARSE
     : DOCK_RESIZE_HANDLE_INWARD_FINE;
@@ -89,7 +101,7 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
     // on Terms so opening Find preserves the exact footer partition it replaces.
     readerRail: 'terms',
     footerPresent,
-    targetBlockSize,
+    targetBlockSize: collapsed ? 0 : targetBlockSize,
     viewportBlockSize,
     availableBlockSize,
   } as const;
@@ -137,6 +149,7 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
   }, []);
 
   useLayoutEffect(() => {
+    if (suppressed) return undefined;
     let frame: number | null = null;
     const schedule = () => {
       frame ??= requestAnimationFrame(() => {
@@ -155,16 +168,24 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
       visual?.removeEventListener('resize', schedule);
       visual?.removeEventListener('scroll', schedule);
     };
-  }, [measureAvailable]);
+  }, [measureAvailable, suppressed]);
 
   useLayoutEffect(() => {
     const root = document.documentElement.style;
+    if (suppressed) {
+      root.removeProperty('--dock-block-size');
+      root.removeProperty('--terms-rail-block-size');
+      root.removeProperty('--terms-rail-pad-block');
+      root.removeProperty('--term-target-block-size');
+      root.removeProperty('--footer-block-size');
+      return;
+    }
     root.setProperty('--dock-block-size', `${sizing.blockSize}px`);
     root.setProperty('--terms-rail-block-size', `${sizing.railBlockSize}px`);
     root.setProperty('--terms-rail-pad-block', `${sizing.railPadBlock}px`);
     root.setProperty('--term-target-block-size', `${sizing.termTargetBlockSize}px`);
     root.setProperty('--footer-block-size', `${sizing.footerBlockSize}px`);
-  }, [sizing]);
+  }, [sizing, suppressed]);
 
   useLayoutEffect(() => () => {
     const root = document.documentElement.style;
@@ -273,6 +294,8 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
     footerVisible && sizing.showBarcode ? 'occurrences' : '',
   ].filter(Boolean).join(', ');
 
+  if (suppressed) return null;
+
   return (
     <div
       id="workbench-dock"
@@ -282,6 +305,7 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
       data-mode={mode}
       data-density={displayPreference.density}
       data-inactive={inactive || undefined}
+      data-collapsed={collapsed || undefined}
       data-terms-compressed={mode === 'reader'
         || sizing.blockSize < sizing.baseBlockSize
         || undefined}
@@ -293,7 +317,7 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
         '--terms-local-block-size': `${sizing.railBlockSize}px`,
       } as CSSProperties}
     >
-      {footerVisible && (
+      {footerVisible && !collapsed && (
         <div
           className="footer-resize-handle"
           role="separator"

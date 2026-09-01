@@ -679,6 +679,7 @@ export function RsvpReader({
       <div className="reader-rsvp-controls-region">
         <nav className="reader-rsvp-controls" aria-label="Speed reading controls">
           <button
+            className="reader-rsvp-back"
             type="button"
             data-rsvp-control="true"
             disabled={!canGoBack}
@@ -689,6 +690,7 @@ export function RsvpReader({
             back
           </button>
           <button
+            className="reader-rsvp-toggle"
             ref={playRef}
             type="button"
             data-rsvp-control="true"
@@ -702,6 +704,7 @@ export function RsvpReader({
             {completed ? 'completed' : mode.playing ? 'pause' : 'play'}
           </button>
           <button
+            className="reader-rsvp-slower"
             type="button"
             data-rsvp-control="true"
             aria-label={`Slower, ${RSVP_WPM_STEP} words per minute`}
@@ -742,6 +745,7 @@ export function RsvpReader({
             <span>WPM</span>
           </label>
           <button
+            className="reader-rsvp-faster"
             type="button"
             data-rsvp-control="true"
             aria-label={`Faster, ${RSVP_WPM_STEP} words per minute`}
