@@ -27,7 +27,6 @@ import {
   chordShortcutAllowed,
   interactionShortcutAllowed,
   rootShortcutAllowed,
-  shortcutAria,
   shortcutMatches,
   type ShortcutId,
   type ShortcutHelpContext,
@@ -72,10 +71,15 @@ const SettingsPane = lazy(() =>
 const DebugSurface = lazy(() =>
   import('./components/DebugSurface.tsx').then(({ DebugSurface: surface }) => ({ default: surface })),
 );
+const ReaderControlsPane = lazy(() =>
+  import('./components/reader/ReaderControlsPane.tsx')
+    .then(({ ReaderControlsPane: pane }) => ({ default: pane })),
+);
 
 type OpenUtilityPane =
   | { readonly kind: 'settings'; readonly entry: SettingsEntry }
   | { readonly kind: 'debug' }
+  | { readonly kind: 'reader-controls' }
   | { readonly kind: 'help'; readonly context: ShortcutHelpContext };
 
 interface CloseUtilityPaneOptions {
@@ -292,6 +296,12 @@ export function App() {
     if (interaction.kind === 'find') exitInteraction();
     if (interaction.kind === 'rsvp') setRsvpPlaying(false);
     setUtilityPane({ kind: 'debug' });
+  };
+  const openReaderControls = (returnFocus: HTMLElement) => {
+    clearShortcutSequence();
+    setKeyboardNavigationStatus('');
+    utilityPaneReturnFocus.current = returnFocus;
+    setUtilityPane({ kind: 'reader-controls' });
   };
   const focusFindInput = (selectAll = false) => {
     requestAnimationFrame(() => {
@@ -756,6 +766,21 @@ export function App() {
               <DebugSurface onClose={() => closeUtilityPane()} />
             </Suspense>
           )
+      : utilityPane?.kind === 'reader-controls'
+        ? (
+            <Suspense fallback={null}>
+              <ReaderControlsPane
+                onClose={() => closeUtilityPane()}
+                onAnnounce={setReaderKeyboardStatus}
+                onOpenSettings={() => openSettingsEntry(
+                  globalSettingsEntry('reader'),
+                  null,
+                  true,
+                )}
+                onOpenHelp={() => openHelp('reader', true)}
+              />
+            </Suspense>
+          )
       : null;
 
   if (readerPlace) {
@@ -842,41 +867,48 @@ export function App() {
         <Suspense
           fallback={(
             <>
-              <header className="reader-header">
-                <div>
-                  <h2 id="reader-title" style={{ margin: 0, fontSize: 'var(--text-lg)' }}>
-                    <span className="visually-hidden">Reader: </span>{readerTitle}
-                  </h2>
-                  <p className="reader-position" role="status">loading reader…</p>
-                </div>
-                <div className="reader-header-actions">
-                  <button
-                    id="reader-settings-open"
-                    type="button"
-                    onClick={(event) => openSettings('reader', event.currentTarget)}
-                  >
-                    settings
-                  </button>
-                  <button
-                    type="button"
-                    aria-keyshortcuts={shortcutAria(['show-help'])}
-                    onClick={() => openHelp('reader')}
-                  >
-                    help
-                  </button>
-                  <button type="button" onClick={closeReader}>back</button>
-                </div>
-              </header>
+              <h2 id="reader-title" className="visually-hidden">Reader: {readerTitle}</h2>
+              <p className="reader-position visually-hidden" role="status">loading reader…</p>
               <div
                 {...guideAnchorProps('reader-prose')}
                 className="reader-prose-pane"
                 aria-hidden="true"
               />
+              <nav className="reader-control-bar" aria-label="Reader controls">
+                <span className="reader-progress-rail reader-control-progress" aria-hidden="true" />
+                <button
+                  type="button"
+                  className="reader-control-exit"
+                  aria-label="Return to workbench"
+                  onClick={closeReader}
+                >
+                  <span aria-hidden="true">←</span>{' '}<span>back</span>
+                </button>
+                <button type="button" className="reader-control-page" disabled aria-label="Previous page">
+                  <span aria-hidden="true">‹</span>
+                </button>
+                <button
+                  type="button"
+                  className="reader-control-position"
+                  aria-label={`Open Reader controls for ${readerTitle}`}
+                  disabled
+                >
+                  <strong>{readerTitle}</strong>
+                  <span>loading position…</span>
+                </button>
+                <button type="button" className="reader-control-page" disabled aria-label="Next page">
+                  <span aria-hidden="true">›</span>
+                </button>
+                <button type="button" className="reader-control-speed" disabled aria-label="Speed reading unavailable">
+                  <span aria-hidden="true">▶</span>
+                </button>
+              </nav>
             </>
           )}
         >
           <ReaderDrawer
             onAnnounce={setReaderKeyboardStatus}
+            onOpenControls={openReaderControls}
             onOpenSettings={(returnFocus) => openSettings('reader', returnFocus)}
             onOpenHelp={() => openHelp(
               interaction.kind === 'rsvp' ? 'rsvp' : 'reader',

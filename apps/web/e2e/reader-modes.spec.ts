@@ -58,7 +58,7 @@ async function expectReaderFillsViewport(
     );
     return published === current;
   }).toBe(true);
-  await expect(reader.getByRole('navigation', { name: 'Reader navigation' })).toBeVisible();
+  await expect(reader.getByRole('navigation', { name: 'Reader controls' })).toBeVisible();
   await expect(pane).not.toHaveAttribute('data-reader-fitting');
   await expectNoBodyOverflow(page);
 }
@@ -115,7 +115,7 @@ test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ p
   const fallback = page.getByRole('main', { name: /Reader:/ });
   await expect(fallback.getByRole('status', { name: 'Reader keyboard status' })).toHaveCount(1);
   await expect(fallback.locator('p.reader-position')).toHaveText('loading reader…');
-  await fallback.getByRole('button', { name: 'back', exact: true }).click();
+  await fallback.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(fallback).toHaveCount(0);
   await expect(page.locator('.app-header')).toBeVisible();
   gate.release?.();
@@ -134,18 +134,19 @@ test('Reader has one full-viewport presentation with its compressed analytical f
   await expect(reader.getByLabel('Reader query highlights')).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Workbench sections' })).toHaveCount(0);
   await expect(page.locator('.app-header')).toHaveCount(0);
-  await expect(reader.getByRole('button', { name: 'back', exact: true })).toBeVisible();
+  await expect(reader.getByRole('button', { name: 'Return to workbench', exact: true }))
+    .toBeVisible();
   await expectReaderFillsViewport(page, reader, 1440, 900);
   await expect(reader.getByRole('progressbar')).toHaveCount(1);
   await expect(reader.getByRole('progressbar')).not.toHaveAttribute('aria-live');
 
   // The Reader position describes fitted prose, not an analytical scrub that
   // moves independently underneath the open Reader.
-  const rulerMeta = reader.locator('.reader-ruler-meta');
-  const rulerProgress = reader.locator('.reader-ruler-progress');
+  const positionMeta = reader.locator('.reader-control-position > span');
+  const readingProgress = reader.locator('.reader-control-progress');
   const fittedPage = reader.locator('[data-reader-page]');
-  const rulerBefore = await rulerMeta.textContent();
-  const progressBefore = await rulerProgress.getAttribute('aria-valuenow');
+  const positionBefore = await positionMeta.textContent();
+  const progressBefore = await readingProgress.getAttribute('aria-valuenow');
   const fittedBefore = await fittedPage.getAttribute('data-reader-page');
   const footerPosition = reader.getByRole('slider', { name: 'Corpus footer position' });
   const scrubBefore = await footerPosition.getAttribute('aria-valuenow');
@@ -167,8 +168,8 @@ test('Reader has one full-viewport presentation with its compressed analytical f
   await footerPosition.dispatchEvent('pointerdown', footerPointer);
   await footerPosition.dispatchEvent('pointerup', { ...footerPointer, buttons: 0 });
   await expect(footerPosition).not.toHaveAttribute('aria-valuenow', scrubBefore ?? '');
-  await expect(rulerMeta).toHaveText(rulerBefore ?? '');
-  await expect(rulerProgress).toHaveAttribute('aria-valuenow', progressBefore ?? '');
+  await expect(positionMeta).toHaveText(positionBefore ?? '');
+  await expect(readingProgress).toHaveAttribute('aria-valuenow', progressBefore ?? '');
   await expect(fittedPage).toHaveAttribute('data-reader-page', fittedBefore ?? '');
 
   await page.goBack();
@@ -179,6 +180,39 @@ test('Reader has one full-viewport presentation with its compressed analytical f
   await expect(page.getByRole('main', { name: /Reader:/ })).toBeVisible();
 });
 
+test('Reader controls overlay fitted prose and return focus without issuing analysis work', async ({ page }) => {
+  const { reader } = await openReader(page);
+  await expectReaderFillsViewport(page, reader, 390, 844);
+  const pane = reader.locator('.reader-prose-pane');
+  const pageRange = await reader.locator('[data-reader-page]').getAttribute('data-reader-page');
+  const paneBox = await pane.boundingBox();
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  const trigger = reader.getByRole('button', { name: /Open Reader controls for/ });
+
+  await trigger.click();
+  const controls = page.getByRole('dialog', { name: 'Reader controls', exact: true });
+  await expect(controls).toBeVisible();
+  await expect(page.locator('#root')).toHaveAttribute('inert', '');
+  for (const heading of ['Position', 'View', 'Page', 'Reference', 'Text', 'Highlights']) {
+    await expect(controls.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+  }
+  const controlsBox = await controls.boundingBox();
+  expect(controlsBox).not.toBeNull();
+  expect(controlsBox!.x).toBeGreaterThanOrEqual(0);
+  expect(controlsBox!.y).toBeGreaterThanOrEqual(0);
+  expect(controlsBox!.x + controlsBox!.width).toBeLessThanOrEqual(390.5);
+  expect(controlsBox!.y + controlsBox!.height).toBeLessThanOrEqual(844.5);
+  expect(await pane.boundingBox()).toEqual(paneBox);
+  await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
+
+  await page.keyboard.press('Escape');
+  await expect(controls).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  expect(await pane.boundingBox()).toEqual(paneBox);
+  await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
+  expect(workerQueriesAfter((await trace(page)).events, mark)).toEqual([]);
+});
+
 test('Atlas compares complete text extents without analysis queries or page overflow', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   const { reader } = await openReader(page);
@@ -186,7 +220,9 @@ test('Atlas compares complete text extents without analysis queries or page over
   const before = await trace(page);
   const mark = before.events.at(-1)?.seq ?? 0;
 
-  await reader.getByRole('button', { name: 'Atlas', exact: true }).click();
+  await reader.getByRole('button', { name: /Open Reader controls for/ }).click();
+  await page.getByRole('dialog', { name: 'Reader controls', exact: true })
+    .getByRole('button', { name: 'Open document Atlas', exact: true }).click();
   const plane = reader.locator('.reader-atlas-plane');
   await expect(plane).toBeVisible();
   await expect(reader.locator('[data-atlas-column]')).toHaveCount(SHERLOCK.length);
@@ -343,15 +379,15 @@ test('Atlas compares complete text extents without analysis queries or page over
     .toHaveAttribute('aria-pressed', 'true');
   await plane.press('Enter');
   await expect(reader.locator('[data-reader-page]')).toBeVisible();
-  await expect(reader.getByRole('button', { name: 'Read', exact: true }))
-    .toHaveAttribute('aria-pressed', 'true');
+  await expect(reader.getByRole('navigation', { name: 'Reader controls' })).toBeVisible();
+  await expect(reader.getByRole('button', { name: /Open Reader controls for/ })).toBeVisible();
   await expect(reader).toBeFocused();
 });
 
 test('Reader page turns roll over between adjacent texts', async ({ page }) => {
   const { reader } = await openReader(page);
-  const heading = reader.getByRole('heading', { level: 2 });
-  const title = await heading.textContent();
+  const titleControl = reader.locator('.reader-control-position > strong');
+  const title = await titleControl.textContent();
   const initialIndex = SHERLOCK.findIndex((entry) => title?.includes(entry.title));
   expect(initialIndex).toBeGreaterThanOrEqual(0);
   expect(initialIndex).toBeLessThan(SHERLOCK.length - 1);
@@ -364,16 +400,16 @@ test('Reader page turns roll over between adjacent texts', async ({ page }) => {
   await expect.poll(() => reader.locator('[data-reader-page]').getAttribute('data-reader-page'))
     .not.toBe(initialRange);
   await settledReaderRange(reader);
-  const next = reader.locator('.reader-page-next');
+  const next = reader.locator('.reader-control-page-next');
   await expect(next).toBeEnabled();
   await next.click();
-  await expect(heading).toContainText(nextTitle);
+  await expect(titleControl).toContainText(nextTitle);
   expect((await settledReaderRange(reader))[0]).toBe(0);
 
-  const previous = reader.locator('.reader-page-previous');
+  const previous = reader.locator('.reader-control-page-previous');
   await expect(previous).toBeEnabled();
   await previous.click();
-  await expect(heading).toContainText(initialTitle);
+  await expect(titleControl).toContainText(initialTitle);
   expect((await settledReaderRange(reader))[0]).toBeGreaterThan(0);
 });
 
@@ -398,9 +434,9 @@ test('Reader stays viewport-bound and locks outer scrolling at iPad and phone wi
 
   if (browserName === 'chromium') {
     const beforeOuterScroll = await page.evaluate(() => window.scrollY);
-    const header = await reader.locator('.reader-header').boundingBox();
-    expect(header).not.toBeNull();
-    await page.mouse.move(header!.x + 8, header!.y + 8);
+    const controls = await reader.locator('.reader-control-bar').boundingBox();
+    expect(controls).not.toBeNull();
+    await page.mouse.move(controls!.x + 8, controls!.y + 8);
     await page.mouse.wheel(0, 600);
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(beforeOuterScroll);
   }
@@ -450,6 +486,21 @@ test('Reader stays viewport-bound and locks outer scrolling at iPad and phone wi
   expect(compactRange[1]).toBeLessThan(initialRange[1]);
 
   await expectReaderFillsViewport(page, reader, 320, 800);
+  const compactBar = reader.getByRole('navigation', { name: 'Reader controls' });
+  await expect(compactBar.getByRole('button', { name: 'Return to workbench', exact: true }))
+    .toBeVisible();
+  await expect(compactBar.locator('.reader-control-page-label')).toHaveCount(2);
+  expect(await compactBar.locator('.reader-control-page-label').evaluateAll(
+    (labels) => labels.every((label) => getComputedStyle(label).display === 'none'),
+  )).toBe(true);
+  await expect(compactBar.locator('.reader-control-speed-label')).toBeHidden();
+  for (const control of await compactBar.getByRole('button').all()) {
+    const box = await control.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(320.5);
+  }
   await expectReaderFillsViewport(page, reader, 1440, 900);
   await expect(reader).not.toHaveAttribute('role', 'dialog');
   await expect(reader).toHaveAttribute('data-tt-probe', 'reader-stays-mounted');
@@ -608,7 +659,7 @@ test('prose taps select a reading cursor while blank gutters retain page turns',
   expect(blankInlineEdge).not.toBeNull();
   await dispatchReaderPointer(source, 'touch', blankInlineEdge!);
   await expect(source).toHaveAttribute('data-reader-page', new RegExp(`^${initial[1]}:`));
-  await reader.locator('.reader-page-previous').click();
+  await reader.locator('.reader-control-page-previous').click();
   await expect(source).toHaveAttribute('data-reader-page', new RegExp(`^${initial[0]}:`));
   expect(await settledReaderRange(reader)).toEqual(initial);
 
@@ -618,7 +669,7 @@ test('prose taps select a reading cursor while blank gutters retain page turns',
   await expect(mark).toBeVisible();
   await dispatchReaderPointer(mark, 'touch', right);
   await dispatchReaderPointer(
-    reader.getByRole('button', { name: 'back', exact: true }),
+    reader.getByRole('button', { name: 'Return to workbench', exact: true }),
     'touch',
     right,
   );

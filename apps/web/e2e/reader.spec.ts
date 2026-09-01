@@ -217,24 +217,46 @@ test('compact Reader is a Back/Escape layer and restores its invoking row', asyn
   const drawer = page.getByRole('main', { name: /Reader: reader/ });
   await expect(drawer).toBeVisible();
   await expect(lens).toHaveCount(0);
-  const settings = drawer.getByRole('button', { name: 'settings', exact: true });
+  const controls = drawer.getByRole('button', { name: /Open Reader controls for/ });
   const readerPage = drawer.locator('[data-reader-page]');
+  const prosePane = drawer.locator('.reader-prose-pane');
   const startBeforeDensity = (await readerPage.getAttribute('data-reader-page'))?.split(':')[0];
   const proseSizeBeforeDensity = await drawer.locator('.source-text').evaluate((element) =>
     getComputedStyle(element).fontSize);
-  await settings.click();
+  const paneBoxBeforeControls = await prosePane.boundingBox();
+  await controls.click();
+  const readerControls = page.getByRole('dialog', { name: 'Reader controls', exact: true });
+  await expect(readerControls).toBeVisible();
+  await expect(readerControls.getByRole('heading', { name: 'Position', exact: true })).toBeVisible();
+  await expect(readerControls.getByRole('heading', { name: 'Page', exact: true })).toBeVisible();
+  await expect(readerControls.getByRole('heading', { name: 'Reference', exact: true })).toBeVisible();
+  await expect(readerControls.getByRole('heading', { name: 'Text', exact: true })).toBeVisible();
+  await expect(readerControls.getByRole('button', { name: 'Start of text', exact: true }))
+    .toBeVisible();
+  await expect(readerControls.getByRole('button', { name: 'End of text', exact: true }))
+    .toBeVisible();
+  expect(await prosePane.boundingBox()).toEqual(paneBoxBeforeControls);
+  await readerControls.getByRole('button', { name: 'Open Reader settings', exact: true }).click();
   const settingsPane = page.getByRole('dialog', { name: 'Settings', exact: true });
   await expect(settingsPane.getByText(/Reader presents authenticated plain text/)).toHaveCount(0);
   await settingsPane.getByRole('slider', { name: 'Size and spacing' }).fill('2');
   await expect(page.locator('html')).toHaveAttribute('data-density', 'comfortable');
   await page.keyboard.press('Escape');
-  await expect(settings).toBeFocused();
-  const help = drawer.getByRole('button', { name: 'help', exact: true });
-  await help.click();
+  await expect(controls).toBeFocused();
+  await controls.click();
+  await page.getByRole('dialog', { name: 'Reader controls', exact: true })
+    .getByRole('button', { name: 'Open Reader help', exact: true }).click();
   const helpPane = page.getByRole('dialog', { name: 'Help', exact: true });
   await expect(helpPane.getByText(/Reader presents authenticated plain text/)).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(help).toBeFocused();
+  await expect(controls).toBeFocused();
+  await expect(drawer.locator('.reader-header, .reader-ruler, .reader-pages')).toHaveCount(0);
+  const bar = drawer.getByRole('navigation', { name: 'Reader controls' });
+  await expect(bar.getByRole('button')).toHaveCount(5);
+  await expect.poll(async () => (await bar.boundingBox())?.height ?? 0).toBeLessThanOrEqual(48);
+  for (const button of await bar.getByRole('button').all()) {
+    expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  }
   await expect.poll(async () => (await readerPage.getAttribute('data-reader-page'))?.split(':')[0])
     .toBe(startBeforeDensity);
   expect(await drawer.locator('.source-text').evaluate((element) =>
@@ -353,7 +375,7 @@ test('Matches opens the lazy reader; navigation and edited highlights stay corre
   await expect(drawer.getByText(/<em>/)).toBeVisible();
   await expect(drawer.locator('em')).toHaveCount(0);
 
-  await drawer.getByRole('button', { name: 'back', exact: true }).click();
+  await drawer.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(drawer).toHaveCount(0);
   await expect(table).toBeFocused();
   await gotoPlace(page, 'trends');
@@ -379,7 +401,7 @@ test('Matches opens the lazy reader; navigation and edited highlights stay corre
 
   // Back restores workbench navigation; the full Reader never carries across
   // a subsequent place departure.
-  await trendDrawer.getByRole('button', { name: 'back', exact: true }).click();
+  await trendDrawer.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(trendDrawer).toHaveCount(0);
   await gotoPlace(page, 'matches');
   await expect(page).toHaveURL(/[?&]p=matches(?:&|$)/);
@@ -397,5 +419,5 @@ test('an exact barcode occurrence opens the reader', async ({ page }) => {
   await awaitFreshReader(page, mark);
   const drawer = page.getByRole('main', { name: /Reader: reader/ });
   await expect(drawer.locator('[data-reader-page]')).toHaveAttribute('data-reader-anchor', '450');
-  await drawer.getByRole('button', { name: 'back' }).click();
+  await drawer.getByRole('button', { name: 'Return to workbench', exact: true }).click();
 });

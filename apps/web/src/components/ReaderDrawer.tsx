@@ -28,17 +28,13 @@ import {
 import { sameReaderPlace } from '../lib/reader-intent.ts';
 import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
-import { shortcutAria } from '../lib/shortcuts.ts';
 import { RsvpReader, type RsvpReaderSource } from './RsvpReader.tsx';
-import { ReaderRuler } from './reader/ReaderRuler.tsx';
 import { ReaderAtlas } from './reader/ReaderAtlas.tsx';
-import { ReaderScaleControl } from './reader/ReaderScaleControl.tsx';
 import { guideAnchorProps } from '../lib/guide/anchors.ts';
 import { readerCursorChars, readerTokenAtChar } from '../lib/reader-cursor.ts';
-import { readerCommand } from '../lib/reader-commands.ts';
 import { readerTapIntent } from '../lib/reader-tap.ts';
 import { hitsSourceToken, proseCharOffsetAtPoint } from './reader/prose-cursor.ts';
-import { useReaderChromeModel } from './reader/useReaderChromeModel.ts';
+import { ReaderControlBar } from './reader/ReaderControlBar.tsx';
 
 interface ReaderProsePointer {
   readonly id: number;
@@ -227,15 +223,12 @@ function readerSourceKey(page: ReaderPageResultV1): string {
 }
 
 function ReaderProseDrawer({
-  onOpenHelp,
-  onOpenSettings,
+  onOpenControls,
   onAnnounce,
 }: {
-  readonly onOpenHelp: () => void;
-  readonly onOpenSettings: (returnFocus: HTMLElement) => void;
+  readonly onOpenControls: (returnFocus: HTMLElement) => void;
   readonly onAnnounce: (message: string) => void;
 }) {
-  const chrome = useReaderChromeModel();
   const place = useApp((state) => state.readerPlace);
   const result = useApp((state) => state.readerPage);
   const navigation = useApp((state) => state.readerNavigation);
@@ -243,13 +236,11 @@ function ReaderProseDrawer({
   const notebook = useApp((state) => state.notebook);
   const styles = useApp((state) => state.styles);
   const project = useApp((state) => state.projectSession?.project ?? null);
-  const closeReader = useApp((state) => state.closeReader);
   const navigateReader = useApp((state) => state.navigateReader);
   const setReaderVisibleRange = useApp((state) => state.setReaderVisibleRange);
   const refitReaderAt = useApp((state) => state.refitReaderAt);
   const retryReader = useApp((state) => state.retryReader);
   const setReadingCursor = useApp((state) => state.setReadingCursor);
-  const stepOccurrence = useApp((state) => state.stepOccurrence);
   const interaction = useApp((state) => state.interaction);
   const scopedFind = findScope(interaction);
   const findMode = scopedFind !== null;
@@ -465,10 +456,6 @@ function ReaderProseDrawer({
     presentedSeries,
   );
   const hasStaleMarks = legend.some((entry) => entry.stale);
-  const previousPageCommand = readerCommand(chrome.commands, 'page-previous');
-  const nextPageCommand = readerCommand(chrome.commands, 'page-next');
-  const previousReferenceCommand = readerCommand(chrome.commands, 'reference-previous');
-  const nextReferenceCommand = readerCommand(chrome.commands, 'reference-next');
   const turnPage = (direction: -1 | 1) => {
     const cursor = direction === -1 ? navigation?.previous : navigation?.next;
     if (cursor) {
@@ -542,48 +529,19 @@ function ReaderProseDrawer({
 
   return (
     <>
-      <header className="reader-header">
-        <div>
-          <h2 id="reader-title" style={{ margin: 0, fontSize: 'var(--text-lg)' }}>
-            <span className="visually-hidden">Reader: </span>{title}
-          </h2>
-          <p
-            className="reader-position"
-            role="status"
-            aria-atomic="true"
-            aria-busy={!fitSettled || undefined}
-          >
-            {fitSettled && visualPage
-              ? readerRangeLabel(visualPage)
-              : ready
-                ? 'fitting page…'
-                : 'loading source text…'}
-          </p>
-        </div>
-        <div className="reader-header-actions">
-          <ReaderScaleControl />
-          <button
-            id="reader-settings-open"
-            type="button"
-            onClick={(event) => onOpenSettings(event.currentTarget)}
-            style={SMALL_BUTTON_STYLE}
-          >
-            settings
-          </button>
-          <button
-            type="button"
-            aria-keyshortcuts={shortcutAria(['show-help'])}
-            onClick={onOpenHelp}
-            style={SMALL_BUTTON_STYLE}
-          >
-            help
-          </button>
-          <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>
-            back
-          </button>
-        </div>
-      </header>
-      <ReaderRuler />
+      <h2 id="reader-title" className="visually-hidden">Reader: {title}</h2>
+      <p
+        className="reader-position visually-hidden"
+        role="status"
+        aria-atomic="true"
+        aria-busy={!fitSettled || undefined}
+      >
+        {fitSettled && visualPage
+          ? readerRangeLabel(visualPage)
+          : ready
+            ? 'fitting page…'
+            : 'loading source text…'}
+      </p>
       {(hasStaleMarks || ready?.marksTruncated) && (
         <div className="reader-feedback" role="status" aria-label="Reader mark notices">
           {hasStaleMarks && (
@@ -638,57 +596,11 @@ function ReaderProseDrawer({
         </div>
       </div>
 
-      <nav
-        className="reader-pages"
-        aria-label="Reader navigation"
-      >
-        <button
-          className="reader-occurrence-previous"
-          type="button"
-          aria-keyshortcuts={shortcutAria(['reader-occurrence-previous'])}
-          disabled={!previousReferenceCommand.enabled}
-          onClick={() => stepOccurrence(-1)}
-          title={previousReferenceCommand.present
-            ? previousReferenceCommand.accessibleName
-            : previousReferenceCommand.reason}
-          style={{ ...SMALL_BUTTON_STYLE, opacity: previousReferenceCommand.enabled ? 1 : 0.45 }}
-        >
-          {previousReferenceCommand.label}
-        </button>
-        <button
-          className="reader-page-previous"
-          type="button"
-          aria-keyshortcuts={shortcutAria(['reader-page-previous'])}
-          disabled={!previousPageCommand.enabled}
-          onClick={() => turnPage(-1)}
-          style={{ ...SMALL_BUTTON_STYLE, cursor: previousPageCommand.enabled ? 'pointer' : 'default', opacity: previousPageCommand.enabled ? 1 : 0.45 }}
-        >
-          ← previous
-        </button>
-        <button
-          className="reader-page-next"
-          type="button"
-          aria-keyshortcuts={shortcutAria(['reader-page-next'])}
-          disabled={!nextPageCommand.enabled}
-          onClick={() => turnPage(1)}
-          style={{ ...SMALL_BUTTON_STYLE, cursor: nextPageCommand.enabled ? 'pointer' : 'default', opacity: nextPageCommand.enabled ? 1 : 0.45 }}
-        >
-          next →
-        </button>
-        <button
-          className="reader-occurrence-next"
-          type="button"
-          aria-keyshortcuts={shortcutAria(['reader-occurrence-next'])}
-          disabled={!nextReferenceCommand.enabled}
-          onClick={() => stepOccurrence(1)}
-          title={nextReferenceCommand.present
-            ? nextReferenceCommand.accessibleName
-            : nextReferenceCommand.reason}
-          style={{ ...SMALL_BUTTON_STYLE, opacity: nextReferenceCommand.enabled ? 1 : 0.45 }}
-        >
-          {nextReferenceCommand.label}
-        </button>
-      </nav>
+      <ReaderControlBar
+        title={title}
+        onOpenControls={onOpenControls}
+        onAnnounce={onAnnounce}
+      />
     </>
   );
 }
@@ -696,10 +608,12 @@ function ReaderProseDrawer({
 export function ReaderDrawer({
   onOpenHelp,
   onOpenSettings,
+  onOpenControls,
   onAnnounce,
 }: {
   readonly onOpenHelp: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement) => void;
+  readonly onOpenControls: (returnFocus: HTMLElement) => void;
   readonly onAnnounce: (message: string) => void;
 }) {
   const interaction = useApp((state) => state.interaction);
@@ -727,8 +641,7 @@ export function ReaderDrawer({
     />
   ) : (
     <ReaderProseDrawer
-      onOpenHelp={onOpenHelp}
-      onOpenSettings={onOpenSettings}
+      onOpenControls={onOpenControls}
       onAnnounce={onAnnounce}
     />
   );
