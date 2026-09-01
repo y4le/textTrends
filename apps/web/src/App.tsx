@@ -75,11 +75,16 @@ const ReaderControlsPane = lazy(() =>
   import('./components/reader/ReaderControlsPane.tsx')
     .then(({ ReaderControlsPane: pane }) => ({ default: pane })),
 );
+const SpeedSettingsPane = lazy(() =>
+  import('./components/reader/SpeedSettingsPane.tsx')
+    .then(({ SpeedSettingsPane: pane }) => ({ default: pane })),
+);
 
 type OpenUtilityPane =
   | { readonly kind: 'settings'; readonly entry: SettingsEntry }
   | { readonly kind: 'debug' }
   | { readonly kind: 'reader-controls' }
+  | { readonly kind: 'speed-settings'; readonly restSummary: string }
   | { readonly kind: 'help'; readonly context: ShortcutHelpContext };
 
 interface CloseUtilityPaneOptions {
@@ -302,6 +307,14 @@ export function App() {
     setKeyboardNavigationStatus('');
     utilityPaneReturnFocus.current = returnFocus;
     setUtilityPane({ kind: 'reader-controls' });
+  };
+  const openSpeedSettings = (returnFocus: HTMLElement, restSummary: string) => {
+    if (interaction.kind !== 'rsvp') return;
+    clearShortcutSequence();
+    setKeyboardNavigationStatus('');
+    utilityPaneReturnFocus.current = returnFocus;
+    setRsvpPlaying(false);
+    setUtilityPane({ kind: 'speed-settings', restSummary });
   };
   const focusFindInput = (selectAll = false) => {
     requestAnimationFrame(() => {
@@ -782,6 +795,18 @@ export function App() {
               />
             </Suspense>
           )
+        : utilityPane?.kind === 'speed-settings' && interaction.kind === 'rsvp'
+          ? (
+              <Suspense fallback={null}>
+                <SpeedSettingsPane
+                  mode={interaction.rsvp}
+                  restSummary={utilityPane.restSummary}
+                  onSetPacing={setRsvpPacing}
+                  onOpenHelp={() => openHelp('rsvp', true)}
+                  onClose={() => closeUtilityPane()}
+                />
+              </Suspense>
+            )
       : null;
 
   if (readerPlace) {
@@ -911,6 +936,7 @@ export function App() {
             onCloseFind={closeFind}
             onOpenFind={() => openFind()}
             onOpenControls={openReaderControls}
+            onOpenSpeedSettings={openSpeedSettings}
             onOpenSettings={(returnFocus) => openSettings('reader', returnFocus)}
             onOpenHelp={() => openHelp(
               interaction.kind === 'rsvp' ? 'rsvp' : 'reader',

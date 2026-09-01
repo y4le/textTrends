@@ -672,6 +672,7 @@ function ReaderProseDrawer({
 export function ReaderDrawer({
   onOpenHelp,
   onOpenSettings,
+  onOpenSpeedSettings,
   onOpenControls,
   onOpenFind,
   onCloseFind,
@@ -679,6 +680,7 @@ export function ReaderDrawer({
 }: {
   readonly onOpenHelp: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement) => void;
+  readonly onOpenSpeedSettings: (returnFocus: HTMLElement, restSummary: string) => void;
   readonly onOpenControls: (returnFocus: HTMLElement) => void;
   readonly onOpenFind: () => void;
   readonly onCloseFind: () => void;
@@ -740,6 +742,7 @@ export function ReaderDrawer({
       onExit={exit}
       onRetry={retry}
       onOpenHelp={onOpenHelp}
+      onOpenSettings={onOpenSpeedSettings}
     />
   );
 }
