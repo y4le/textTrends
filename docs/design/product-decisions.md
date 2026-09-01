@@ -4,6 +4,57 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-09-01 — Read and Speed carry one reading bar and one progress rail
+
+Ordinary Read will treat authenticated prose as the primary surface. Compact
+and regular Read will replace the resident header, contextual ruler,
+four-control page/reference block, and analytical dock with one fitted 44px
+reading bar. It will keep Back, labelled page movement where it fits, one
+title/token/percentage button, a visible Speed entry, and a three-pixel
+active-text progress rail. The position button will open an overlay
+Reader-controls sheet for exact page range, references, text movement,
+endpoints, scale, highlights, Settings, and Help. The sheet will not resize or
+refit prose. At genuinely spacious widths, the same facts may move to lateral
+rails only when the prose measure and both rails actually fit. Atlas will
+retain its analytical ruler and dock.
+
+Speed will keep more resident control because playback is its content, but its
+surface will be reduced to identity, transport, pace, frame shape, and the same
+active-text progress rail. Advanced frame and rhythm tuning will move to an
+overlay sheet that pauses playback, never shrinks the stage, and never
+auto-resumes. Read and Speed will stop rendering `WorkbenchDock`; the dedicated
+rail will replace the old progress-only collapsed-dock residue with one stable
+meaning.
+
+Progress will span the active text, not the concatenated corpus. It will follow
+the selected/fitted token in Read and the displayed frame token in Speed,
+remain visible at both endpoints, and reset on text changes. It will be
+non-interactive, have exactly one non-live `progressbar` semantic, and update
+without easing. Ready-page token count will be authoritative; corpus counts
+will be fallback data.
+
+Chrome and sheet visibility will remain local presentation state. The controls
+sheet will reuse the existing utility-pane inert/focus/Escape boundary; no new
+Reader state will enter persistence, history, URL state, or the primary-interaction
+union. Find must be re-homed atomically with Read dock removal and must not
+refit prose. Prose pointer handling will move to one owner with painted-token
+hit testing so a real word wins over edge paging while blank edge space can
+still turn the page.
+
+Once implemented, this decision supersedes the 2026-08-21 minimal analytical
+footer for Read and Speed only, plus the persistent Read ruler clauses in
+[spatial-reader.md](spatial-reader.md) and the retained-footer, progress-only
+dock, and inline disclosure layout clauses in
+[rsvp-reader.md](rsvp-reader.md). Atlas's footer contract and every existing
+source, cursor, timing, pacing, suspension, exit, safe-area, keyboard, and
+320px-floor guarantee will remain. The earlier 2026-09-01 mobile decision also
+remains: its three-pixel progress floor will become the dedicated reading rail.
+
+The product direction and measurements are recorded in
+[reader-chrome-spike.md](reader-chrome-spike.md). Pinned Opus consultations
+`req_consult_86ac172427f1f02a` and `req_consult_afb03055ab855c51` established
+the product and implementation contracts respectively.
+
 ## 2026-09-01 — Reader selects a word and exposes Speed on mobile
 
 Read now has an exact, ephemeral reading cursor that can be moved by tapping
@@ -396,6 +447,12 @@ interaction, pacing, architecture, evidence, and test contract is recorded in
 [rsvp-reader.md](rsvp-reader.md).
 
 ## 2026-08-21 — Reader keeps a minimal analytical footer
+
+**Superseded by the accepted 2026-09-01 implementation contract for Read and
+Speed; retained for Atlas.** Until that work lands, this entry still describes
+shipped chrome. The authenticated fitted-page publication contract in the
+final paragraph remains current and will drive the dedicated active-text
+progress rail.
 
 Reader now retains the shared Terms, all-book graph, progress cursor, and
 dispersion barcode in a footer that opens with its Terms row already

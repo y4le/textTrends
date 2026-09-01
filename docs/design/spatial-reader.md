@@ -5,6 +5,13 @@
 **Scope:** Reader product model, document comparison, navigation, state,
 rendering architecture, accessibility, performance gates, and delivery plan
 
+**Accepted amendment, pending implementation:** compact/regular Read will
+replace the persistent header, ruler, page/reference row, and analytical footer
+with the bar, controls sheet, and dedicated progress rail defined in
+[reader-chrome-spike.md](reader-chrome-spike.md). Until those implementation
+commits land, the layout and acceptance clauses below continue to describe the
+shipped Reader.
+
 ## Summary
 
 TextTrends should have one full-viewport Reader with two semantic scales:

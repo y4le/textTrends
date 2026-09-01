@@ -6,6 +6,13 @@ recommendations in [interaction-modes-plan.md](interaction-modes-plan.md) where
 they differ. It describes the shipped interaction, package, and pacing
 contracts.
 
+**Accepted amendment, pending implementation:** Speed will replace the
+analytical footer and inline frame/rhythm disclosure with the dedicated
+active-text progress rail, consolidated controls, and overlay settings sheet
+defined in [reader-chrome-spike.md](reader-chrome-spike.md). Until those commits
+land, the layout and acceptance clauses below continue to describe shipped
+behavior.
+
 The decision was informed by repository inspection, direct inspection of
 [Appnull](https://www.appnull.com/), primary-source web research, and an
 explicitly pinned Claude Opus research consultation through Parley (request
@@ -38,6 +45,10 @@ The visible-entry, reading-cursor, explicit-exit, and mobile amendment followed
 another explicitly pinned Opus architecture consultation (request
 `req_consult_fcfee050efafba2e`, artifact
 `art_sha256_5fc634b6622b6730a4358d00800602637b95be7731e2c90a817d56ca4f796294`).
+The Reader/Speed chrome consolidation was then accepted through pinned Opus
+product and architecture passes (requests `req_consult_86ac172427f1f02a` and
+`req_consult_afb03055ab855c51`; architecture artifact
+`art_sha256_6689ccad74b18e884b597fcd2917145275841a318e9ae0244e04362768fb853c`).
 
 ## Outcome
 
