@@ -4,6 +4,41 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-09-01 — Reader selects a word and exposes Speed on mobile
+
+Read now has an exact, ephemeral reading cursor that can be moved by tapping
+authenticated prose without issuing a query, changing page geometry, or
+interfering with native selection. It publishes through the canonical scrub
+position but remains Reader presentation state: Atlas retains it only while
+the resident Read page remains valid, and ordinary corpus, snapshot, or
+navigation resets clear it. Query marks select their source token before
+opening their existing KWIC action.
+
+The Read ruler now exists for one-text as well as multi-text corpora and ends
+in a visible **Speed** control. Visible entry is paused; its accessible name
+identifies the selected word when one has been chosen. Shift+S retains its
+immediate-play behavior unless reduced motion is requested. Both paths resolve
+the same precedence: explicit reading cursor, authenticated source anchor,
+then fitted-page start.
+
+Inside Speed, a stable primary tap on the focal stage toggles playback. Drags,
+holds, nested controls, and background taps do not. Return to Reader, Escape,
+and Shift+S are the explicit exits and restore the displayed token as the
+visible prose cursor after reload. Compact portrait collapses the analytical
+dock to its three-pixel progress floor; viewports at most 520 CSS pixels tall
+suppress it while retaining the component's remembered size. The compact
+transport uses two rows and every visible entrance or control target remains
+at least 44 CSS pixels.
+
+The direction came from pinned Opus architecture consultation
+`req_consult_fcfee050efafba2e`. Exact staged Opus reviews approved the cursor
+(`req_review_diff_aa7a47684b3e2584`), entry
+(`req_review_diff_c46af77b7a1bc1dd`), stage
+(`req_review_diff_f04b6d4ebcabb02f`), and mobile
+(`req_review_diff_00055d6146589793`) slices. The full interaction, layout,
+review receipts, and acceptance contract are recorded in
+[rsvp-reader.md](rsvp-reader.md).
+
 ## 2026-08-30 — Guided learning follows one source-honest round trip
 
 The first-run tour teaches one relationship: a mark is a place, and a place

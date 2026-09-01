@@ -1,7 +1,7 @@
 # Continuous Reader and the document Atlas
 
-**Status:** accepted direction; staged implementation proposed
-**Date:** 2026-08-29
+**Status:** implemented; reading-cursor and Speed-entry amendment shipped
+**Date:** 2026-09-01
 **Scope:** Reader product model, document comparison, navigation, state,
 rendering architecture, accessibility, performance gates, and delivery plan
 
@@ -14,8 +14,10 @@ TextTrends should have one full-viewport Reader with two semantic scales:
 - **Atlas** places complete text extents next to one another as categorical
   columns, with shown terms painted at their within-text positions.
 
-The same exact `{ document, token }` position connects the scales. A person can
-move from evidence to prose, pull back to compare term distribution across
+The same exact `{ document, token }` position connects the scales. In Read, a
+person may also tap a source word to move the visible reading cursor before
+starting Speed reading. A person can move from evidence to prose, pull back to
+compare term distribution across
 texts, pan horizontally when the corpus is wider than the viewport, choose a
 new position, and return to prose without creating a second reading cursor.
 
@@ -159,8 +161,12 @@ an occurrence.
 
 The existing Reader layer target remains the durable identity within the open
 layer. The shared `scrub` cursor remains the single published reading position.
-Atlas does not add a second cursor. Pixel scroll offsets, column mount windows,
-canvas dimensions, and animation progress are component state only.
+`readerCursorToken` is a narrow Read presentation cursor used to render the
+selected source word and choose Speed's start token; setting it also publishes
+the same token to `scrub`, so it is not an independent analytical position.
+Atlas retains it only while the authenticated Read page is resident. Pixel
+scroll offsets, column mount windows, canvas dimensions, and animation progress
+are component state only.
 
 Scale is transient presentation state and is not written to workspace or
 browser history. External occurrence evidence always opens or retargets exact
@@ -186,7 +192,8 @@ and remains visible whenever Atlas is open.
 | `w` / `b` | previous/next exact shown-term occurrence | occurrence | preserve scale |
 | previous/next text | same relative position in adjacent text | position | preserve scale |
 | Home / End | real active-text boundary | position | preserve scale |
-| RSVP entry | current authenticated Read token | preserved | RSVP from Read only |
+| visible Speed entry | selected/authenticated Read token | preserved; starts paused | RSVP from Read only |
+| Shift+S entry | selected/authenticated Read token | preserved; starts playing unless reduced motion | RSVP from Read only |
 
 A column body click selects and stays in Atlas so a person can compare before
 committing. Double activation or Enter descends to Read at that position.
@@ -224,17 +231,20 @@ token. No Atlas action weakens snapshot or matching-identity guards.
 
 ## Ruler contract
 
-The ruler and Read/Atlas scale control appear only when at least two ready texts
-are available. Atlas is a comparison instrument; a one-text corpus remains in
-Read and receives neither redundant ruler nor unavailable scale choice. The
-scale control has one home in the persistent Reader header. The ruler occupies
-a stable chrome band between that header and content.
+The Read ruler appears for one or more ready texts because it now owns the
+visible Speed entrance as well as position. Previous/next-text controls and the
+text ordinal appear only when at least two ready texts are available. The
+Read/Atlas scale control likewise appears only when Atlas is available. Atlas
+remains a comparison instrument, so a one-text corpus stays in Read. The scale
+control has one home in the persistent Reader header. The ruler occupies a
+stable chrome band between that header and content.
 
 At Read scale it shows:
 
 - previous and next text controls;
 - the active title, ordinal, token count, and percentage;
-- a thin within-text position indicator.
+- a thin within-text position indicator; and
+- a visible Speed control that enters paused at the selected/current token.
 
 At Atlas scale it shows:
 
@@ -254,9 +264,10 @@ but it must not remove the header scale control, previous/next text access,
 Back, or the compressed analytical footer. In a short viewport the ruler first
 drops secondary metadata and its scrolling title list, then becomes one compact
 active-identity band with previous/next controls. Its targets follow the
-existing height-qualified policy: the ordinary 44px coarse target may compress
-to the established 32px short-viewport floor. Analytical content and the
-footer's separate density-specific target ladder remain unchanged.
+existing height-qualified policy, except Reader ruler controls now retain a
+44px block target in compact and short viewports so the Speed entrance remains
+touchable. Analytical content and the footer's separate density-specific target
+ladder remain unchanged.
 
 ## Atlas geometry and normalization
 
@@ -619,8 +630,10 @@ features that actually shipped, including review request and receipt ids.
 - External occurrence evidence enters exact Read; raw/density positions retain
   their position claim.
 - Back/Escape and `Ctrl+O`/`Ctrl+I` retain current ownership.
-- RSVP can be entered only from authenticated Read and returns to the same
-  token.
+- Read prose taps update the exact cursor without a worker query or page turn;
+  native selection and blank-gutter paging keep their existing ownership.
+- RSVP can be entered only from authenticated Read, starts at the explicit
+  cursor when present, and returns to the same visible token.
 
 ### Visual truth
 
@@ -657,8 +670,8 @@ features that actually shipped, including review request and receipt ids.
 - Browser zoom is never intercepted.
 - 320px WebKit has no page-level overflow and retains ruler, scale, Back, and
   the compressed footer.
-- Ordinary coarse targets remain 44 CSS pixels and follow the shipped
-  height-qualified compression down to the 32px short-viewport floor.
+- Reader ruler and Speed controls remain at least 44 CSS pixels in compact and
+  short viewports.
 
 ### Regression
 
