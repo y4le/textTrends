@@ -164,7 +164,8 @@ test('Read uses measured wide rails, falls back to one compact bar, and has no a
   expect(leftBox.x + leftBox.width).toBeLessThanOrEqual(proseBoxWide.x + 0.5);
   expect(proseBoxWide.x + proseBoxWide.width).toBeLessThanOrEqual(rightBox.x + 0.5);
   expect(fit.available + 0.5).toBeGreaterThanOrEqual(fit.required);
-  await expect(reader.getByRole('progressbar')).toHaveAttribute('data-orientation', 'vertical');
+  await expect(reader.getByRole('slider', { name: /Position in/ }))
+    .toHaveAttribute('data-orientation', 'vertical');
   for (const name of [
     'Open document Atlas',
     'Open Speed reader paused at the reading cursor',
@@ -183,8 +184,9 @@ test('Read uses measured wide rails, falls back to one compact bar, and has no a
   for (const button of await leftRail.getByRole('button').all()) {
     expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   }
-  await expect(reader.getByRole('progressbar')).toHaveCount(1);
-  await expect(reader.getByRole('progressbar')).not.toHaveAttribute('aria-live');
+  await expect(reader.getByRole('slider', { name: /Position in/ })).toHaveCount(1);
+  await expect(reader.getByRole('slider', { name: /Position in/ }))
+    .not.toHaveAttribute('aria-live');
 
   const railsMeasure = (await reader.locator('.source-text').boundingBox())?.width;
   await page.setViewportSize({ width: 1_000, height: 900 });
@@ -284,8 +286,9 @@ test('wide Reader Find overlays the fitted page without replacing its measured r
   await expect(layout).toHaveAttribute('data-reader-layout', 'rails');
   await expect(reader.getByRole('complementary', { name: 'Reader navigation rail' })).toBeVisible();
   await expect(reader.getByRole('complementary', { name: 'Reader position rail' })).toBeVisible();
-  await expect(reader.getByRole('progressbar')).toHaveCount(1);
-  await expect(reader.getByRole('progressbar')).toHaveAttribute('data-orientation', 'horizontal');
+  await expect(reader.getByRole('slider', { name: /Position in/ })).toHaveCount(1);
+  await expect(reader.getByRole('slider', { name: /Position in/ }))
+    .toHaveAttribute('data-orientation', 'horizontal');
   expect(await pane.boundingBox()).toEqual(paneBox);
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
   const [findBox, layoutBox] = await Promise.all([find.boundingBox(), layout.boundingBox()]);
@@ -296,7 +299,8 @@ test('wide Reader Find overlays the fitted page without replacing its measured r
   await find.getByRole('button', { name: 'Clear and close find' }).click();
   await expect(find).toHaveCount(0);
   await expect(trigger).toBeFocused();
-  await expect(reader.getByRole('progressbar')).toHaveAttribute('data-orientation', 'vertical');
+  await expect(reader.getByRole('slider', { name: /Position in/ }))
+    .toHaveAttribute('data-orientation', 'vertical');
   expect(await pane.boundingBox()).toEqual(paneBox);
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
 });

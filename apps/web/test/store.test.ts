@@ -5146,6 +5146,58 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     return f;
   };
 
+  it('latches live-seek bounds and coalesces history without rewriting browser state', async () => {
+    const history = new FakeHistoryPort('/textTrends/?p=matches');
+    const f = harness(undefined, { history });
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 4, from: 'kwic', anchor: 'occurrence',
+    });
+    f.readers().at(-1)!.resolve(fakeReaderPage(0, 200, 200_000, 'a', 4));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 0, end: 100 }, geometry: 'test',
+    });
+    const replacesBefore = history.replaces;
+    const issuedBefore = f.readers().length;
+
+    f.store.getState().seekReader(20_000, 'start');
+    f.store.getState().seekReader(40_000, 'preview');
+    f.store.getState().seekReader(60_000, 'commit');
+
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 60_000 });
+    expect(f.readers()).toHaveLength(issuedBefore + 3);
+    expect(history.replaces).toBe(replacesBefore);
+    expect(f.store.getState().positionHistory.entries.map((entry) => entry.token))
+      .toEqual([4, 60_000]);
+    f.runtime.dispose();
+  });
+
+  it('clears a rejected live-seek commit before the next independent jump', async () => {
+    const f = setup();
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 4, from: 'kwic', anchor: 'occurrence',
+    });
+    f.readers().at(-1)!.resolve(fakeReaderPage(0, 200, 200_000, 'a', 4));
+    await flush();
+
+    f.store.getState().seekReader(20_000, 'start');
+    f.store.setState({ readerScale: 'atlas', scrub: { doc: 'a', token: 1_200 } });
+    f.store.getState().seekReader(30_000, 'commit');
+    f.store.setState({
+      readerScale: 'read',
+      corpusTokenCounts: new Map([['a', 200_000]]),
+    });
+    f.store.getState().seekReader(40_000, 'commit');
+
+    expect(f.store.getState().positionHistory.entries.slice(-2)).toMatchObject([
+      { doc: 'a', token: 1_200 },
+      { doc: 'a', token: 40_000, origin: 'seek' },
+    ]);
+    f.runtime.dispose();
+  });
+
   it('keeps scale transient, makes Atlas query-free, and restores resident Read', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);

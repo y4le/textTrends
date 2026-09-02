@@ -128,7 +128,7 @@ test('the workbench footer shares one corpus axis and opens the current passage'
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
   await expect(reader.locator('.workbench-dock')).toHaveCount(0);
-  await expect(reader.getByRole('progressbar')).toHaveCount(1);
+  await expect(reader.getByRole('slider', { name: /Position in/ })).toHaveCount(1);
   await page.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(footer).toBeVisible();
 });

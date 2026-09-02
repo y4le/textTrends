@@ -56,6 +56,7 @@ export function ReaderWideRails({
   const closeReader = useApp((state) => state.closeReader);
   const navigation = useApp((state) => state.readerNavigation);
   const navigateReader = useApp((state) => state.navigateReader);
+  const seekReader = useApp((state) => state.seekReader);
   const stepOccurrence = useApp((state) => state.stepOccurrence);
   const stepDocument = useApp((state) => state.stepReaderDocument);
   const setScale = useApp((state) => state.setReaderScale);
@@ -182,6 +183,7 @@ export function ReaderWideRails({
               orientation="vertical"
               progress={progress}
               accessibleName={position === null ? 'Reading position' : `Position in ${position.title}`}
+              onSeek={seekReader}
             />
           )}
         </div>

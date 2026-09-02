@@ -15,6 +15,7 @@ export function ReaderControlBar({
 }) {
   const closeReader = useApp((state) => state.closeReader);
   const navigateReader = useApp((state) => state.navigateReader);
+  const seekReader = useApp((state) => state.seekReader);
   const navigation = useApp((state) => state.readerNavigation);
   const enterRsvp = useApp((state) => state.enterRsvp);
   const { position, progress, commands } = useReaderChromeModel();
@@ -42,6 +43,7 @@ export function ReaderControlBar({
         className="reader-control-progress"
         progress={progress}
         accessibleName={`Position in ${positionTitle}`}
+        onSeek={seekReader}
       />
       <button
         type="button"

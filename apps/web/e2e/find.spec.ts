@@ -368,7 +368,7 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await expect(find.locator('.reader-find-progress')).toBeVisible();
   await expect(reader.locator('.workbench-dock')).toHaveCount(0);
   await expect(reader.getByRole('navigation', { name: 'Reader controls' })).toHaveCount(0);
-  await expect(reader.getByRole('progressbar')).toHaveCount(1);
+  await expect(reader.getByRole('slider', { name: /Position in/ })).toHaveCount(1);
   await expect(reader).toBeVisible();
   await expect(reader.getByLabel('Reader query highlights')).toHaveCount(0);
   await expect(reader.locator('[data-reader-mark]').filter({ hasText: 'moriarty' }).first())
@@ -507,7 +507,7 @@ test('Reader controls exposes a touch-sized Find takeover in the reading bar', a
   await expect(dialog).toHaveCount(0);
   await expect(input).toBeFocused();
   await expect(reader.locator('.workbench-dock')).toHaveCount(0);
-  await expect(reader.getByRole('progressbar')).toHaveCount(1);
+  await expect(reader.getByRole('slider', { name: /Position in/ })).toHaveCount(1);
   expect(await prosePane.boundingBox()).toEqual(paneBox);
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
   await expect.poll(async () => (await reader.locator('.reader-find-takeover').boundingBox())?.height ?? 0)
@@ -525,6 +525,11 @@ test('Reader controls exposes a touch-sized Find takeover in the reading bar', a
     expect(box?.width).toBeGreaterThanOrEqual(44);
     expect(box?.height).toBeGreaterThanOrEqual(44);
   }
+  const exitBox = await find.getByRole('button', { name: 'Return to workbench' }).boundingBox();
+  if (!exitBox) throw new Error('Reader Find exit button has no layout box');
+  expect(await page.evaluate(({ x, y }) => (
+    document.elementFromPoint(x, y)?.closest('button')?.className ?? ''
+  ), { x: exitBox.x + exitBox.width / 2, y: exitBox.y + 2 })).toContain('reader-find-exit');
   await input.fill('holmes');
   await input.press('Enter');
   await expect(find.getByRole('button', { name: 'Next match' })).toBeFocused();

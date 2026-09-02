@@ -278,6 +278,78 @@ test('compact Reader is a Back/Escape layer and restores its invoking row', asyn
   await expect(page.getByRole('grid', { name: 'Matches' })).toBeFocused();
 });
 
+test('dragging the Reader progress rail seeks to that position', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await gotoPlace(page, 'matches');
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await page
+    .getByRole('grid', { name: 'Matches' })
+    .getByRole('button', { name: 'wolf', exact: true })
+    .click();
+  await awaitFreshReader(page, mark);
+
+  const reader = page.getByRole('main', { name: /Reader: reader/ });
+  const pageText = reader.locator('[data-reader-page]');
+  const position = reader.getByRole('slider', { name: /Position in reader/ });
+  const box = await position.boundingBox();
+  if (!box) throw new Error('Reader position slider has no layout box');
+  expect(box.height).toBeGreaterThanOrEqual(11);
+  expect(await page.evaluate(({ x, y }) => (
+    document.elementFromPoint(x, y)?.closest('[role="slider"]')?.getAttribute('role') ?? ''
+  ), { x: box.x + box.width / 2, y: box.y + 8.5 })).toBe('slider');
+  const back = reader.getByRole('button', { name: 'Return to workbench', exact: true });
+  const backBox = await back.boundingBox();
+  if (!backBox) throw new Error('Reader back button has no layout box');
+  expect(await page.evaluate(({ x, y }) => (
+    document.elementFromPoint(x, y)?.closest('button')?.className ?? ''
+  ), { x: backBox.x + backBox.width / 2, y: backBox.y + 2 })).toContain('reader-control-exit');
+
+  const targetToken = Math.round(0.75 * (900 - 1));
+  const y = box.y + box.height / 2;
+  const pointer = {
+    pointerType: 'mouse',
+    pointerId: 17,
+    isPrimary: true,
+    button: 0,
+  };
+  const seekMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await position.dispatchEvent('pointerdown', {
+    ...pointer,
+    clientX: box.x + box.width * 0.2,
+    clientY: y,
+  });
+  await position.dispatchEvent('pointermove', {
+    ...pointer,
+    clientX: box.x + box.width * 0.75,
+    clientY: y,
+  });
+  await expect(position).toHaveAttribute('data-seeking', 'true');
+  await expect(position).toHaveAttribute('aria-valuenow', String(targetToken + 1));
+  await awaitFreshReader(page, seekMark);
+  await expect(pageText).toHaveAttribute(
+    'data-reader-page',
+    new RegExp(`^${targetToken}:\\d+$`),
+  );
+
+  await position.dispatchEvent('pointerup', {
+    ...pointer,
+    clientX: box.x + box.width * 0.75,
+    clientY: y,
+  });
+  await expect(pageText).toHaveAttribute(
+    'data-reader-page',
+    new RegExp(`^${targetToken}:\\d+$`),
+  );
+  await expect(position).toHaveAttribute('aria-valuenow', String(targetToken + 1));
+
+  const keyboardTarget = targetToken + Math.round((900 - 1) / 100);
+  await position.dispatchEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight' });
+  await expect(position).toHaveAttribute('data-seeking', 'true');
+  await expect(position).toHaveAttribute('aria-valuenow', String(keyboardTarget + 1));
+  await position.dispatchEvent('keyup', { key: 'ArrowRight', code: 'ArrowRight' });
+  await expect(position).not.toHaveAttribute('data-seeking', 'true');
+});
+
 test('Matches opens the lazy reader; navigation and edited highlights stay correct', async ({ page }) => {
   // Pin this store-ordering proof to a compact Reader geometry so a wide-rail
   // height refit cannot add a third source request to the two-result gate.
@@ -294,7 +366,7 @@ test('Matches opens the lazy reader; navigation and edited highlights stay corre
   await expect(drawer.locator('.reader-prose-pane')).not.toHaveAttribute('data-reader-fitting');
   await expect(drawer.locator('.workbench-dock')).toHaveCount(0);
   await expect(drawer).toHaveAttribute('data-reader-footer', 'false');
-  await expect(drawer.getByRole('progressbar')).toHaveCount(1);
+  await expect(drawer.getByRole('slider', { name: /Position in/ })).toHaveCount(1);
   const initialRange = await drawer.locator('[data-reader-page]').getAttribute('data-reader-page');
   const initialMatch = /^(\d+):(\d+)$/.exec(initialRange ?? '');
   expect(initialMatch).not.toBeNull();

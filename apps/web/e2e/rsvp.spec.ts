@@ -90,8 +90,8 @@ test('a visible Reader control starts paused Speed reading at the selected word'
     exact: true,
   });
   await expect(speed).toBeVisible();
-  const readerProgress = reader.getByRole('progressbar');
-  const selectedPercent = await readerProgress.getAttribute('aria-valuenow');
+  const readerProgress = reader.getByRole('slider', { name: /Position in/ });
+  const selectedProgress = await readerProgress.getAttribute('data-reader-progress');
   if (testInfo.project.name === 'webkit-compact') {
     expect((await speed.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   }
@@ -102,10 +102,10 @@ test('a visible Reader control starts paused Speed reading at the selected word'
     .locator('.reader-rsvp-word')).toHaveText(selectedWord);
   const speedProgress = reader.getByRole('progressbar');
   await expect(speedProgress).toHaveCount(1);
-  await expect(speedProgress).toHaveAttribute('aria-valuenow', selectedPercent ?? '');
+  await expect(speedProgress).toHaveAttribute('data-reader-progress', selectedProgress ?? '');
   await expect(speedProgress).not.toHaveAttribute('aria-live');
   await page.keyboard.press('Space');
-  await expect(speedProgress).not.toHaveAttribute('aria-valuenow', selectedPercent ?? '');
+  await expect(speedProgress).not.toHaveAttribute('data-reader-progress', selectedProgress ?? '');
 });
 
 test('mobile Speed reading gives the word stage the portrait and landscape viewport', async ({ page }) => {

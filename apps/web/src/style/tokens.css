@@ -735,6 +735,38 @@ canvas {
   pointer-events: none;
 }
 
+.reader-progress-rail[data-seekable='true'] {
+  block-size: 17px;
+  overflow: visible;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.reader-progress-rail[data-seekable='true']::before {
+  position: absolute;
+  inset-block-start: 7px;
+  inset-inline: 0;
+  block-size: 3px;
+  background: var(--rule);
+  content: '';
+  pointer-events: none;
+}
+
+.reader-progress-rail[data-seekable='true']:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--accent-text);
+  outline-offset: 1px;
+}
+
+.reader-progress-rail[data-seekable='true'] .reader-progress-fill,
+.reader-progress-rail[data-seekable='true'] .reader-progress-cursor {
+  inset-block: 7px auto;
+  block-size: 3px;
+  pointer-events: none;
+}
+
 .reader-progress-fill,
 .reader-progress-cursor {
   position: absolute;
@@ -756,16 +788,40 @@ canvas {
   block-size: 100%;
 }
 
+.reader-progress-rail[data-orientation='vertical'][data-seekable='true'] {
+  inline-size: 17px;
+  block-size: 100%;
+}
+
+.reader-progress-rail[data-orientation='vertical'][data-seekable='true']::before {
+  inset-block: 0;
+  inset-inline-start: 7px;
+  inline-size: 3px;
+  block-size: auto;
+}
+
 .reader-progress-rail[data-orientation='vertical'] .reader-progress-fill {
   inset-block-start: 0;
   inset-inline: 0;
   inline-size: auto;
 }
 
+.reader-progress-rail[data-orientation='vertical'][data-seekable='true'] .reader-progress-fill {
+  inset-inline: auto;
+  inset-inline-start: 7px;
+  inline-size: 3px;
+}
+
 .reader-progress-rail[data-orientation='vertical'] .reader-progress-cursor {
   inset-inline: 0;
   block-size: 2px;
   inline-size: auto;
+}
+
+.reader-progress-rail[data-orientation='vertical'][data-seekable='true'] .reader-progress-cursor {
+  inset-inline: auto;
+  inset-inline-start: 7px;
+  inline-size: 3px;
 }
 
 @media (forced-colors: active) {
@@ -780,9 +836,25 @@ canvas {
     background: Highlight;
   }
 
+  .reader-progress-rail[data-seekable='true'] {
+    border-block-start: 0;
+  }
+
+  .reader-progress-rail[data-seekable='true']::before {
+    background: CanvasText;
+  }
+
+  .reader-progress-rail[data-seekable='true']:focus-visible {
+    outline-color: Highlight;
+  }
+
   .reader-progress-rail[data-orientation='vertical'] {
     border-block-start: 0;
     border-inline-start: 1px solid CanvasText;
+  }
+
+  .reader-progress-rail[data-orientation='vertical'][data-seekable='true'] {
+    border-inline-start: 0;
   }
 }
 
@@ -1001,6 +1073,11 @@ canvas {
   z-index: 1;
   inset-block-start: -1px;
   inset-inline: 0;
+}
+
+.reader-control-progress[data-seekable='true'] {
+  inset-block-start: -8px;
+  block-size: 11px;
 }
 
 .reader-control-bar > button {

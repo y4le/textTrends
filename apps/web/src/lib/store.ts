@@ -1053,6 +1053,8 @@ export interface AppState {
   setReaderVisibleRange(range: ReaderVisibleRangeV1): void;
   setReadingCursor(token: number): void;
   refitReaderAt(token: number): void;
+  /** Seek to one validated token. Drag phases coalesce into one history jump. */
+  seekReader(token: number, phase?: 'start' | 'preview' | 'commit'): void;
   navigateReader(target: ReaderNavigationTarget | ReaderPlace['cursor']): void;
   retryReader(): void;
   closeReader(): void;
@@ -1552,6 +1554,11 @@ export function createAppRuntime(
     boundaries: number[];
     index: number;
   } | null = null;
+  let readerSeekSession: {
+    readonly doc: string;
+    readonly origin: ScrubTarget | null;
+    readonly tokenCount: number;
+  } | null = null;
 
   const clearPositionHistoryTimer = (): void => {
     if (positionHistoryTimer !== null) {
@@ -1666,9 +1673,10 @@ export function createAppRuntime(
       options: {
         readonly preserveReaderNavigation?: boolean;
         readonly resolveRoute?: boolean;
+        readonly writeHistory?: boolean;
       } = {},
     ): void => {
-      if (historyPort !== null) {
+      if (historyPort !== null && options.writeHistory !== false) {
         const routePlace = options.resolveRoute === true || get().routeStatus === 'resolved'
           ? place
           : null;
@@ -1712,23 +1720,26 @@ export function createAppRuntime(
       target: ReaderNavigationTarget,
       anchor: ReaderAnchorKind = 'position',
       from?: ReaderOpenIntent['from'],
+      options: {
+        readonly preview?: boolean;
+      } = {},
     ): void => {
       const place = get().readerPlace;
       const cursor = target.cursor;
       const origin = from ?? place?.from;
+      const sameTarget = place !== null
+        && target.doc === place.doc
+        && anchor === place.anchor
+        && origin === place.from
+        && sameReaderCursor(cursor, place.cursor);
       if (
         place === null
-        || (
-          target.doc === place.doc
-          && anchor === place.anchor
-          && origin === place.from
-          && sameReaderCursor(cursor, place.cursor)
-        )
         || !get().snapshot?.readyDocs.includes(target.doc)
         || !Number.isSafeInteger(cursor.token)
         || cursor.token < 0
         || (cursor.kind === 'before' && cursor.token < 1)
       ) return;
+      if (sameTarget) return;
       const readerIndex = get().layers.findLastIndex((layer) => layer.kind === 'reader');
       const readerLayer = get().layers[readerIndex];
       if (readerIndex < 0 || readerLayer?.kind !== 'reader') return;
@@ -1751,7 +1762,10 @@ export function createAppRuntime(
         'replace',
         get().place,
         layers,
-        { preserveReaderNavigation: sameDocument },
+        {
+          preserveReaderNavigation: sameDocument,
+          writeHistory: options.preview !== true,
+        },
       );
       if (!sameDocument) readerWalk = null;
       get().runReader();
@@ -4665,6 +4679,87 @@ export function createAppRuntime(
         replaceReaderTarget({ doc: source.doc, cursor: { kind: 'from', token } });
       },
 
+      seekReader(token, phase = 'commit') {
+        const state = get();
+        const place = state.readerPlace;
+        const session = readerSeekSession;
+        // A rejected commit must still end the prior gesture. Otherwise a
+        // later seek could record history from an abandoned, stale origin.
+        if (phase === 'commit') readerSeekSession = null;
+        const readyPage = state.readerPage
+          && place
+          && sameReaderPlace(state.readerPage.place, place)
+          && state.readerPage.state.status === 'ready'
+          ? state.readerPage.state.page
+          : null;
+        const tokenCount = session !== null && session.doc === place?.doc
+          ? session.tokenCount
+          : readyPage?.docTokenCount
+          ?? (place === null ? undefined : state.corpusTokenCounts.get(place.doc));
+        if (
+          state.interaction.kind === 'rsvp'
+          || state.readerScale !== 'read'
+          || place === null
+          || tokenCount === undefined
+          || !Number.isSafeInteger(token)
+          || token < 0
+          || token >= tokenCount
+        ) return;
+        const target = { doc: place.doc, token };
+        let activeSession = session !== null && session.doc === place.doc
+          ? session
+          : null;
+        if (phase === 'start' || (phase === 'preview' && activeSession === null)) {
+          activeSession = {
+            doc: place.doc,
+            origin: state.scrub,
+            tokenCount,
+          };
+          readerSeekSession = activeSession;
+        }
+        if (phase === 'commit') {
+          const origin = activeSession?.origin ?? state.scrub;
+          if (origin?.doc !== target.doc || origin.token !== target.token) {
+            recordPositionJumpNow(origin, target, 'seek');
+          }
+        }
+        const changed = state.scrub?.doc !== place.doc || state.scrub.token !== token;
+        if (changed) occurrenceLane.supersede();
+        const visible = state.readerVisibleRange;
+        if (
+          visible !== null
+          && visible.snapshot === place.snapshot
+          && visible.doc === place.doc
+          && token >= visible.tokens.start
+          && token < visible.tokens.end
+        ) {
+          set({
+            readerCursorToken: token,
+            ...(changed
+              ? {
+                  scrub: target,
+                  occurrenceNavigation: null,
+                  matchesReveal: null,
+                }
+              : {}),
+          });
+          return;
+        }
+        if (changed) {
+          set({
+            scrub: target,
+            occurrenceNavigation: null,
+            matchesReveal: null,
+          });
+        }
+        replaceReaderTarget(
+          { doc: place.doc, cursor: { kind: 'from', token } },
+          'position',
+          undefined,
+          activeSession === null ? {} : { preview: true },
+        );
+      },
+
       navigateReader(target) {
         if (get().interaction.kind === 'rsvp' || get().readerScale !== 'read') return;
         const { readerPlace: place, readerNavigation: navigation, readerPage } = get();
@@ -4710,6 +4805,7 @@ export function createAppRuntime(
       },
 
       closeReader() {
+        readerSeekSession = null;
         requestBack();
       },
 
@@ -6140,6 +6236,7 @@ export function createAppRuntime(
 
   const reconcileHistory = (): void => {
     if (historyPort === null || disposed) return;
+    readerSeekSession = null;
     const requestedFocusTo = pendingBackFocusTo;
     pendingBackFocusTo = null;
     historyTraversalPending = false;
