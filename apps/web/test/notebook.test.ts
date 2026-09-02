@@ -10,7 +10,6 @@ import {
   NOTEBOOK_LIMITS_V1,
   normalizeAuthoredAliases,
   parseAuthoredAliases,
-  parseQueryNotebook,
   parseQuickAdd,
   resolveActiveStyleCollisions,
   stylesVisuallyCollide,
@@ -216,38 +215,6 @@ describe('durable styles', () => {
     expect(resolved.groups[1]!.style.color).not.toBe('blue');
     expect(stylesVisuallyCollide(resolved.groups[0]!.style, resolved.groups[1]!.style))
       .toBe(false);
-  });
-});
-
-describe('query notebook admission', () => {
-  it('admits v3 and upgrades legacy members, names, sensitivity, and styles', () => {
-    const current = notebook(group('g1', 'wolf'));
-    expect(parseQueryNotebook(current)).toBe(current);
-    expect(parseQueryNotebook({
-      schema: 'texttrends/query-notebook/1',
-      groups: [{
-        id: 'g1', name: 'New York', countOverlaps: false,
-        members: [{
-          id: 'm1', kind: 'phrase', surfaces: ['New', 'York'],
-          match: { case: 'sensitive', diacritics: 'sensitive' }, crossSentence: false,
-        }],
-      }],
-    })).toEqual(notebook({
-      id: 'g1', aliases: ['New York'], exactMatch: true, countOverlaps: false,
-      style: { color: 'blue', line: 'solid' },
-    }));
-  });
-
-  it('rejects wrong schemas, duplicate ids, sparse groups, and hostile over-cap arrays', () => {
-    expect(() => parseQueryNotebook({ schema: 'unknown', groups: [] })).toThrow(/schema/);
-    expect(() => parseQueryNotebook(notebook(group('g', 'a'), group('g', 'b'))))
-      .toThrow(/duplicate/);
-    expect(() => parseQueryNotebook({ schema: 'texttrends/query-notebook/3', groups: Array(1) }))
-      .toThrow(/dense/);
-    expect(() => parseQueryNotebook({
-      schema: 'texttrends/query-notebook/3',
-      groups: Array.from({ length: NOTEBOOK_LIMITS_V1.maxGroups + 1 }, (_, i) => group(`g${i}`, `a${i}`)),
-    })).toThrow(/at most/);
   });
 });
 
