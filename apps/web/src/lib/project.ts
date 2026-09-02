@@ -1,7 +1,7 @@
 /**
  * Runtime corpus descriptions. Durable intent lives in WorkspaceV1 and source
  * bytes live in the browser library; this module only derives worker inputs and
- * the bundled demo fixtures. Warm text identity is a verified cache hint, not
+ * the demo acquisition fixtures. Warm text identity is a verified cache hint, not
  * source truth.
  */
 
@@ -35,7 +35,6 @@ export interface ProjectDocV1 {
     readonly byteLength: number;
     readonly format: SourceFormat;
   };
-  readonly sourceAvailability: 'bundled' | 'library';
   readonly extraction: {
     readonly recipe: ExtractionRecipeProvisional;
     readonly recipeHash: string;
@@ -52,20 +51,7 @@ export interface ProjectDataV1 {
   readonly indexRecipeHash: string;
 }
 
-/**
- * One current corpus with an explicit byte origin. Both arms are durable as
- * workspace intent; only the built-in source bytes live outside the library.
- */
-export type CurrentProject =
-  | { readonly kind: 'builtin'; readonly data: ProjectDataV1 }
-  | { readonly kind: 'library'; readonly data: ProjectDataV1 };
-
-/** The read-only built-in current project. */
-export function builtinProject(data: ProjectDataV1): CurrentProject {
-  return { kind: 'builtin', data };
-}
-
-/** Stable ids for the read-only bundled corpora. */
+/** Stable ids for downloadable demo corpora. */
 export const BUILTIN_SHERLOCK_ID = 'builtin/sherlock';
 export const BUILTIN_AUSTEN_ID = 'builtin/austen';
 export const BUILTIN_BIBLE_ID = 'builtin/bible';
@@ -178,8 +164,7 @@ export function generationSpecsFromProject(data: ProjectDataV1): GenerationDocSp
   });
 }
 
-/** One bundled built-in document's static description (no source-ready is ever
- *  emitted for a warm exact reopen, so the built-in must be fully described). */
+/** One downloadable demo document's verified static description. */
 export interface BuiltinDocFixture {
   readonly doc: string;
   readonly title: string;
@@ -187,40 +172,6 @@ export interface BuiltinDocFixture {
   readonly textLengthUtf16: number;
   readonly sourceHash: string;
   readonly textHash: string;
-}
-
-/**
- * Build the built-in corpus's `ProjectDataV1` from its static fixtures. The
- * recipe hashes are recomputed once (memoize at the call site) and
- * checked against the fixture's asserted per-doc identities, so a recipe
- * change surfaces as a test failure, not a silently stale constant. Bundled
- * byte misses are fetched from the corpus URL.
- */
-export async function buildBuiltinProjectData(
-  id: string,
-  sourceDirectory: BuiltinCorpusOption['sourceDirectory'],
-  docs: readonly BuiltinDocFixture[],
-): Promise<ProjectDataV1> {
-  const { txt } = await defaultExtractionRecipes();
-  const [extractionRecipeHash, indexRecipeHash] = await Promise.all([
-    hashExtractionRecipe(txt),
-    hashIndexRecipe(DEFAULT_INDEX_RECIPE),
-  ]);
-  const projectDocs: ProjectDocV1[] = docs.map((d) => ({
-    doc: d.doc,
-    sourceName: `${sourceDirectory}/${d.doc}`,
-    meta: { title: d.title, language: 'en', tags: [] },
-    source: { hash: d.sourceHash, byteLength: d.bytes, format: 'txt' },
-    sourceAvailability: 'bundled',
-    extraction: { recipe: txt as ExtractionRecipeProvisional, recipeHash: extractionRecipeHash, text: d.textHash, textLengthUtf16: d.textLengthUtf16 },
-  }));
-  return {
-    id,
-    order: projectDocs.map((d) => d.doc),
-    docs: projectDocs,
-    indexRecipe: DEFAULT_INDEX_RECIPE,
-    indexRecipeHash,
-  };
 }
 
 export interface LibrarySourceInfo {
@@ -242,7 +193,6 @@ export function reconcileLibraryWorkspace(
   workspace: WorkspaceV1,
   availableLibrary: ReadonlySet<string>,
 ): ReconciledLibraryWorkspace {
-  if (workspace.corpus.kind !== 'library') return { workspace, removedDocuments: [] };
   const docs = workspace.corpus.docs.filter((doc) => availableLibrary.has(doc.library));
   const availableDocuments = new Set(docs.map((doc) => doc.doc));
   const removedDocuments = workspace.corpus.order.filter((doc) => !availableDocuments.has(doc));
@@ -263,10 +213,7 @@ export function reconcileLibraryWorkspace(
 export async function libraryProject(
   workspace: WorkspaceV1,
   sources: ReadonlyMap<string, LibrarySourceInfo>,
-): Promise<CurrentProject> {
-  if (workspace.corpus.kind !== 'library') {
-    throw new RangeError('a library project requires a library-backed workspace');
-  }
+): Promise<ProjectDataV1> {
   const recipes = await defaultExtractionRecipes();
   const [indexRecipeHash, recipeHashes] = await Promise.all([
     hashIndexRecipe(DEFAULT_INDEX_RECIPE),
@@ -291,7 +238,6 @@ export async function libraryProject(
         byteLength: source.size,
         format: source.format,
       },
-      sourceAvailability: 'library',
       extraction: {
         recipe: recipes[source.format],
         recipeHash: hashByFormat.get(source.format)!,
@@ -303,14 +249,11 @@ export async function libraryProject(
     };
   });
   return {
-    kind: 'library',
-    data: {
-      id: 'library',
-      order: workspace.corpus.order,
-      docs,
-      indexRecipe: DEFAULT_INDEX_RECIPE,
-      indexRecipeHash,
-    },
+    id: 'library',
+    order: workspace.corpus.order,
+    docs,
+    indexRecipe: DEFAULT_INDEX_RECIPE,
+    indexRecipeHash,
   };
 }
 
@@ -681,12 +624,6 @@ export const CLASSIC_NOVELS: readonly BuiltinDocFixture[] = [
   { doc: '10 - Anne of Green Gables - L. M. Montgomery', title: 'Anne of Green Gables', bytes: 576456, textLengthUtf16: 558304, sourceHash: '8e6239e75c98b1a77fa18981f668037f337bece95ce3c9d48889f71e02dc4e63', textHash: '8e6239e75c98b1a77fa18981f668037f337bece95ce3c9d48889f71e02dc4e63' },
 ];
 
-/** Bundled corpora as read-only `ProjectDataV1` values, each built ONCE (the
- *  recipe and empty-candidate hashes are corpus-wide constants). One project
- *  abstraction drives every origin; Sherlock is simply the initial selection.
- *  The composition root (`store-instance.ts`) awaits the registry to construct
- *  the session's initial `CurrentProject`. Lives HERE with the rest of the
- *  built-in vocabulary — the state container is not the authority for assets. */
 const FIXTURES: Readonly<Record<BuiltinCorpusId, readonly BuiltinDocFixture[]>> = {
   [BUILTIN_SHERLOCK_ID]: SHERLOCK,
   [BUILTIN_AUSTEN_ID]: AUSTEN,
@@ -704,28 +641,4 @@ const FIXTURES: Readonly<Record<BuiltinCorpusId, readonly BuiltinDocFixture[]>> 
 /** Integrity manifest for acquiring a demo as local text files. */
 export function demoCorpusFixtures(id: BuiltinCorpusId): readonly BuiltinDocFixture[] {
   return FIXTURES[id];
-}
-
-const builtinData = new Map<BuiltinCorpusId, Promise<ProjectDataV1>>();
-
-export function builtinProjectData(id: BuiltinCorpusId): Promise<ProjectDataV1> {
-  let data = builtinData.get(id);
-  if (data === undefined) {
-    const option = builtinCorpusOption(id);
-    if (option === undefined) throw new RangeError(`unknown built-in corpus '${id}'`);
-    data = buildBuiltinProjectData(id, option.sourceDirectory, FIXTURES[id]);
-    builtinData.set(id, data);
-  }
-  return data;
-}
-
-export function sherlockProjectData(): Promise<ProjectDataV1> {
-  return builtinProjectData(BUILTIN_SHERLOCK_ID);
-}
-
-export async function builtinProjectRegistry(): Promise<ReadonlyMap<BuiltinCorpusId, ProjectDataV1>> {
-  const entries = await Promise.all(
-    BUILTIN_CORPORA.map(async ({ id }) => [id, await builtinProjectData(id)] as const),
-  );
-  return new Map(entries);
 }

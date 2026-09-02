@@ -62,6 +62,13 @@ describe('workspace admission', () => {
     expect(parseWorkspace(validWorkspace())).toEqual(validWorkspace());
   });
 
+  it('rejects obsolete built-in corpus records', () => {
+    expect(() => parseWorkspace({
+      ...validWorkspace(),
+      corpus: { kind: 'builtin', id: 'builtin/sherlock' },
+    })).toThrow(/library-backed/);
+  });
+
   it('migrates legacy frequency expressions and validates current text filters', () => {
     const value = validWorkspace();
     const { filter: _filter, ...frequency } = value.views.frequency;
@@ -307,7 +314,6 @@ describe('workspace admission', () => {
 
   it('rejects dangling or malformed durable identities', () => {
     const value = validWorkspace();
-    if (value.corpus.kind !== 'library') throw new Error('fixture must be library-backed');
     const corpus = value.corpus;
     expect(() => parseWorkspace({
       ...value,
@@ -325,7 +331,6 @@ describe('workspace admission', () => {
 
   it('treats warm text identity as a bounded cache hint', () => {
     const value = validWorkspace();
-    if (value.corpus.kind !== 'library') throw new Error('fixture must be library-backed');
     const corpus = value.corpus;
     expect(() => parseWorkspace({
       ...value,

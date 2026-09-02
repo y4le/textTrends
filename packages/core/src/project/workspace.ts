@@ -71,13 +71,11 @@ export interface WorkspaceLibraryDocumentV1 {
   readonly warm?: WorkspaceWarmTextV1;
 }
 
-export type WorkspaceCorpusV1 =
-  | { readonly kind: 'builtin'; readonly id: string }
-  | {
-      readonly kind: 'library';
-      readonly order: readonly string[];
-      readonly docs: readonly WorkspaceLibraryDocumentV1[];
-    };
+export interface WorkspaceCorpusV1 {
+  readonly kind: 'library';
+  readonly order: readonly string[];
+  readonly docs: readonly WorkspaceLibraryDocumentV1[];
+}
 
 export interface WorkspaceTrendViewV1 {
   readonly mode: 'series' | 'by-book' | 'by-book-scaled';
@@ -241,11 +239,8 @@ function parseLibraryDocument(value: unknown): WorkspaceLibraryDocumentV1 {
 }
 
 function parseCorpus(value: unknown): WorkspaceCorpusV1 {
-  if (exactRecord(value, ['kind', 'id']) && value.kind === 'builtin') {
-    return { kind: 'builtin', id: boundedString(value.id, WORKSPACE_MAX_ID_UNITS, 'built-in corpus id') };
-  }
   if (!exactRecord(value, ['kind', 'order', 'docs']) || value.kind !== 'library') {
-    throw new RangeError('workspace corpus must be built-in or library-backed');
+    throw new RangeError('workspace corpus must be library-backed');
   }
   const order = uniqueStrings(value.order, INGEST_CAPS_V0.maxDocsPerProject, 'document order');
   const docs = denseArray(value.docs, INGEST_CAPS_V0.maxDocsPerProject, 'workspace documents')

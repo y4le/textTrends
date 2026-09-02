@@ -37,7 +37,7 @@ export function StatusBar() {
     () => scopeView(
       {
         project: project
-          ? { kind: project.kind, id: project.id, docCount: project.data.order.length }
+          ? { id: project.id, docCount: project.data.order.length }
           : null,
         pendingInputCount,
         snapshot,

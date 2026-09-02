@@ -81,15 +81,6 @@ export type WorkspaceReadResult =
 export interface LocalLibraryDeleteResult {
   /** Every active workspace document that referenced the deleted source. */
   readonly removedDocuments: readonly string[];
-  /** True when clear() discarded an unreadable workspace while resetting. */
-  readonly workspaceReset: boolean;
-}
-
-export class LocalLibraryWorkspaceCorruptError extends Error {
-  constructor(readonly reason: string) {
-    super(`the current workspace is damaged: ${reason}`);
-    this.name = 'LocalLibraryWorkspaceCorruptError';
-  }
 }
 
 /** Source bytes can legitimately be interpreted under different formats, so
@@ -261,17 +252,17 @@ export class BrowserLocalLibrary {
     void tx.done.catch(() => {});
     let removedDocuments: readonly string[] = [];
     try {
-      const storedWorkspace: unknown = await tx.objectStore('workspace').get(CURRENT_WORKSPACE);
+      const workspaceStore = tx.objectStore('workspace');
+      const storedWorkspace: unknown = await workspaceStore.get(CURRENT_WORKSPACE);
       if (storedWorkspace !== undefined) {
-        let workspace: WorkspaceV1;
+        let workspace: WorkspaceV1 | null;
         try {
           workspace = parseWorkspace(storedWorkspace);
-        } catch (error) {
-          throw new LocalLibraryWorkspaceCorruptError(
-            error instanceof Error ? error.message : String(error),
-          );
+        } catch {
+          workspace = null;
+          await workspaceStore.delete(CURRENT_WORKSPACE);
         }
-        if (workspace.corpus.kind === 'library') {
+        if (workspace !== null) {
           removedDocuments = workspace.corpus.docs
             .filter((doc) => doc.library === id)
             .map((doc) => doc.doc);
@@ -286,7 +277,7 @@ export class BrowserLocalLibrary {
               { ...workspace, corpus },
               new Set(corpus.order),
             );
-            await tx.objectStore('workspace').put(parseWorkspace(reconciled), CURRENT_WORKSPACE);
+            await workspaceStore.put(parseWorkspace(reconciled), CURRENT_WORKSPACE);
           }
         }
       }
@@ -296,7 +287,7 @@ export class BrowserLocalLibrary {
       abortQuietly(tx);
       throw error;
     }
-    return { removedDocuments, workspaceReset: false };
+    return { removedDocuments };
   }
 
   async clear(): Promise<LocalLibraryDeleteResult> {
@@ -304,7 +295,6 @@ export class BrowserLocalLibrary {
     const tx = db.transaction(['files', 'workspace'], 'readwrite');
     void tx.done.catch(() => {});
     let removedDocuments: readonly string[] = [];
-    let workspaceReset = false;
     try {
       const workspaceStore = tx.objectStore('workspace');
       const storedWorkspace: unknown = await workspaceStore.get(CURRENT_WORKSPACE);
@@ -314,10 +304,9 @@ export class BrowserLocalLibrary {
           workspace = parseWorkspace(storedWorkspace);
         } catch {
           workspace = null;
-          workspaceReset = true;
           await workspaceStore.delete(CURRENT_WORKSPACE);
         }
-        if (workspace?.corpus.kind === 'library') {
+        if (workspace !== null) {
           removedDocuments = [...workspace.corpus.order];
           const corpus = { kind: 'library' as const, order: [], docs: [] };
           const reconciled = reconcileWorkspaceDocuments({ ...workspace, corpus }, new Set<string>());
@@ -330,7 +319,7 @@ export class BrowserLocalLibrary {
       abortQuietly(tx);
       throw error;
     }
-    return { removedDocuments, workspaceReset };
+    return { removedDocuments };
   }
 
   async loadWorkspace(): Promise<WorkspaceReadResult> {

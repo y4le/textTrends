@@ -1,12 +1,10 @@
 import type { InventoryState, KeynessViewV1 } from './store.ts';
 import { sameSelection, selectionTokenCount, type TokenRangeSelectionV1 } from './selection.ts';
 import type { Place } from './places.ts';
-import { builtinCorpusOption } from './project.ts';
 
 const number = new Intl.NumberFormat();
 
 export interface ScopeProject {
-  readonly kind: 'builtin' | 'library';
   readonly id: string;
   readonly docCount: number;
 }
@@ -88,9 +86,7 @@ function compactNumber(value: number): string {
 
 export function corpusName(project: ScopeProject | null): string {
   if (project === null) return 'Preparing corpus';
-  return project.kind === 'builtin'
-    ? builtinCorpusOption(project.id)?.label ?? 'Built-in corpus'
-    : 'Library corpus';
+  return 'Library corpus';
 }
 
 export function scopeView(input: ScopeInput, place: Place): ScopeVM {

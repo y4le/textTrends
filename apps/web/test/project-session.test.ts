@@ -11,18 +11,11 @@ import type {
 import type { LocalLibraryFile } from '../src/lib/local-library.ts';
 import {
   ProjectSession,
-  SessionCommandError,
-  type BundledByteProvider,
   type ProjectSessionClient,
   type ProjectSessionDeps,
   type SessionState,
 } from '../src/lib/project-session.ts';
-import {
-  builtinProject,
-  type CurrentProject,
-  type ProjectDataV1,
-  type ProjectDocV1,
-} from '../src/lib/project.ts';
+import type { ProjectDataV1 } from '../src/lib/project.ts';
 
 let TXT_HASH = '';
 let INDEX_HASH = '';
@@ -102,42 +95,22 @@ function libraryFile(name: string, size: number, seed: string): LocalLibraryFile
   return file;
 }
 
-function bundledDoc(doc: string, bytes: number): ProjectDocV1 {
+function emptyProject(): ProjectDataV1 {
   return {
-    doc,
-    sourceName: doc,
-    meta: { title: doc, language: 'en', tags: [] },
-    source: { hash: hashFor('b'), byteLength: bytes, format: 'txt' },
-    sourceAvailability: 'bundled',
-    extraction: { recipe: undefined as never, recipeHash: TXT_HASH, text: hashFor('t'), textLengthUtf16: 1 },
-  };
-}
-
-function builtin(docs: readonly ProjectDocV1[] = []): CurrentProject {
-  const data: ProjectDataV1 = {
-    id: 'builtin/sherlock',
-    order: docs.map((doc) => doc.doc),
-    docs,
+    id: 'library',
+    order: [],
+    docs: [],
     indexRecipe: DEFAULT_INDEX_RECIPE,
     indexRecipeHash: INDEX_HASH,
   };
-  return builtinProject(data);
 }
 
-function makeSession(initial: CurrentProject, files: readonly LocalLibraryFile[] = [], overrides: Partial<ProjectSessionDeps> = {}) {
+function makeSession(initial: ProjectDataV1, files: readonly LocalLibraryFile[] = [], overrides: Partial<ProjectSessionDeps> = {}) {
   const client = new FakeClient();
   const byId = new Map(files.map((file) => [file.library, file]));
-  const bundledGets: string[] = [];
-  const bundledBytes: BundledByteProvider = {
-    async get(doc) {
-      bundledGets.push(doc.doc);
-      return new ArrayBuffer(doc.source.byteLength);
-    },
-  };
   let id = 0;
   const session = new ProjectSession(initial, {
     client,
-    bundledBytes,
     libraryFiles: {
       async get(library) {
         const file = byId.get(library);
@@ -150,7 +123,7 @@ function makeSession(initial: CurrentProject, files: readonly LocalLibraryFile[]
   });
   const states: SessionState[] = [];
   session.subscribe((state) => states.push(state));
-  return { session, client, bundledGets, states };
+  return { session, client, states };
 }
 
 function readyInfo(generation: string, doc: string, job: number, file: LocalLibraryFile): SourceReadyInfo {
@@ -175,7 +148,7 @@ function readyInfo(generation: string, doc: string, job: number, file: LocalLibr
 }
 
 async function prepareImport(session: ProjectSession, client: FakeClient, files: readonly LocalLibraryFile[]) {
-  session.createLibraryCorpus(files);
+  session.appendFiles(files);
   await settle();
   const open = client.lastOpen();
   open.resolve({
@@ -199,34 +172,10 @@ async function finalizeImport(session: ProjectSession, client: FakeClient, files
   return prepared;
 }
 
-describe('project session boundaries', () => {
-  it('keeps bundled corpora read-only while allowing the first library import', () => {
-    const file = libraryFile('a.txt', 10, 'a');
-    const { session } = makeSession(builtin(), [file]);
-    expect(() => session.appendFiles([file])).toThrow(SessionCommandError);
-    expect(() => session.removeDocument('x')).toThrow(SessionCommandError);
-    expect(() => session.editMeta('x', { title: 'x' })).toThrow(SessionCommandError);
-    expect(() => session.createLibraryCorpus([file])).not.toThrow();
-    expect(session.getState().project.kind).toBe('library');
-  });
-
-  it('switches registered built-ins and retires the outgoing generation', () => {
-    const first = builtin([bundledDoc('one', 3)]);
-    const second = { ...first.data, id: 'builtin/two', order: ['two'], docs: [bundledDoc('two', 4)] };
-    const { session, client } = makeSession(first, [], { builtinProjects: new Map([['builtin/two', second]]) });
-    session.start();
-    const outgoing = client.lastOpen();
-    session.openBuiltinProject('builtin/two');
-    expect(outgoing.cancelled).toBe(true);
-    expect(client.lastOpen().docs.map((doc) => doc.doc)).toEqual(['two']);
-    expect(() => session.openBuiltinProject('builtin/missing')).toThrow(/unknown/);
-  });
-});
-
 describe('generation and source resolution', () => {
   it('settles an emptied library generation without waiting for a snapshot event', async () => {
     const file = libraryFile('a.txt', 10, 'a');
-    const { session, client, states } = makeSession(builtin(), [file]);
+    const { session, client, states } = makeSession(emptyProject(), [file]);
     const { docs } = await finalizeImport(session, client, [file]);
     session.removeDocuments(docs);
     const open = client.lastOpen();
@@ -241,7 +190,7 @@ describe('generation and source resolution', () => {
 
   it('does not publish empty-ready while a new import is still staging', async () => {
     const files = [libraryFile('a.txt', 10, 'a'), libraryFile('b.txt', 11, 'b')];
-    const { session, client, states } = makeSession(builtin(), files);
+    const { session, client, states } = makeSession(emptyProject(), files);
     const { docs } = await finalizeImport(session, client, [files[0]!]);
     session.removeDocuments(docs);
     const emptyOpen = client.lastOpen();
@@ -256,19 +205,9 @@ describe('generation and source resolution', () => {
     expect(session.getState().analysis.phase).toBe('loading');
   });
 
-  it('uses the shared project spec builder and fetches a bundled byte miss', async () => {
-    const { session, client, bundledGets } = makeSession(builtin([bundledDoc('book', 7)]));
-    session.start();
-    const open = client.lastOpen();
-    open.resolve({ generation: open.generation, snapshot: null, readyDocs: [], missingDocs: ['book'] });
-    await settle();
-    expect(bundledGets).toEqual(['book']);
-    expect(client.ingests.at(-1)).toMatchObject({ generation: open.generation, doc: 'book' });
-  });
-
   it('finalizes an import only after source-ready and snapshot publication, in either order', async () => {
     const file = libraryFile('a.txt', 10, 'a');
-    const first = makeSession(builtin(), [file]);
+    const first = makeSession(emptyProject(), [file]);
     const prepared = await prepareImport(first.session, first.client, [file]);
     const doc = prepared.docs[0]!;
     first.client.sourceReady(readyInfo(prepared.open.generation, doc, first.client.jobFor(prepared.open.generation, doc), file));
@@ -276,7 +215,7 @@ describe('generation and source resolution', () => {
     first.client.snapshot({ generation: prepared.open.generation, snapshot: 's', readyDocs: [doc], missingDocs: [] });
     expect(first.session.getState().project.data.docs.map((item) => item.doc)).toEqual([doc]);
 
-    const second = makeSession(builtin(), [file]);
+    const second = makeSession(emptyProject(), [file]);
     const reverse = await prepareImport(second.session, second.client, [file]);
     const reverseDoc = reverse.docs[0]!;
     second.client.snapshot({ generation: reverse.open.generation, snapshot: 's', readyDocs: [reverseDoc], missingDocs: [] });
@@ -287,7 +226,7 @@ describe('generation and source resolution', () => {
 
   it('preserves selection order under reverse completion and ignores stale jobs', async () => {
     const files = [libraryFile('a.txt', 10, 'a'), libraryFile('b.txt', 11, 'b')];
-    const { session, client } = makeSession(builtin(), files);
+    const { session, client } = makeSession(emptyProject(), files);
     const prepared = await prepareImport(session, client, files);
     const [a, b] = prepared.docs;
     client.sourceReady(readyInfo(prepared.open.generation, a!, client.jobFor(prepared.open.generation, a!) + 99, files[0]!));
@@ -300,7 +239,7 @@ describe('generation and source resolution', () => {
 
   it('reads finalized misses from the library and reports identity drift', async () => {
     const file = libraryFile('a.txt', 10, 'a');
-    const normal = makeSession(builtin(), [file]);
+    const normal = makeSession(emptyProject(), [file]);
     const { docs } = await finalizeImport(normal.session, normal.client, [file]);
     normal.client.restart(false);
     const reopen = normal.client.lastOpen();
@@ -308,7 +247,7 @@ describe('generation and source resolution', () => {
     await settle();
     expect(normal.client.ingests.at(-1)).toMatchObject({ generation: reopen.generation, doc: docs[0] });
 
-    const bad = makeSession(builtin(), [file], {
+    const bad = makeSession(emptyProject(), [file], {
       libraryFiles: { get: async () => ({ ...file, contentHash: hashFor('z') }) },
     });
     const imported = await finalizeImport(bad.session, bad.client, [file]);
@@ -325,7 +264,7 @@ describe('generation and source resolution', () => {
 describe('library corpus mutations', () => {
   it('removes an in-flight active document when its catalog source is deleted', async () => {
     const file = libraryFile('a.txt', 10, 'a');
-    const { session, client } = makeSession(builtin(), [file]);
+    const { session, client } = makeSession(emptyProject(), [file]);
     const prepared = await prepareImport(session, client, [file]);
     session.removeDocuments(prepared.docs);
     expect(session.getState().imports).toEqual([]);
@@ -335,7 +274,7 @@ describe('library corpus mutations', () => {
 
   it('keeps metadata local, reopens for language/order, and removes a batch once', async () => {
     const files = [libraryFile('a.txt', 10, 'a'), libraryFile('b.txt', 11, 'b')];
-    const { session, client } = makeSession(builtin(), files);
+    const { session, client } = makeSession(emptyProject(), files);
     const { docs } = await finalizeImport(session, client, files);
     const opens = client.opens.length;
     session.editMeta(docs[0]!, { title: 'Renamed' });
@@ -351,7 +290,7 @@ describe('library corpus mutations', () => {
 
   it('does not finalize a terminal ingest failure and clears decoder diagnostics on reopen', async () => {
     const file = libraryFile('a.txt', 10, 'a');
-    const { session, client } = makeSession(builtin(), [file]);
+    const { session, client } = makeSession(emptyProject(), [file]);
     const prepared = await prepareImport(session, client, [file]);
     const doc = prepared.docs[0]!;
     client.sourceReady({

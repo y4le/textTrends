@@ -44,7 +44,7 @@ const readyInventory = (
 });
 
 const input = (overrides: Partial<ScopeInput> = {}): ScopeInput => ({
-  project: { kind: 'builtin', id: 'builtin/sherlock', docCount: 6 },
+  project: { id: 'library', docCount: 6 },
   pendingInputCount: 0,
   snapshot: {
     snapshot: 'snapshot-1',
@@ -94,7 +94,7 @@ describe('scopeView', () => {
 
   it('treats an empty corpus as settled rather than loading', () => {
     const empty = scopeView(input({
-      project: { kind: 'library', id: 'library', docCount: 0 },
+      project: { id: 'library', docCount: 0 },
       snapshot: null,
       inventory: null,
       loadingPhase: null,
@@ -109,7 +109,7 @@ describe('scopeView', () => {
 
   it('reports progress while the first input is still pending finalization', () => {
     const importing = scopeView(input({
-      project: { kind: 'library', id: 'library', docCount: 0 },
+      project: { id: 'library', docCount: 0 },
       pendingInputCount: 1,
       snapshot: null,
       inventory: null,
@@ -331,13 +331,9 @@ describe('scopeView', () => {
 });
 
 describe('corpusName', () => {
-  it('names built-in, imported, and not-yet-loaded corpora without collisions', () => {
-    expect(corpusName({ kind: 'builtin', id: 'builtin/sherlock', docCount: 6 })).toBe('Sherlock Holmes');
-    expect(corpusName({ kind: 'builtin', id: 'builtin/austen', docCount: 6 })).toBe('Jane Austen');
-    expect(corpusName({ kind: 'builtin', id: 'builtin/asoif', docCount: 5 })).toBe('A Song of Ice and Fire');
-    expect(corpusName({ kind: 'builtin', id: 'builtin/lotr', docCount: 3 })).toBe('The Lord of the Rings');
-    expect(corpusName({ kind: 'library', id: 'library', docCount: 2 })).toBe('Library corpus');
-    expect(corpusName({ kind: 'library', id: 'library', docCount: 0 })).toBe('Library corpus');
+  it('names loaded and not-yet-loaded corpora', () => {
+    expect(corpusName({ id: 'library', docCount: 2 })).toBe('Library corpus');
+    expect(corpusName({ id: 'library', docCount: 0 })).toBe('Library corpus');
     expect(corpusName(null)).toBe('Preparing corpus');
   });
 });

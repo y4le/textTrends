@@ -1,7 +1,7 @@
 /**
  * Stateful main-thread policy for the one active corpus: generation analysis,
  * cold import assembly, ordering, and cancellation. Durable source bytes are
- * always supplied by either the bundled provider or the local library.
+ * always supplied by the local library.
  *
  * Deliberate contract choices from the ruling:
  * - The composition root (`store-instance.ts`) constructs exactly ONE session
@@ -21,7 +21,6 @@
  */
 
 import {
-  DEFAULT_INDEX_RECIPE,
   defaultExtractionRecipes,
   hashExtractionRecipe,
   hashIndexRecipe,
@@ -47,18 +46,11 @@ import type {
 } from './client.ts';
 import { OperationScope } from './operation-lease.ts';
 import type { LocalLibraryFile } from './local-library.ts';
-import {
-  builtinProject,
-  generationSpecsFromProject,
-  LIBRARY_PROJECT_ID,
-  type CurrentProject,
-  type ProjectDataV1,
-  type ProjectDocV1,
-} from './project.ts';
+import { generationSpecsFromProject, type ProjectDataV1, type ProjectDocV1 } from './project.ts';
 
 // ────────────────────────────────────────────────────────────────────────────
-// Injected seams keep the worker, bundled fetch, and library independently
-// testable without importing browser infrastructure here.
+// Injected seams keep the worker and library independently testable without
+// importing browser infrastructure here.
 // ────────────────────────────────────────────────────────────────────────────
 
 /** The subset of `WorkerClient` the session exclusively owns. Query/excerpt
@@ -77,26 +69,13 @@ export interface ProjectSessionClient {
   ingest(generation: string, doc: string, bytes: ArrayBuffer): { job: number };
 }
 
-/** Bundled byte acquisition, kept OUT of the session so the discriminated
- *  availability policy (bundled fetch vs local-library file)
- *  stays visible here while URL/fetch details stay injectable. The whole doc is
- *  passed so the provider selects the URL and the session verifies the returned
- *  length against the authoritative descriptor before transfer. */
-export interface BundledByteProvider {
-  get(doc: ProjectDocV1, signal: AbortSignal): Promise<ArrayBuffer>;
-}
-
 export interface LibraryFileProvider {
   get(id: string): Promise<LocalLibraryFile>;
 }
 
 export interface ProjectSessionDeps {
   readonly client: ProjectSessionClient;
-  readonly bundledBytes: BundledByteProvider;
   readonly libraryFiles: LibraryFileProvider;
-  /** Prevalidated read-only corpora available to the built-in picker. Optional
-   *  in focused fixtures that never switch projects. */
-  readonly builtinProjects?: ReadonlyMap<string, ProjectDataV1>;
   /** Stable document id allocator (production: `crypto.randomUUID`). */
   readonly newDocId: () => string;
 }
@@ -106,10 +85,8 @@ export interface ProjectSessionDeps {
 // controllers, request handles, and promises live in private sidecars.
 // ────────────────────────────────────────────────────────────────────────────
 
-/** Per-document source runtime status. Source bytes are either bundled or in
- *  the local library; failures are explicit and retryable by reopening. */
+/** Per-document source runtime status. Failures are explicit and retryable by reopening. */
 export type SourceStatus =
-  | { readonly phase: 'bundled' }
   | { readonly phase: 'library' }
   | { readonly phase: 'error'; readonly message: string };
 
@@ -132,7 +109,6 @@ export type AnalysisPhase =
   | { readonly phase: 'error'; readonly message: string; readonly fatal: boolean };
 
 export interface ProjectView {
-  readonly kind: 'builtin' | 'library';
   readonly id: string;
   readonly data: ProjectDataV1;
 }
@@ -223,7 +199,6 @@ function initialMetaFor(name: string): WorkspaceDocumentMetaV1 {
 /** Shallow field equality for the published ProjectView. */
 function sameProjectView(a: ProjectView, b: ProjectView): boolean {
   return (
-    a.kind === b.kind &&
     a.id === b.id &&
     a.data === b.data
   );
@@ -274,7 +249,6 @@ export class ProjectSession {
 
   // ── Current project (one, materialized on every mutation). ──
   private id: string;
-  private kind: 'builtin' | 'library';
   private indexRecipe: IndexRecipeProvisional;
   private indexRecipeHash: string;
   /** All doc ids — finalized AND still-pending — in DECLARED (selection) order.
@@ -288,8 +262,7 @@ export class ProjectSession {
    *  is unchanged (semantic shallow reconciliation, Phase B ruling W2), so
    *  zustand's narrow selectors stop firing on unrelated publications — an
    *  ingest's per-phase progress publishes no longer re-render every panel.
-   *  Nulled on `installProject` so a replacement project can never reuse a
-   *  cached slice. Published objects are never mutated. */
+   *  Published objects are never mutated. */
   private lastState: SessionState | null = null;
 
   // ── Generation lane. ──
@@ -298,7 +271,6 @@ export class ProjectSession {
   private analysis: AnalysisPhase = { phase: 'idle' };
   private snapshot: SnapshotInfo | null = null;
   private activeOpenCancel: (() => void) | null = null;
-  private readonly activeFetches = new Set<AbortController>();
 
   // ── Import staging. ──
   private importCounter = 0;
@@ -314,15 +286,14 @@ export class ProjectSession {
   // dispose. Async recipe staging leases derive from it.
   private readonly scope = new OperationScope();
 
-  constructor(initial: CurrentProject, deps: ProjectSessionDeps) {
+  constructor(initial: ProjectDataV1, deps: ProjectSessionDeps) {
     this.deps = deps;
-    this.id = initial.data.id;
-    this.kind = initial.kind;
-    this.indexRecipe = initial.data.indexRecipe;
-    this.indexRecipeHash = initial.data.indexRecipeHash;
-    this.adoptData(initial.data);
-    for (const doc of initial.data.docs) {
-      this.sourceStatus.set(doc.doc, { phase: doc.sourceAvailability === 'bundled' ? 'bundled' : 'library' });
+    this.id = initial.id;
+    this.indexRecipe = initial.indexRecipe;
+    this.indexRecipeHash = initial.indexRecipeHash;
+    this.adoptData(initial);
+    for (const doc of initial.docs) {
+      this.sourceStatus.set(doc.doc, { phase: 'library' });
     }
     this.data = this.materialize();
     deps.client.onSnapshot((info) => this.handleSnapshot(info));
@@ -349,54 +320,24 @@ export class ProjectSession {
   dispose(): void {
     this.disposed = true;
     this.scope.close();
-    this.abortFetches();
     this.activeOpenCancel?.();
     this.activeOpenCancel = null;
     this.listeners.clear();
   }
 
-  /** Open the analysis generation for the current project (built-in or loaded
-   *  user data). The one entry the app calls at boot and after a nonfatal
+  /** Open the analysis generation for the current project. The one entry the
+   *  app calls at boot and after a nonfatal
    *  restart; import and reorder reopen it internally. */
   start(): void {
     this.assertLive();
     this.startGeneration();
   }
 
-  /** Switch between prevalidated read-only demo corpora. */
-  openBuiltinProject(id: string): void {
-    this.assertLive();
-    if (this.kind !== 'builtin') {
-      throw new SessionCommandError('demo corpora can only be switched while a built-in corpus is open');
-    }
-    if (id === this.id) return;
-    const data = this.deps.builtinProjects?.get(id);
-    if (data === undefined) throw new SessionCommandError(`unknown built-in corpus '${id}'`);
-    this.installProject(builtinProject(data));
-    this.startGeneration();
-  }
-
   // ── Commands: import ────────────────────────────────────────────────────────
-
-  /** Create a fresh empty library-backed corpus and stage selected files. */
-  createLibraryCorpus(files: readonly LocalLibraryFile[]): void {
-    this.assertLive();
-    if (this.kind === 'library') {
-      throw new SessionCommandError('createLibraryCorpus is only from a built-in; use appendFiles for the active library corpus');
-    }
-    // Validate the selection BEFORE destroying the current project — an
-    // unsupported/oversized selection must not cost the working copy.
-    this.preflightImport(files, /* fromEmpty */ true);
-    // Replacing the corpus starts a new ownership epoch.
-    this.scope.invalidate();
-    this.resetToEmptyUser();
-    this.stage(files);
-  }
 
   /** Append selected library files while preserving existing docs and order. */
   appendFiles(files: readonly LocalLibraryFile[]): void {
     this.assertLive();
-    if (this.kind !== 'library') throw new SessionCommandError('appendFiles requires a library corpus; use createLibraryCorpus from a built-in');
     this.preflightImport(files, /* fromEmpty */ false);
     this.stage(files);
   }
@@ -476,9 +417,8 @@ export class ProjectSession {
   // ── Generation lane ─────────────────────────────────────────────────────────
 
   private startGeneration(): void {
-    // Supersede the prior attempt: abort its bundled fetches, cancel a pending
-    // open. Ingest has no cancel handle — a newer begin-generation is its fence.
-    this.abortFetches();
+    // Supersede the prior open. Ingest has no cancel handle — a newer
+    // begin-generation is its fence.
     this.activeOpenCancel?.();
     this.activeOpenCancel = null;
     const attempt = ++this.genAttempt;
@@ -574,49 +514,25 @@ export class ProjectSession {
     }
     const finalizedDoc = this.finalized.get(doc);
     if (!finalizedDoc) return; // not a doc this generation declared
-    switch (finalizedDoc.sourceAvailability) {
-      case 'bundled': {
-        const controller = new AbortController();
-        this.activeFetches.add(controller);
-        try {
-          const bytes = await this.deps.bundledBytes.get(finalizedDoc, controller.signal);
-          if (this.disposed || attempt !== this.genAttempt) return;
-          if (bytes.byteLength !== finalizedDoc.source.byteLength) {
-            throw new Error(`expected ${finalizedDoc.source.byteLength} bytes, received ${bytes.byteLength}`);
-          }
-          this.deps.client.ingest(generation, doc, bytes);
-        } catch (e) {
-          if (this.disposed || attempt !== this.genAttempt || controller.signal.aborted) return;
-          this.analysis = { phase: 'error', message: `failed to fetch '${doc}': ${msg(e)}`, fatal: false };
-          this.publish();
-        } finally {
-          this.activeFetches.delete(controller);
-        }
-        return;
+    try {
+      if (finalizedDoc.library === undefined) throw new Error('document has no library reference');
+      const file = await this.deps.libraryFiles.get(finalizedDoc.library);
+      if (
+        file.contentHash !== finalizedDoc.source.hash
+        || file.format !== finalizedDoc.source.format
+        || file.size !== finalizedDoc.source.byteLength
+      ) {
+        throw new Error('library source identity changed');
       }
-      case 'library': {
-        try {
-          if (finalizedDoc.library === undefined) throw new Error('document has no library reference');
-          const file = await this.deps.libraryFiles.get(finalizedDoc.library);
-          if (
-            file.contentHash !== finalizedDoc.source.hash
-            || file.format !== finalizedDoc.source.format
-            || file.size !== finalizedDoc.source.byteLength
-          ) {
-            throw new Error('library source identity changed');
-          }
-          const bytes = await file.arrayBuffer();
-          if (this.disposed || attempt !== this.genAttempt || generation !== this.generation) return;
-          this.deps.client.ingest(generation, doc, bytes);
-          this.sourceStatus.set(doc, { phase: 'library' });
-        } catch (error) {
-          if (this.disposed || attempt !== this.genAttempt) return;
-          this.sourceStatus.set(doc, { phase: 'error', message: msg(error) });
-          this.analysis = { phase: 'error', message: `failed to read '${doc}' from the library: ${msg(error)}`, fatal: false };
-          this.publish();
-        }
-        return;
-      }
+      const bytes = await file.arrayBuffer();
+      if (this.disposed || attempt !== this.genAttempt || generation !== this.generation) return;
+      this.deps.client.ingest(generation, doc, bytes);
+      this.sourceStatus.set(doc, { phase: 'library' });
+    } catch (error) {
+      if (this.disposed || attempt !== this.genAttempt) return;
+      this.sourceStatus.set(doc, { phase: 'error', message: msg(error) });
+      this.analysis = { phase: 'error', message: `failed to read '${doc}' from the library: ${msg(error)}`, fatal: false };
+      this.publish();
     }
   }
 
@@ -710,7 +626,6 @@ export class ProjectSession {
         byteLength: info.source.byteLength,
         format: info.source.format,
       },
-      sourceAvailability: 'library',
       extraction: {
         recipe: recipes.extraction,
         recipeHash: info.extractionRecipeHash,
@@ -741,7 +656,6 @@ export class ProjectSession {
   private handleRestart(fatal: boolean): void {
     if (this.disposed) return;
     this.snapshot = null;
-    this.abortFetches();
     this.activeOpenCancel = null;
     if (fatal) {
       this.analysis = { phase: 'error', message: 'the analysis worker crashed repeatedly; reload to retry', fatal: true };
@@ -884,76 +798,11 @@ export class ProjectSession {
 
   // ── State materialization + publishing ──────────────────────────────────────
 
-  /** Rebuild the private project index (order + finalized map) from a
-   *  ProjectData snapshot — used on construct, install, and empty-reset. */
+  /** Rebuild the private project index from a ProjectData snapshot. */
   private adoptData(data: ProjectDataV1): void {
     this.finalized.clear();
     for (const d of data.docs) this.finalized.set(d.doc, d);
     this.order = [...data.order];
-  }
-
-  /** Synchronously retire the CURRENT generation at an ownership boundary
-   *  (project replacement/reset): cancel the open, abort fetches, stale-guard
-   *  every in-flight attempt-gated continuation, and drop the outgoing
-   *  snapshot/analysis — so nothing from the old project can be published
-   *  under the new one, and a LATE event carrying the old generation id fails
-   *  every `=== this.generation` gate instead of repopulating outgoing facts
-   *  (the review-b2b-identity finding). The replacement's own startGeneration
-   *  installs fresh values asynchronously. */
-  private retireGeneration(): void {
-    this.activeOpenCancel?.();
-    this.activeOpenCancel = null;
-    this.abortFetches();
-    this.genAttempt++;
-    this.generation = null;
-    this.snapshot = null;
-    this.analysis = { phase: 'idle' };
-  }
-
-  private installProject(project: CurrentProject): void {
-    // Replace everything: a new project owns a fresh generation lane, and THIS
-    // is where ownership actually changes — invalidate the scope so any
-    // still-pending operation on the outgoing project goes stale.
-    this.lastState = null; // the replacement must never reuse a cached slice
-    this.extractionDiagnostics.clear();
-    this.retireGeneration();
-    this.scope.invalidate();
-    this.pending.clear();
-    this.attached.clear();
-    this.sourceStatus.clear();
-    this.id = project.data.id;
-    this.kind = project.kind;
-    this.indexRecipe = project.data.indexRecipe;
-    this.indexRecipeHash = project.data.indexRecipeHash;
-    this.adoptData(project.data);
-    for (const d of project.data.docs) {
-      if (d.sourceAvailability === 'bundled') this.sourceStatus.set(d.doc, { phase: 'bundled' });
-      else this.sourceStatus.set(d.doc, { phase: 'library' });
-    }
-    this.data = this.materialize();
-  }
-
-  private resetToEmptyUser(): void {
-    // Ownership change: the cached publication, the generation-local
-    // diagnostics, AND the outgoing generation's snapshot/analysis belong to the
-    // OUTGOING project — all retired synchronously, before `stage` publishes
-    // (the review-b2/b2b findings: waiting for the async generation start
-    // leaked the old diagnostics, snapshot, and analysis phase under the
-    // new project, and late old-generation events could repopulate them).
-    this.lastState = null;
-    this.extractionDiagnostics.clear();
-    this.retireGeneration();
-    this.pending.clear();
-    this.attached.clear();
-    this.sourceStatus.clear();
-    this.finalized.clear();
-    this.order = [];
-    this.id = LIBRARY_PROJECT_ID;
-    this.kind = 'library';
-    this.indexRecipe = DEFAULT_INDEX_RECIPE;
-    // The built-in shares DEFAULT_INDEX_RECIPE, so its known hash remains valid
-    // until finishStaging recomputes it with the import recipes.
-    this.data = this.materialize();
   }
 
   /** Materialize the canonical ProjectDataV1: `order` filtered to finalized
@@ -980,7 +829,6 @@ export class ProjectSession {
   private buildState(): SessionState {
     const prev = this.lastState;
     const candidate: ProjectView = {
-      kind: this.kind,
       id: this.id,
       data: this.data,
     };
@@ -1020,17 +868,11 @@ export class ProjectSession {
     for (const listener of this.listeners) listener(state);
   }
 
-  private abortFetches(): void {
-    for (const c of this.activeFetches) c.abort();
-    this.activeFetches.clear();
-  }
-
   private assertLive(): void {
     if (this.disposed) throw new SessionCommandError('the session is disposed');
   }
-  private assertUserCommand(name: string): void {
+  private assertUserCommand(_name: string): void {
     this.assertLive();
-    if (this.kind !== 'library') throw new SessionCommandError(`${name} requires a library corpus (the built-in is read-only)`);
   }
 }
 

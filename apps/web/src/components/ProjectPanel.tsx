@@ -40,7 +40,6 @@ const FEATURED_LIBRARY_IDS = new Map(
 
 function sourceLabel(status: SourceStatus | undefined): string {
   switch (status?.phase) {
-    case 'bundled': return 'bundled';
     case 'library': return 'local library';
     case 'error': return status.message;
     default: return '—';

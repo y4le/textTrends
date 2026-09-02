@@ -774,7 +774,6 @@ export interface SessionPort {
   subscribe(listener: (state: SessionState) => void): () => void;
   dispose(): void;
   start(): void;
-  createLibraryCorpus(files: readonly LocalLibraryFile[]): void;
   appendFiles(files: readonly LocalLibraryFile[]): void;
   removeImport(doc: string): void;
   removeDocument(doc: string): void;
@@ -1244,24 +1243,22 @@ function regexForLegacyFrequencyPrefix(prefix: string): string {
 export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
   const project = state.projectSession?.project;
   if (!project) return null;
-  if (project.kind === 'library' && project.data.docs.some((doc) => doc.library === undefined)) return null;
+  if (project.data.docs.some((doc) => doc.library === undefined)) return null;
   const { filter, ...frequency } = state.frequencyView;
   return {
     schema: 'texttrends/workspace/1',
-    corpus: project.kind === 'builtin'
-      ? { kind: 'builtin', id: project.id }
-      : {
-          kind: 'library',
-          order: project.data.order,
-          docs: project.data.docs.map((doc) => ({
-            doc: doc.doc,
-            library: doc.library!,
-            meta: doc.meta,
-            ...(doc.extraction.text === undefined || doc.extraction.textLengthUtf16 === undefined
-              ? {}
-              : { warm: { textHash: doc.extraction.text, textLengthUtf16: doc.extraction.textLengthUtf16 } }),
-          })),
-        },
+    corpus: {
+      kind: 'library',
+      order: project.data.order,
+      docs: project.data.docs.map((doc) => ({
+        doc: doc.doc,
+        library: doc.library!,
+        meta: doc.meta,
+        ...(doc.extraction.text === undefined || doc.extraction.textLengthUtf16 === undefined
+          ? {}
+          : { warm: { textHash: doc.extraction.text, textLengthUtf16: doc.extraction.textLengthUtf16 } }),
+      })),
+    },
     notebook: state.notebook,
     active: state.notebook.groups
       .filter((group) => state.activeGroupIds.has(group.id))
@@ -6090,8 +6087,7 @@ export function createAppRuntime(
       importFiles(files) {
         let accepted = false;
         command((s) => {
-          if (s.getState().project.kind === 'builtin') s.createLibraryCorpus(files);
-          else s.appendFiles(files);
+          s.appendFiles(files);
           accepted = true;
         });
         return accepted;
@@ -6118,11 +6114,6 @@ export function createAppRuntime(
         ])];
         const termCount = get().notebook.groups.length;
         if (documentIds.length === 0 && termCount === 0) return { texts: 0, terms: 0 };
-        if (documentIds.length > 0 && sessionState.project.kind !== 'library') {
-          set({ commandError: 'clear inputs requires a library corpus (the built-in is read-only)' });
-          return { texts: 0, terms: 0 };
-        }
-
         // Run the only fallible half first. Once the session accepts the one
         // batch removal, its synchronous publication invalidates the old
         // snapshot and generation exactly once; notebook adoption then clears

@@ -21,7 +21,7 @@ export interface DebugDiagnostics {
     readonly bootstrap: AppState['bootstrap']['phase'];
     readonly analysis: string;
     readonly persistence: AppState['workspacePersistence']['phase'];
-    readonly projectKind: 'library' | 'builtin' | 'none';
+    readonly projectKind: 'library' | 'none';
     readonly activeDocuments: number;
     readonly pendingImports: number;
     readonly generation: string | null;
@@ -123,7 +123,7 @@ export async function collectDebugDiagnostics(
       bootstrap: state.bootstrap.phase,
       analysis: session?.analysis.phase ?? 'none',
       persistence: state.workspacePersistence.phase,
-      projectKind: session?.project.kind ?? 'none',
+      projectKind: session === null ? 'none' : 'library',
       activeDocuments: session?.project.data.order.length ?? 0,
       pendingImports: session?.imports.length ?? 0,
       generation: state.snapshot?.generation ?? null,

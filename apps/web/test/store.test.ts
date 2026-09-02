@@ -40,7 +40,7 @@ import type {
   SessionState,
 } from '../src/lib/project-session.ts';
 import { SessionCommandError } from '../src/lib/project-session.ts';
-import { BUILTIN_SHERLOCK_ID, SHERLOCK } from '../src/lib/project.ts';
+import { SHERLOCK } from '../src/lib/project.ts';
 import { WorkerClientError } from '../src/lib/client.ts';
 import type { SnapshotInfo } from '../src/lib/client.ts';
 import {
@@ -252,9 +252,8 @@ function layerIds() {
 
 // ── A fake SessionPort: a spyable immutable-state emitter. ──
 const BUILTIN_PROJECT: ProjectView = {
-  kind: 'builtin',
-  id: 'builtin/sherlock',
-  data: { id: 'builtin/sherlock', order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'idx' },
+  id: 'library',
+  data: { id: 'library', order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'idx' },
 };
 
 function snap(generation: string, snapshot: string, readyDocs: readonly string[] = ['a']): SnapshotInfo {
@@ -314,8 +313,6 @@ class FakeSessionPort implements SessionPort {
     if (e) throw e;
   }
   start(): void { this.record('start', []); }
-  openBuiltinProject(id: string): void { this.record('openBuiltinProject', [id]); }
-  createLibraryCorpus(files: readonly LocalLibraryFile[]): void { this.record('createLibraryCorpus', [files]); }
   appendFiles(files: readonly LocalLibraryFile[]): void { this.record('appendFiles', [files]); }
   removeImport(doc: string): void { this.record('removeImport', [doc]); }
   removeDocument(doc: string): void { this.record('removeDocument', [doc]); }
@@ -965,7 +962,7 @@ describe('workbench route and history authority', () => {
       place: store.getState().place,
       layers: store.getState().layers,
     };
-    store.getState().restoreWorkspace(workspaceState(BUILTIN_SHERLOCK_ID));
+    store.getState().restoreWorkspace(workspaceState());
     expect(store.getState()).toMatchObject(navigation);
 
     runtime.dispose();
@@ -1054,7 +1051,7 @@ describe('the session bridge', () => {
       expect(workspace.saves).toHaveLength(1);
       expect(workspace.saves[0]).toMatchObject({
         schema: 'texttrends/workspace/1',
-        corpus: { kind: 'builtin', id: BUILTIN_SHERLOCK_ID },
+        corpus: { kind: 'library', order: [], docs: [] },
         notebook: { groups: [{ aliases: ['Watson'] }] },
       });
       await Promise.resolve();
@@ -1076,7 +1073,7 @@ describe('the session bridge', () => {
       const workspace = new FakeWorkspaceStore();
       const { runtime, store, port } = harness(undefined, { workspace });
       const failed: SessionState = {
-        ...sessionState(null, { project: { kind: 'library', id: 'library' } }),
+        ...sessionState(null, { project: { id: 'library' } }),
         imports: [{
           doc: 'failed-doc',
           sourceName: 'failed.txt',
@@ -1131,7 +1128,7 @@ describe('the session bridge', () => {
       project: { data: { ...BUILTIN_PROJECT.data, order: ['a', 'b'] } },
     }));
     const durable = {
-        ...workspaceState(BUILTIN_SHERLOCK_ID),
+        ...workspaceState(),
         notebook: {
           schema: 'texttrends/query-notebook/3',
           groups: [{
@@ -1145,7 +1142,7 @@ describe('the session bridge', () => {
         active: ['durable'],
         kwicEnabled: [],
         views: {
-          ...workspaceState(BUILTIN_SHERLOCK_ID).views,
+          ...workspaceState().views,
           trend: {
             mode: 'by-book',
             focusedDoc: null,
@@ -1189,7 +1186,7 @@ describe('the session bridge', () => {
       data: { ...BUILTIN_PROJECT.data, order: ['a'] },
     };
     const port = new FakeSessionPort(sessionState(null, { project }));
-    const base = workspaceState(BUILTIN_SHERLOCK_ID);
+    const base = workspaceState();
     const durable: WorkspaceV1 = {
       ...base,
       views: {
@@ -1211,7 +1208,7 @@ describe('the session bridge', () => {
       const workspace = new FakeWorkspaceStore();
       const runtime = createAppRuntime(q.client, { newId: () => 'new', workspace });
       const port = new FakeSessionPort();
-      const durable = workspaceState(BUILTIN_SHERLOCK_ID);
+      const durable = workspaceState();
       runtime.attachSession(port);
       runtime.useApp.getState().restoreWorkspace({
           ...durable,
@@ -1254,12 +1251,12 @@ describe('the session bridge', () => {
   it('seeds the current session state on attach, before any publication', () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client);
-    const userState = sessionState(null, { project: { kind: 'library', id: 'library' } });
+    const userState = sessionState(null, { project: { id: 'library' } });
     runtime.attachSession(new FakeSessionPort(userState));
     const s = runtime.useApp.getState();
     expect(s.bootstrap.phase).toBe('attached');
     expect(s.projectSession).toBe(userState);
-    expect(s.projectSession!.project.kind).toBe('library');
+    expect(s.projectSession!.project.id).toBe('library');
     // A null-snapshot seed must not issue any query.
     expect(q.issued.length).toBe(0);
   });
@@ -1352,7 +1349,6 @@ describe('the session bridge', () => {
     const active: SessionState = {
       ...sessionState(null, {
         project: {
-          kind: 'library',
           id: 'library',
           data: {
             ...BUILTIN_PROJECT.data,
@@ -1391,28 +1387,18 @@ describe('the session bridge', () => {
     });
   });
 
-  it('refuses an unavailable or read-only corpus without partially clearing terms', () => {
+  it('refuses to clear terms before a project is available', () => {
     const runtime = createAppRuntime(fakeQueryClient().client);
     runtime.useApp.getState().quickAdd('Watson');
     expect(runtime.useApp.getState().clearActiveInputsAndTerms()).toEqual({ texts: 0, terms: 0 });
     expect(runtime.useApp.getState().notebook.groups.map(groupTitle)).toEqual(['Watson']);
     expect(runtime.useApp.getState().commandError).toBe('the project is still initializing');
     runtime.dispose();
-
-    const readonly = sessionState(null, {
-      project: { data: { ...BUILTIN_PROJECT.data, order: ['bundled'] } },
-    });
-    const { store, port } = harness(readonly, { seed: true });
-    expect(store.getState().clearActiveInputsAndTerms()).toEqual({ texts: 0, terms: 0 });
-    expect(store.getState().notebook.groups.map(groupTitle)).toEqual(['Holmes', 'Moriarty']);
-    expect(store.getState().commandError).toMatch(/requires a library corpus/);
-    expect(port.calls).toHaveLength(0);
   });
 
   it('keeps the notebook intact when the session refuses the batch removal', () => {
     const active = sessionState(null, {
       project: {
-        kind: 'library',
         id: 'library',
         data: { ...BUILTIN_PROJECT.data, id: 'library', order: ['active'] },
       },
@@ -1434,7 +1420,6 @@ describe('the session bridge', () => {
   it('keeps unrelated term undo history when only texts are cleared', () => {
     const active = sessionState(null, {
       project: {
-        kind: 'library',
         id: 'library',
         data: { ...BUILTIN_PROJECT.data, id: 'library', order: ['active'] },
       },
@@ -1450,7 +1435,7 @@ describe('the session bridge', () => {
   });
 
   it('treats an already-empty local workspace as a command-free no-op', () => {
-    const empty = sessionState(null, { project: { kind: 'library', id: 'library' } });
+    const empty = sessionState(null, { project: { id: 'library' } });
     const { store, port } = harness(empty);
     expect(store.getState().clearActiveInputsAndTerms()).toEqual({ texts: 0, terms: 0 });
     expect(port.calls).toHaveLength(0);
@@ -1474,7 +1459,7 @@ describe('the session bridge', () => {
     expect(store.getState().activeGroupIds.size).toBe(5);
   });
 
-  it('importFiles creates a library corpus from a built-in and then appends', () => {
+  it('importFiles appends to the library-backed corpus', () => {
     const { store, port } = harness();
     const files: LocalLibraryFile[] = [{
       name: 'a.txt',
@@ -1484,9 +1469,6 @@ describe('the session bridge', () => {
       library: `txt:${'a'.repeat(64)}`,
       arrayBuffer: async () => new ArrayBuffer(3),
     }];
-    store.getState().importFiles(files);
-    expect(port.calls.at(-1)!.method).toBe('createLibraryCorpus');
-    port.emit(sessionState(snap('g1', 's1'), { project: { kind: 'library', id: 'library' } }));
     store.getState().importFiles(files);
     expect(port.calls.at(-1)!.method).toBe('appendFiles');
   });
@@ -1830,7 +1812,17 @@ describe('store query intent discipline', () => {
       project: project(['a']),
     }));
 
-    const restored = workspaceState(BUILTIN_SHERLOCK_ID);
+    const restored = workspaceState({
+      corpus: {
+        kind: 'library',
+        order: ['a'],
+        docs: [{
+          doc: 'a',
+          library: `txt:${'a'.repeat(64)}`,
+          meta: { title: 'A', language: 'en', tags: [] },
+        }],
+      },
+    });
     f.store.getState().restoreWorkspace({
       ...restored,
       views: {
@@ -1845,7 +1837,6 @@ describe('store query intent discipline', () => {
 
   it('preserves a restored separate view while a multi-text import settles', () => {
     const project = (order: readonly string[]) => ({
-      kind: 'library' as const,
       id: 'library',
       data: { ...BUILTIN_PROJECT.data, id: 'library', order },
     });
@@ -1886,7 +1877,6 @@ describe('store query intent discipline', () => {
 
   it('normalizes a restored separate view when an import fails with one active text', () => {
     const project = {
-      kind: 'library' as const,
       id: 'library',
       data: { ...BUILTIN_PROJECT.data, id: 'library', order: ['a'] },
     };
@@ -2004,7 +1994,7 @@ describe('store query intent discipline', () => {
     })).toBe('rejected');
     expect(f.store.getState().trendBins).toBe(before);
 
-    const workspace = workspaceState(BUILTIN_SHERLOCK_ID);
+    const workspace = workspaceState();
     f.store.getState().restoreWorkspace({
       ...workspace,
       views: {
@@ -2021,7 +2011,7 @@ describe('store query intent discipline', () => {
   it('normalizes a persisted bin preference when expanded-corpus extents arrive', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
-    const workspace = workspaceState(BUILTIN_SHERLOCK_ID);
+    const workspace = workspaceState();
     f.store.getState().restoreWorkspace({
       ...workspace,
       views: {
@@ -2373,7 +2363,6 @@ describe('real ProjectSession composes with the store bridge', () => {
 
   it('attaching a real session mirrors its analysis + snapshot into the store', async () => {
     const { ProjectSession } = await import('../src/lib/project-session.ts');
-    const { builtinProject } = await import('../src/lib/project.ts');
     const { canonicalRecipeHashes } = await import('./support/spec-fixtures.ts');
     const canon = await canonicalRecipeHashes();
     const { txt } = canon.recipes;
@@ -2383,10 +2372,10 @@ describe('real ProjectSession composes with the store bridge', () => {
       sourceName: 'd1',
       meta: { title: 'D1', language: 'en', tags: [] as string[] },
       source: { hash: 'a'.repeat(64), byteLength: 10, format: 'txt' as const },
-      sourceAvailability: 'bundled' as const,
+      library: `txt:${'a'.repeat(64)}`,
       extraction: { recipe: txt, recipeHash: erh, text: 'txthash', textLengthUtf16: 8 },
     };
-    const data = { id: 'builtin/x', order: ['d1'], docs: [doc], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: irh };
+    const data = { id: 'library', order: ['d1'], docs: [doc], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: irh };
 
     // A minimal fake ProjectSessionClient: open resolves a warm snapshot, so the
     // session publishes a ready snapshot without needing bytes.
@@ -2403,9 +2392,8 @@ describe('real ProjectSession composes with the store bridge', () => {
       }),
       ingest: () => ({ job: 1 }),
     };
-    const session = new ProjectSession(builtinProject(data), {
+    const session = new ProjectSession(data, {
       client,
-      bundledBytes: { get: async () => new ArrayBuffer(10) },
       libraryFiles: { get: async () => { throw new Error('not used'); } },
       newDocId: () => 'id',
     });
@@ -2413,16 +2401,15 @@ describe('real ProjectSession composes with the store bridge', () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client);
     runtime.attachSession(session); // proves ProjectSession is assignable to SessionPort
-    // Mirror the composition root's demo seeding (store-instance.ts).
     runtime.useApp.getState().quickAdd('Holmes, Moriarty');
-    expect(runtime.useApp.getState().projectSession!.project.kind).toBe('builtin');
+    expect(runtime.useApp.getState().projectSession!.project.id).toBe('library');
 
     session.start();
     expect(runtime.useApp.getState().projectSession!.analysis.phase).toBe('loading');
     // Let the open barrier resolve and the warm snapshot publish.
     await flush();
-    hold.snapshotL?.({ generation: 'builtin/x#gen-1', snapshot: 'builtin/x#gen-1#snap', readyDocs: ['d1'], missingDocs: [] });
-    expect(runtime.useApp.getState().snapshot?.snapshot).toBe('builtin/x#gen-1#snap');
+    hold.snapshotL?.({ generation: 'library#gen-1', snapshot: 'library#gen-1#snap', readyDocs: ['d1'], missingDocs: [] });
+    expect(runtime.useApp.getState().snapshot?.snapshot).toBe('library#gen-1#snap');
     // The store issued its default-series trend queries against the new snapshot.
     expect(q.trends().length).toBeGreaterThan(0);
     runtime.dispose();
@@ -6215,7 +6202,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
 
   it('restores a legacy literal frequency prefix as an anchored regex', () => {
     const f = harness();
-    const workspace = workspaceState(BUILTIN_SHERLOCK_ID);
+    const workspace = workspaceState();
     f.store.getState().restoreWorkspace({
       ...workspace,
       views: {
@@ -6234,7 +6221,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
 
   it('restores stored expressions in regex mode and writes only the current filter shape', () => {
     const f = harness();
-    const workspace = workspaceState(BUILTIN_SHERLOCK_ID);
+    const workspace = workspaceState();
     f.store.getState().restoreWorkspace({
       ...workspace,
       views: {
@@ -6321,7 +6308,6 @@ describe('dueling keyness query intent (slice-4)', () => {
 
   it('holds a demo reset on its first document while later books become ready first', () => {
     const project = (order: readonly string[]) => ({
-      kind: 'library' as const,
       id: 'library',
       data: { ...BUILTIN_PROJECT.data, id: 'library', order },
     });

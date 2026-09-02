@@ -1,9 +1,9 @@
 import type { WorkspaceV1 } from '@texttrends/core';
 
-export function workspaceState(input: string | Partial<WorkspaceV1> = 'builtin/sherlock'): WorkspaceV1 {
+export function workspaceState(input: Partial<WorkspaceV1> = {}): WorkspaceV1 {
   const workspace: WorkspaceV1 = {
     schema: 'texttrends/workspace/1',
-    corpus: { kind: 'builtin', id: typeof input === 'string' ? input : 'builtin/sherlock' },
+    corpus: { kind: 'library', order: [], docs: [] },
     notebook: { schema: 'texttrends/query-notebook/3', groups: [] },
     active: [],
     kwicEnabled: [],
@@ -41,5 +41,5 @@ export function workspaceState(input: string | Partial<WorkspaceV1> = 'builtin/s
       },
     },
   };
-  return typeof input === 'string' ? workspace : { ...workspace, ...input };
+  return { ...workspace, ...input };
 }

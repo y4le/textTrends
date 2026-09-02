@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
 import { ASOIF, AUSTEN, BIBLE, LOTR, POLITICAL_ARGUMENTS, QURAN, SHERLOCK } from '../src/lib/project.ts';
-import { workspaceState } from '../test/support/workspace-fixtures.ts';
 import { awaitReadyCount, openQuickAdd, trackCorpusRequests } from './helpers.ts';
 
 async function savedResearchCounts(page: import('@playwright/test').Page): Promise<readonly [number, number]> {
@@ -214,94 +213,4 @@ test('demo acquisition owns the library lane from fetch through activation', asy
 
   await awaitReadyCount(page, SHERLOCK.length);
   await expect(local.getByRole('listitem')).toHaveCount(SHERLOCK.length + 1);
-});
-
-test('legacy demo migration preserves research state and retries transient failure', async ({ page }) => {
-  await page.goto('./');
-  await expect(page.getByText('No active inputs. Nothing is being analyzed.', { exact: true })).toBeVisible();
-  const legacy = workspaceState({
-    notebook: {
-      schema: 'texttrends/query-notebook/3',
-      groups: [{
-        id: 'irene',
-        aliases: ['Irene'],
-        exactMatch: false,
-        countOverlaps: false,
-        style: { color: 'blue', line: 'solid' },
-      }],
-    },
-    active: ['irene'],
-    kwicEnabled: ['irene'],
-  });
-  await page.evaluate(async ({ databaseName, workspace }) => {
-    const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(databaseName);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const request = database.transaction('workspace', 'readwrite').objectStore('workspace').put(workspace, 'current');
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-      });
-    } finally {
-      database.close();
-    }
-  }, { databaseName: LOCAL_LIBRARY_DB_NAME, workspace: legacy });
-
-  let releaseFailure!: () => void;
-  const failureGate = new Promise<void>((resolve) => { releaseFailure = resolve; });
-  await page.route('**/corpora/sherlock/**', async (route) => {
-    await failureGate;
-    await route.fulfill({ status: 503 });
-  });
-  await page.reload();
-  // Migration runs after attachment: preserved research state and the Inputs
-  // surface remain usable while the legacy download is still outstanding.
-  await expect(page.getByRole('button', { name: 'Edit term: Irene' })).toBeVisible();
-  await expect(page.getByText(/Migrating the saved Sherlock Holmes demo/i)).toBeVisible();
-  await expect(page.getByLabel('Add files')).toBeDisabled();
-  releaseFailure();
-  await expect(page.getByText(/could not be migrated/i)).toBeVisible();
-  expect(await page.evaluate(async (databaseName) => {
-    const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(databaseName);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    try {
-      const workspace = await new Promise<unknown>((resolve, reject) => {
-        const request = database.transaction('workspace', 'readonly').objectStore('workspace').get('current');
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-      return (workspace as { corpus?: { kind?: string } } | undefined)?.corpus?.kind;
-    } finally {
-      database.close();
-    }
-  }, LOCAL_LIBRARY_DB_NAME)).toBe('builtin');
-
-  await page.unroute('**/corpora/sherlock/**');
-  await page.reload();
-  await awaitReadyCount(page, SHERLOCK.length);
-  await expect(page.getByRole('button', { name: 'Edit term: Irene' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Edit term: Holmes' })).toHaveCount(0);
-  await expect.poll(() => page.evaluate(async (databaseName) => {
-    const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(databaseName);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    try {
-      const workspace = await new Promise<unknown>((resolve, reject) => {
-        const request = database.transaction('workspace', 'readonly').objectStore('workspace').get('current');
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-      return (workspace as { corpus?: { kind?: string } } | undefined)?.corpus?.kind;
-    } finally {
-      database.close();
-    }
-  }, LOCAL_LIBRARY_DB_NAME)).toBe('library');
 });

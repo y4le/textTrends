@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { EMPTY_NOTEBOOK, type WorkspaceV1 } from '@texttrends/core';
 import {
   BrowserLocalLibrary,
-  LocalLibraryWorkspaceCorruptError,
   localFileIdentity,
 } from '../src/lib/local-library.ts';
 
@@ -184,7 +183,6 @@ describe('BrowserLocalLibrary', () => {
 
     expect(await library.delete(saved.id)).toEqual({
       removedDocuments: ['doc-1', 'doc-2'],
-      workspaceReset: false,
     });
     expect(await library.list()).toEqual([]);
     const loaded = await library.loadWorkspace();
@@ -196,20 +194,6 @@ describe('BrowserLocalLibrary', () => {
     expect(loaded.workspace.views.trend).not.toHaveProperty('focusedDoc');
     expect(loaded.workspace.views.compare.documentA).toBeNull();
     expect(loaded.workspace.views.compare.documentB).toBeNull();
-    await library.close();
-  });
-
-  it('clears library sources without changing a built-in workspace', async () => {
-    const library = new BrowserLocalLibrary(`local-library-${crypto.randomUUID()}`);
-    await library.add([file('novel.txt', 'library prose')]);
-    const builtin: WorkspaceV1 = {
-      ...workspace(`txt:${'a'.repeat(64)}`),
-      corpus: { kind: 'builtin', id: 'sherlock' },
-    };
-    await library.saveWorkspace(builtin);
-    expect(await library.clear()).toEqual({ removedDocuments: [], workspaceReset: false });
-    expect(await library.list()).toEqual([]);
-    expect(await library.loadWorkspace()).toEqual({ kind: 'ready', workspace: builtin });
     await library.close();
   });
 
@@ -235,7 +219,6 @@ describe('BrowserLocalLibrary', () => {
 
     expect(await library.clear()).toEqual({
       removedDocuments: ['doc-1', 'doc-2'],
-      workspaceReset: false,
     });
     const loaded = await library.loadWorkspace();
     expect(loaded.kind === 'ready' ? loaded.workspace.corpus : null).toEqual({
@@ -247,7 +230,7 @@ describe('BrowserLocalLibrary', () => {
     await library.close();
   });
 
-  it('refuses a single delete but permits a full reset when the workspace is damaged', async () => {
+  it('deletes a source and resets an obsolete built-in workspace record', async () => {
     const name = `local-library-${crypto.randomUUID()}`;
     const library = new BrowserLocalLibrary(name);
     const saved = (await library.add([file('novel.txt', 'recoverable bytes')]))[0]!.item;
@@ -260,16 +243,17 @@ describe('BrowserLocalLibrary', () => {
     });
     await new Promise<void>((resolve, reject) => {
       const tx = database.transaction('workspace', 'readwrite');
-      tx.objectStore('workspace').put({ schema: 'damaged' }, 'current');
+      tx.objectStore('workspace').put({
+        ...workspace(saved.id),
+        corpus: { kind: 'builtin', id: 'builtin/sherlock' },
+      }, 'current');
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
     database.close();
 
     const reopened = new BrowserLocalLibrary(name);
-    await expect(reopened.delete(saved.id)).rejects.toBeInstanceOf(LocalLibraryWorkspaceCorruptError);
-    expect((await reopened.list()).map((item) => item.id)).toEqual([saved.id]);
-    expect(await reopened.clear()).toEqual({ removedDocuments: [], workspaceReset: true });
+    expect(await reopened.delete(saved.id)).toEqual({ removedDocuments: [] });
     expect(await reopened.list()).toEqual([]);
     expect(await reopened.loadWorkspace()).toEqual({ kind: 'absent' });
     await reopened.close();
