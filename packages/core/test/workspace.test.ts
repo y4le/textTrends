@@ -24,7 +24,6 @@ function validWorkspace(): WorkspaceV1 {
     },
     notebook: EMPTY_NOTEBOOK,
     active: [],
-    kwicEnabled: [],
     views: {
       trend: {
         mode: 'by-book',
@@ -57,37 +56,76 @@ function validWorkspace(): WorkspaceV1 {
   };
 }
 
+function omitKey(value: object, key: string): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([candidate]) => candidate !== key));
+}
+
+const OBSOLETE_WORKSPACE_SHAPES: readonly [
+  name: string,
+  mutate: (value: WorkspaceV1) => unknown,
+][] = [
+  ['query-notebook/1', (value) => ({
+    ...value,
+    notebook: { ...value.notebook, schema: 'texttrends/query-notebook/1' },
+  })],
+  ['query-notebook/2', (value) => ({
+    ...value,
+    notebook: { ...value.notebook, schema: 'texttrends/query-notebook/2' },
+  })],
+  ['trend.focusedDoc', (value) => ({
+    ...value,
+    views: { ...value.views, trend: { ...value.views.trend, focusedDoc: 'one' } },
+  })],
+  ['trend denominator 1,000', (value) => ({
+    ...value,
+    views: {
+      ...value.views,
+      trend: {
+        ...value.views.trend,
+        measure: { kind: 'rate', denominator: 1_000, smoothing: 0, showRaw: false },
+      },
+    },
+  })],
+  ['frequency.prefixNfc', (value) => ({
+    ...value,
+    views: { ...value.views, frequency: { ...value.views.frequency, prefixNfc: 'a' } },
+  })],
+  ['frequency.regex', (value) => ({
+    ...value,
+    views: { ...value.views, frequency: { ...value.views.frequency, regex: '^a' } },
+  })],
+  ['frequency without stoplistTopN', (value) => ({
+    ...value,
+    views: { ...value.views, frequency: omitKey(value.views.frequency, 'stoplistTopN') },
+  })],
+  ['compare without showConfidenceIntervals', (value) => ({
+    ...value,
+    views: { ...value.views, compare: omitKey(value.views.compare, 'showConfidenceIntervals') },
+  })],
+  ['compare without stoplistTopN', (value) => ({
+    ...value,
+    views: { ...value.views, compare: omitKey(value.views.compare, 'stoplistTopN') },
+  })],
+  ['workspace carrying kwicEnabled', (value) => ({ ...value, kwicEnabled: [] })],
+  ['built-in corpus', (value) => ({
+    ...value,
+    corpus: { kind: 'builtin', id: 'builtin/sherlock' },
+  })],
+  ['dangling active group', (value) => ({ ...value, active: ['missing'] })],
+];
+
 describe('workspace admission', () => {
   it('admits an exact library-backed workspace', () => {
     expect(parseWorkspace(validWorkspace())).toEqual(validWorkspace());
   });
 
-  it('rejects obsolete built-in corpus records', () => {
-    expect(() => parseWorkspace({
-      ...validWorkspace(),
-      corpus: { kind: 'builtin', id: 'builtin/sherlock' },
-    })).toThrow(/library-backed/);
+  it.each(OBSOLETE_WORKSPACE_SHAPES)('rejects obsolete %s', (_name, mutate) => {
+    expect(() => parseWorkspace(mutate(validWorkspace()))).toThrow(RangeError);
   });
 
-  it('migrates legacy frequency expressions and validates current text filters', () => {
+  it('validates current text filters', () => {
     const value = validWorkspace();
     const { filter: _filter, ...frequency } = value.views.frequency;
-    const legacyPrefix = {
-      ...value,
-      views: {
-        ...value.views,
-        frequency: { ...frequency, prefixNfc: 'a.b[' },
-      },
-    };
-    expect(parseWorkspace(legacyPrefix).views.frequency.prefixNfc).toBe('a.b[');
-    const legacyRegex = {
-      ...value,
-      views: {
-        ...value.views,
-        frequency: { ...frequency, regex: '^Holmes$' },
-      },
-    };
-    expect(parseWorkspace(legacyRegex).views.frequency.regex).toBe('^Holmes$');
     expect(parseWorkspace({
       ...value,
       views: {
@@ -115,43 +153,6 @@ describe('workspace admission', () => {
         },
       },
     })).toThrow(/NFC/);
-    expect(() => parseWorkspace({
-      ...value,
-      views: {
-        ...value.views,
-        frequency: {
-          ...frequency,
-          filter: { mode: 'literal', query: 'term' },
-          regex: 'term',
-        },
-      },
-    })).toThrow(/frequency view must be exact/);
-  });
-
-  it('upgrades legacy Compare presentation settings without changing its display', () => {
-    const value = validWorkspace();
-    const { showConfidenceIntervals: _legacyMissing, ...legacyCompare } =
-      value.views.compare;
-    const parsed = parseWorkspace({
-      ...value,
-      views: { ...value.views, compare: legacyCompare },
-    });
-    expect(parsed.views.compare).toEqual({
-      ...value.views.compare,
-      showConfidenceIntervals: true,
-    });
-  });
-
-  it('defaults legacy common-word filter depths to off', () => {
-    const value = validWorkspace();
-    const { stoplistTopN: _frequencyStoplist, ...frequency } = value.views.frequency;
-    const { stoplistTopN: _compareStoplist, ...compare } = value.views.compare;
-    const parsed = parseWorkspace({
-      ...value,
-      views: { ...value.views, frequency, compare },
-    });
-    expect(parsed.views.frequency.stoplistTopN).toBe(0);
-    expect(parsed.views.compare.stoplistTopN).toBe(0);
   });
 
   it('round-trips bounded common-word filter depths', () => {
@@ -229,7 +230,6 @@ describe('workspace admission', () => {
         }],
       },
       active: ['g1'],
-      kwicEnabled: ['g1'],
     };
     expect(parseWorkspace(custom)).toEqual(custom);
   });
@@ -274,7 +274,6 @@ describe('workspace admission', () => {
       ...trend,
       mode: 'by-book-scaled',
     });
-    expect(parseWorkspaceTrendView({ ...trend, focusedDoc: 'one' })).toEqual(trend);
     expect(() => parseWorkspaceTrendView({
       ...trend,
       bins: { mode: 'per-doc', count: 3 },
@@ -289,14 +288,6 @@ describe('workspace admission', () => {
         kind: 'rate', denominator: 10_000, smoothing: 4, showRaw: false,
       },
     })).toThrow(/trend measure/);
-    for (const denominator of [1_000, 100_000]) {
-      expect(parseWorkspaceTrendView({
-        ...trend,
-        measure: { kind: 'rate', denominator, smoothing: 3, showRaw: true },
-      }).measure).toEqual({
-        kind: 'rate', denominator: 10_000, smoothing: 3, showRaw: true,
-      });
-    }
   });
 
   it('reconciles presentation references against the opened corpus', () => {

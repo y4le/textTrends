@@ -1030,14 +1030,8 @@ describe('workbench route and history authority', () => {
 
 describe('the session bridge', () => {
   it('defines a fresh install as a valid empty library workspace', () => {
-    const workspace = parseWorkspace(emptyLibraryWorkspace());
-    expect(workspace.corpus).toEqual({ kind: 'library', order: [], docs: [] });
-    expect(workspace.notebook.groups).toEqual([]);
-    expect(workspace.active).toEqual([]);
-    expect(workspace.views.trend.mode).toBe('by-book');
-    expect(workspace.views.trend).not.toHaveProperty('focusedDoc');
-    expect(workspace.views.compare.documentA).toBeNull();
-    expect(workspace.views.compare.documentB).toBeNull();
+    const workspace = emptyLibraryWorkspace();
+    expect(parseWorkspace(workspace)).toEqual(workspace);
   });
 
   it('autosaves workspace changes after 1.5 seconds and excludes transient paging', async () => {
@@ -1121,7 +1115,7 @@ describe('the session bridge', () => {
     }
   });
 
-  it('restores a workspace notebook from active state, ignoring the deprecated Matches filter', async () => {
+  it('restores a workspace notebook from the active selection', async () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client, { newId: () => 'new' });
     const port = new FakeSessionPort(sessionState(null, {
@@ -1140,16 +1134,14 @@ describe('the session bridge', () => {
           }],
         },
         active: ['durable'],
-        kwicEnabled: [],
         views: {
           ...workspaceState().views,
           trend: {
             mode: 'by-book',
-            focusedDoc: null,
             bins: { mode: 'fixed-tokens', count: 500 },
             measure: {
               kind: 'rate',
-              denominator: 100_000,
+              denominator: 10_000,
               smoothing: 7,
               showRaw: true,
             },
@@ -1173,7 +1165,6 @@ describe('the session bridge', () => {
     expect(runtime.useApp.getState().series.map((series) => series.id)).toEqual(['durable']);
     expect(workspaceFromApp(runtime.useApp.getState())).toMatchObject({
       active: ['durable'],
-      kwicEnabled: ['durable'],
     });
     runtime.dispose();
   });
@@ -6200,47 +6191,6 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(disabled).not.toHaveProperty('stoplist');
   });
 
-  it('restores a legacy literal frequency prefix as an anchored regex', () => {
-    const f = harness();
-    const workspace = workspaceState();
-    f.store.getState().restoreWorkspace({
-      ...workspace,
-      views: {
-        ...workspace.views,
-        frequency: {
-          ...workspace.views.frequency,
-          prefixNfc: 'a.b[',
-        },
-      },
-    });
-    expect(f.store.getState().frequencyView.filter).toEqual({
-      mode: 'regex',
-      query: '^a\\.b\\[',
-    });
-  });
-
-  it('restores stored expressions in regex mode and writes only the current filter shape', () => {
-    const f = harness();
-    const workspace = workspaceState();
-    f.store.getState().restoreWorkspace({
-      ...workspace,
-      views: {
-        ...workspace.views,
-        frequency: {
-          ...workspace.views.frequency,
-          regex: '^Holmes$',
-        },
-      },
-    });
-    expect(f.store.getState().frequencyView.filter).toEqual({
-      mode: 'regex',
-      query: '^Holmes$',
-    });
-    const saved = workspaceFromApp(f.store.getState());
-    expect(saved?.views.frequency.filter).toEqual({ mode: 'regex', query: '^Holmes$' });
-    expect(saved?.views.frequency).not.toHaveProperty('regex');
-    expect(saved?.views.frequency).not.toHaveProperty('prefixNfc');
-  });
 });
 
 describe('dueling keyness query intent (slice-4)', () => {

@@ -6,7 +6,6 @@ export function workspaceState(input: Partial<WorkspaceV1> = {}): WorkspaceV1 {
     corpus: { kind: 'library', order: [], docs: [] },
     notebook: { schema: 'texttrends/query-notebook/3', groups: [] },
     active: [],
-    kwicEnabled: [],
     views: {
       trend: {
         mode: 'series',

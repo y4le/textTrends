@@ -24,19 +24,17 @@ import {
   TREND_PER_DOC_MIN,
   type TrendBinsSpecV1,
 } from '../ops/trend.ts';
-import { NOTEBOOK_LIMITS_V1, parseQueryNotebook, type QueryNotebookV1 } from './notebook.ts';
+import { parseQueryNotebook, type QueryNotebookV1 } from './notebook.ts';
 
 export const WORKSPACE_SCHEMA = 'texttrends/workspace/1' as const;
 export const WORKSPACE_MAX_ID_UNITS = 256;
 const WORKSPACE_MAX_META_UNITS = 512;
 const SOURCE_HASH = /^[0-9a-f]{64}$/u;
 
-/** Legacy values accepted while reading workspace/1. New state is normalized. */
-export const TREND_RATE_DENOMINATORS = [1_000, 10_000, 100_000] as const;
 export const TREND_RATE_DENOMINATOR = 10_000 as const;
+/** Authored smoothing windows supported by the current trend view. */
 export const TREND_SMOOTHING_WINDOWS = [3, 5, 7, 9] as const;
 
-export type TrendRateDenominator = (typeof TREND_RATE_DENOMINATORS)[number];
 export type TrendSmoothingWindow = (typeof TREND_SMOOTHING_WINDOWS)[number];
 
 export type WorkspaceTrendMeasureV1 =
@@ -89,9 +87,6 @@ export interface WorkspaceFrequencyViewV1 {
   readonly classes: readonly FrequencyTokenClassV1[];
   readonly stoplistTopN: number;
   readonly filter?: FrequencyTextFilterV1;
-  /** Legacy prefix settings are admitted so workspace/1 files remain readable. */
-  readonly prefixNfc?: string;
-  readonly regex?: string;
   readonly sort: { readonly by: FrequencySortFieldV1; readonly dir: 1 | -1 };
   /** Page offsets are transient; only the user's chosen page size is durable. */
   readonly pageSize: number;
@@ -111,7 +106,6 @@ export interface WorkspaceCompareViewV1 {
     readonly dirA: 1 | -1;
     readonly dirB: 1 | -1;
   };
-  /** Legacy omission preserves the former always-shown presentation. */
   readonly showConfidenceIntervals: boolean;
   readonly pageSize: number;
 }
@@ -121,9 +115,6 @@ export interface WorkspaceV1 {
   readonly corpus: WorkspaceCorpusV1;
   readonly notebook: QueryNotebookV1;
   readonly active: readonly string[];
-  /** @deprecated Compatibility field for workspace/1 readers. New clients
-   * mirror `active`; Matches uses the shared active projection. */
-  readonly kwicEnabled: readonly string[];
   readonly views: {
     readonly trend: WorkspaceTrendViewV1;
     readonly frequency: WorkspaceFrequencyViewV1;
@@ -257,9 +248,7 @@ function parseCorpus(value: unknown): WorkspaceCorpusV1 {
 }
 
 export function parseWorkspaceTrendView(value: unknown): WorkspaceTrendViewV1 {
-  const current = exactRecord(value, ['mode', 'bins', 'measure']);
-  const legacy = exactRecord(value, ['mode', 'focusedDoc', 'bins', 'measure']);
-  if (!current && !legacy) {
+  if (!exactRecord(value, ['mode', 'bins', 'measure'])) {
     throw new RangeError('trend view must be exact');
   }
   if (
@@ -267,9 +256,6 @@ export function parseWorkspaceTrendView(value: unknown): WorkspaceTrendViewV1 {
     && value.mode !== 'by-book'
     && value.mode !== 'by-book-scaled'
   ) throw new RangeError('trend mode is invalid');
-  if (legacy && value.focusedDoc !== null) {
-    boundedString(value.focusedDoc, WORKSPACE_MAX_ID_UNITS, 'focused document');
-  }
   if (
     !exactRecord(value.bins, ['mode', 'count'])
     || !isNonNegSafeInt(value.bins.count)
@@ -289,7 +275,7 @@ export function parseWorkspaceTrendView(value: unknown): WorkspaceTrendViewV1 {
   } else if (
     exactRecord(value.measure, ['kind', 'denominator', 'smoothing', 'showRaw'])
     && value.measure.kind === 'rate'
-    && TREND_RATE_DENOMINATORS.includes(value.measure.denominator as never)
+    && value.measure.denominator === TREND_RATE_DENOMINATOR
     && (value.measure.smoothing === 0 || TREND_SMOOTHING_WINDOWS.includes(value.measure.smoothing as never))
     && typeof value.measure.showRaw === 'boolean'
   ) {
@@ -306,29 +292,15 @@ export function parseWorkspaceTrendView(value: unknown): WorkspaceTrendViewV1 {
 }
 
 function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
-  const hasStoplist = value !== null
-    && typeof value === 'object'
-    && Object.prototype.hasOwnProperty.call(value, 'stoplistTopN');
-  const stoplistKey = hasStoplist ? ['stoplistTopN'] as const : [];
-  const hasPrefix = exactRecord(
-    value,
-    ['minCount', 'minDocFreq', 'classes', 'prefixNfc', ...stoplistKey, 'sort', 'pageSize'],
-  );
-  const hasRegex = exactRecord(
-    value,
-    ['minCount', 'minDocFreq', 'classes', 'regex', ...stoplistKey, 'sort', 'pageSize'],
-  );
   const hasFilter = exactRecord(
     value,
-    ['minCount', 'minDocFreq', 'classes', 'filter', ...stoplistKey, 'sort', 'pageSize'],
+    ['minCount', 'minDocFreq', 'classes', 'stoplistTopN', 'filter', 'sort', 'pageSize'],
   );
   if (
-    !hasPrefix
-    && !hasRegex
-    && !hasFilter
+    !hasFilter
     && !exactRecord(
       value,
-      ['minCount', 'minDocFreq', 'classes', ...stoplistKey, 'sort', 'pageSize'],
+      ['minCount', 'minDocFreq', 'classes', 'stoplistTopN', 'sort', 'pageSize'],
     )
   ) {
     throw new RangeError('frequency view must be exact');
@@ -336,10 +308,8 @@ function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
   if (
     !isNonNegSafeInt(value.minCount) || value.minCount < 1
     || !isNonNegSafeInt(value.minDocFreq) || value.minDocFreq < 1
-    || (hasStoplist && (
-      !isNonNegSafeInt(value.stoplistTopN)
-      || value.stoplistTopN > STOPLIST_MAX_TOP_N
-    ))
+    || !isNonNegSafeInt(value.stoplistTopN)
+    || value.stoplistTopN > STOPLIST_MAX_TOP_N
     || !exactRecord(value.sort, ['by', 'dir'])
     || !['count', 'docFreq', 'dp', 'dpNorm', 'ratePer10k', 'class', 'key']
       .includes(value.sort.by as string)
@@ -347,25 +317,6 @@ function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
     || !isNonNegSafeInt(value.pageSize) || value.pageSize < 1 || value.pageSize > FREQUENCY_PAGE_MAX
   ) {
     throw new RangeError('frequency view is invalid');
-  }
-  const prefixNfc = hasPrefix
-    ? boundedString(value.prefixNfc, 64, 'frequency prefix', true)
-    : undefined;
-  if (prefixNfc !== undefined && prefixNfc !== prefixNfc.normalize('NFC')) {
-    throw new RangeError('frequency prefix must be NFC');
-  }
-  const regex = hasRegex
-    ? boundedString(value.regex, FREQUENCY_FILTER_MAX_UNITS, 'frequency regex')
-    : undefined;
-  if (regex !== undefined) {
-    if (regex !== regex.normalize('NFC')) {
-      throw new RangeError('frequency regex must be NFC');
-    }
-    try {
-      new RegExp(regex, 'u');
-    } catch {
-      throw new RangeError('frequency regex must be valid');
-    }
   }
   let filter: FrequencyTextFilterV1 | undefined;
   if (hasFilter) {
@@ -397,10 +348,8 @@ function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
     minCount: value.minCount,
     minDocFreq: value.minDocFreq,
     classes: parseClasses(value.classes, 'frequency classes'),
-    stoplistTopN: hasStoplist ? value.stoplistTopN as number : 0,
+    stoplistTopN: value.stoplistTopN,
     ...(filter === undefined ? {} : { filter }),
-    ...(prefixNfc === undefined ? {} : { prefixNfc }),
-    ...(regex === undefined ? {} : { regex }),
     sort: value.sort as unknown as WorkspaceFrequencyViewV1['sort'],
     pageSize: value.pageSize,
   };
@@ -411,26 +360,14 @@ function nullableDocument(value: unknown, what: string): string | null {
 }
 
 function parseCompareView(value: unknown): WorkspaceCompareViewV1 {
-  const hasStoplist = value !== null
-    && typeof value === 'object'
-    && Object.prototype.hasOwnProperty.call(value, 'stoplistTopN');
-  const stoplistKey = hasStoplist ? ['stoplistTopN'] as const : [];
-  const currentKeys = [
+  const keys = [
     'mode', 'documentA', 'documentB', 'restOn', 'minCountTotal',
-    'minDocFreqTotal', 'classes', ...stoplistKey, 'sort',
+    'minDocFreqTotal', 'classes', 'stoplistTopN', 'sort',
     'showConfidenceIntervals', 'pageSize',
   ] as const;
-  const legacyKeys = [
-    'mode', 'documentA', 'documentB', 'restOn', 'minCountTotal',
-    'minDocFreqTotal', 'classes', ...stoplistKey, 'sort', 'pageSize',
-  ] as const;
-  const current = exactRecord(value, currentKeys);
-  if (!current && !exactRecord(value, legacyKeys)) {
+  if (!exactRecord(value, keys)) {
     throw new RangeError('compare view must be exact');
   }
-  const showConfidenceIntervals = current
-    ? value.showConfidenceIntervals
-    : true;
   if (
     (
       value.mode !== 'documents'
@@ -440,16 +377,14 @@ function parseCompareView(value: unknown): WorkspaceCompareViewV1 {
     || (value.restOn !== 'a' && value.restOn !== 'b')
     || !isNonNegSafeInt(value.minCountTotal) || value.minCountTotal < 1
     || !isNonNegSafeInt(value.minDocFreqTotal) || value.minDocFreqTotal < 1
-    || (hasStoplist && (
-      !isNonNegSafeInt(value.stoplistTopN)
-      || value.stoplistTopN > STOPLIST_MAX_TOP_N
-    ))
+    || !isNonNegSafeInt(value.stoplistTopN)
+    || value.stoplistTopN > STOPLIST_MAX_TOP_N
     || !exactRecord(value.sort, ['by', 'dirA', 'dirB'])
     || !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']
       .includes(value.sort.by as string)
     || (value.sort.dirA !== 1 && value.sort.dirA !== -1)
     || (value.sort.dirB !== 1 && value.sort.dirB !== -1)
-    || typeof showConfidenceIntervals !== 'boolean'
+    || typeof value.showConfidenceIntervals !== 'boolean'
     || !isNonNegSafeInt(value.pageSize) || value.pageSize < 1 || value.pageSize > FREQUENCY_PAGE_MAX
   ) {
     throw new RangeError('compare view is invalid');
@@ -462,15 +397,15 @@ function parseCompareView(value: unknown): WorkspaceCompareViewV1 {
     minCountTotal: value.minCountTotal,
     minDocFreqTotal: value.minDocFreqTotal,
     classes: parseClasses(value.classes, 'compare classes'),
-    stoplistTopN: hasStoplist ? value.stoplistTopN as number : 0,
+    stoplistTopN: value.stoplistTopN,
     sort: value.sort as unknown as WorkspaceCompareViewV1['sort'],
-    showConfidenceIntervals,
+    showConfidenceIntervals: value.showConfidenceIntervals,
     pageSize: value.pageSize,
   };
 }
 
 export function parseWorkspace(value: unknown): WorkspaceV1 {
-  if (!exactRecord(value, ['schema', 'corpus', 'notebook', 'active', 'kwicEnabled', 'views'])) {
+  if (!exactRecord(value, ['schema', 'corpus', 'notebook', 'active', 'views'])) {
     throw new RangeError('workspace must be an exact v1 record');
   }
   if (value.schema !== WORKSPACE_SCHEMA) throw new RangeError('unknown workspace schema');
@@ -478,16 +413,9 @@ export function parseWorkspace(value: unknown): WorkspaceV1 {
     throw new RangeError('workspace views must be exact');
   }
   const notebook = parseQueryNotebook(value.notebook);
-  const upgradingLegacyNotebook = exactRecord(value.notebook, ['schema', 'groups'])
-    && value.notebook.schema === 'texttrends/query-notebook/1';
   const admittedGroups = new Set(notebook.groups.map((group) => group.id));
-  let active = uniqueStrings(value.active, MAX_KWIC_TRACKS, 'active groups');
-  let kwicEnabled = uniqueStrings(value.kwicEnabled, NOTEBOOK_LIMITS_V1.maxGroups, 'KWIC-enabled groups');
-  if (upgradingLegacyNotebook) {
-    active = active.filter((id) => admittedGroups.has(id));
-    kwicEnabled = kwicEnabled.filter((id) => admittedGroups.has(id));
-  }
-  if (active.some((id) => !admittedGroups.has(id)) || kwicEnabled.some((id) => !admittedGroups.has(id))) {
+  const active = uniqueStrings(value.active, MAX_KWIC_TRACKS, 'active groups');
+  if (active.some((id) => !admittedGroups.has(id))) {
     throw new RangeError('workspace group selections must refer to notebook groups');
   }
   return {
@@ -495,7 +423,6 @@ export function parseWorkspace(value: unknown): WorkspaceV1 {
     corpus: parseCorpus(value.corpus),
     notebook,
     active,
-    kwicEnabled,
     views: {
       trend: parseWorkspaceTrendView(value.views.trend),
       frequency: parseFrequencyView(value.views.frequency),

@@ -1236,10 +1236,6 @@ function adjacentReaderDocument(
   );
 }
 
-function regexForLegacyFrequencyPrefix(prefix: string): string {
-  return `^${prefix.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`;
-}
-
 export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
   const project = state.projectSession?.project;
   if (!project) return null;
@@ -1261,11 +1257,6 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
     },
     notebook: state.notebook,
     active: state.notebook.groups
-      .filter((group) => state.activeGroupIds.has(group.id))
-      .map((group) => group.id),
-    // Deprecated workspace/1 compatibility field. Matches now follows
-    // the shared active projection, so new saves mirror `active` here.
-    kwicEnabled: state.notebook.groups
       .filter((group) => state.activeGroupIds.has(group.id))
       .map((group) => group.id),
     views: {
@@ -1308,7 +1299,6 @@ export function emptyLibraryWorkspace(): WorkspaceV1 {
     corpus: { kind: 'library', order: [], docs: [] },
     notebook: { schema: 'texttrends/query-notebook/3', groups: [] },
     active: [],
-    kwicEnabled: [],
     views: {
       trend: {
         mode: DEFAULT_TREND_VIEW,
@@ -6174,19 +6164,11 @@ export function createAppRuntime(
           restoredTrendBins.mode !== workspace.views.trend.bins.mode
           || restoredTrendBins.count !== workspace.views.trend.bins.count;
         const compare = workspace.views.compare;
-        const frequencyFilter = workspace.views.frequency.filter
-          ?? (workspace.views.frequency.regex !== undefined
-            ? { mode: 'regex' as const, query: workspace.views.frequency.regex }
-            : workspace.views.frequency.prefixNfc === undefined
-              ? undefined
-              : {
-                  mode: 'regex' as const,
-                  query: regexForLegacyFrequencyPrefix(workspace.views.frequency.prefixNfc),
-                });
+        const frequencyFilter = workspace.views.frequency.filter;
         set({
           trendViewPreference: workspace.views.trend.mode,
           trendView: (state.projectSession?.project.data.order.length ?? 0) > 1
-            || (workspace.corpus.kind === 'library' && workspace.corpus.order.length === 0)
+            || workspace.corpus.order.length === 0
             ? workspace.views.trend.mode
             : 'series',
           trendBins: restoredTrendBins,

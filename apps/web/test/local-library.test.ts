@@ -36,7 +36,6 @@ function workspace(library: string): WorkspaceV1 {
     },
     notebook: EMPTY_NOTEBOOK,
     active: [],
-    kwicEnabled: [],
     views: {
       trend: {
         mode: 'series',
@@ -191,7 +190,6 @@ describe('BrowserLocalLibrary', () => {
       throw new Error('workspace should remain library-backed');
     }
     expect(loaded.workspace.corpus).toEqual({ kind: 'library', order: [], docs: [] });
-    expect(loaded.workspace.views.trend).not.toHaveProperty('focusedDoc');
     expect(loaded.workspace.views.compare.documentA).toBeNull();
     expect(loaded.workspace.views.compare.documentB).toBeNull();
     await library.close();

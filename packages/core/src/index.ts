@@ -75,7 +75,6 @@ export {
   type SeriesStyleV1,
 } from './project/notebook.ts';
 export {
-  TREND_RATE_DENOMINATORS,
   TREND_RATE_DENOMINATOR,
   TREND_SMOOTHING_WINDOWS,
   WORKSPACE_MAX_ID_UNITS,
@@ -83,7 +82,6 @@ export {
   parseWorkspace,
   parseWorkspaceTrendView,
   reconcileWorkspaceDocuments,
-  type TrendRateDenominator,
   type TrendSmoothingWindow,
   type WorkspaceCompareViewV1,
   type WorkspaceCorpusV1,
