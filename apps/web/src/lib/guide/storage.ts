@@ -1,4 +1,13 @@
-export const GUIDE_PROGRESS_STORAGE_KEY = 'texttrends/guide/1';
+import {
+  definePreference,
+  exactKeys,
+  recordOf,
+  type PreferenceReader,
+  type PreferenceWriter,
+} from '../preference-store.ts';
+import { GUIDE_PROGRESS_PREFERENCE_DESCRIPTOR } from '../preferences.ts';
+
+export const GUIDE_PROGRESS_STORAGE_KEY = GUIDE_PROGRESS_PREFERENCE_DESCRIPTOR.key;
 
 export interface GuideProgressV1 {
   readonly v: 1;
@@ -22,9 +31,6 @@ const EMPTY_GUIDE_PROGRESS: GuideProgressV1 = Object.freeze({
   dismissedInvitationVersion: null,
 });
 
-type StorageReader = Pick<Storage, 'getItem'>;
-type StorageWriter = Pick<Storage, 'setItem'>;
-
 function isVersion(value: unknown): value is number {
   return typeof value === 'number'
     && Number.isSafeInteger(value)
@@ -36,52 +42,47 @@ function isVersionOrNull(value: unknown): value is number | null {
 }
 
 function isGuideProgress(value: unknown): value is GuideProgressV1 {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  return Object.keys(record).sort().join('\u001f') === GUIDE_PROGRESS_KEYS.join('\u001f')
+  const record = recordOf(value);
+  return record !== null
+    && exactKeys(record, GUIDE_PROGRESS_KEYS)
     && record.v === 1
     && isVersionOrNull(record.tourSeenVersion)
     && isVersionOrNull(record.dismissedInvitationVersion);
 }
+
+export const GUIDE_PROGRESS_PREFERENCE = definePreference<GuideProgressV1>({
+  key: GUIDE_PROGRESS_STORAGE_KEY,
+  scope: GUIDE_PROGRESS_PREFERENCE_DESCRIPTOR.scope,
+  parse(value) {
+    if (!isGuideProgress(value)) return null;
+    return {
+      v: 1,
+      tourSeenVersion: value.tourSeenVersion,
+      dismissedInvitationVersion: value.dismissedInvitationVersion,
+    };
+  },
+  serialize(value) {
+    return isGuideProgress(value) ? value : null;
+  },
+});
 
 export function emptyGuideProgress(): GuideProgressV1 {
   return EMPTY_GUIDE_PROGRESS;
 }
 
 export function parseGuideProgress(raw: string | null): GuideProgressV1 {
-  if (raw === null) return EMPTY_GUIDE_PROGRESS;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!isGuideProgress(parsed)) return EMPTY_GUIDE_PROGRESS;
-    return {
-      v: 1,
-      tourSeenVersion: parsed.tourSeenVersion,
-      dismissedInvitationVersion: parsed.dismissedInvitationVersion,
-    };
-  } catch {
-    return EMPTY_GUIDE_PROGRESS;
-  }
+  return GUIDE_PROGRESS_PREFERENCE.load({ getItem: () => raw }) ?? EMPTY_GUIDE_PROGRESS;
 }
 
-export function loadGuideProgress(storage: StorageReader | null): GuideProgressV1 {
-  if (storage === null) return EMPTY_GUIDE_PROGRESS;
-  try {
-    return parseGuideProgress(storage.getItem(GUIDE_PROGRESS_STORAGE_KEY));
-  } catch {
-    return EMPTY_GUIDE_PROGRESS;
-  }
+export function loadGuideProgress(storage: PreferenceReader | null): GuideProgressV1 {
+  return GUIDE_PROGRESS_PREFERENCE.load(storage) ?? EMPTY_GUIDE_PROGRESS;
 }
 
 export function saveGuideProgress(
-  storage: StorageWriter | null,
+  storage: PreferenceWriter | null,
   progress: GuideProgressV1,
 ): void {
-  if (storage === null || !isGuideProgress(progress)) return;
-  try {
-    storage.setItem(GUIDE_PROGRESS_STORAGE_KEY, JSON.stringify(progress));
-  } catch {
-    // Storage can be disabled or full; the invitation remains dismissed in memory.
-  }
+  GUIDE_PROGRESS_PREFERENCE.save(storage, progress);
 }
 
 export function advanceGuideProgress(
@@ -99,14 +100,4 @@ export function guideProgressCovers(
   version: number,
 ): boolean {
   return isVersion(version) && (progress[field] ?? -1) >= version;
-}
-
-export function browserGuideLocalStorage(
-  target: Pick<Window, 'localStorage'>,
-): Storage | null {
-  try {
-    return target.localStorage;
-  } catch {
-    return null;
-  }
 }

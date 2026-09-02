@@ -3,54 +3,46 @@ import {
   isTheme,
   type DisplayPreference,
 } from './display-preference.ts';
+import {
+  definePreference,
+  exactKeys,
+  recordOf,
+  type PreferenceReader,
+  type PreferenceWriter,
+} from './preference-store.ts';
+import { DISPLAY_PREFERENCE_DESCRIPTOR } from './preferences.ts';
 
-export const DISPLAY_PREFERENCE_STORAGE_KEY = 'texttrends/display/1';
+export const DISPLAY_PREFERENCE_STORAGE_KEY = DISPLAY_PREFERENCE_DESCRIPTOR.key;
 
 const DISPLAY_PREFERENCE_KEYS = Object.freeze(['density', 'theme']);
 
-type StorageReader = Pick<Storage, 'getItem'>;
-type StorageWriter = Pick<Storage, 'setItem'>;
-
-export function loadDisplayPreference(storage: StorageReader | null): DisplayPreference | null {
-  if (storage === null) return null;
-  try {
-    const raw = storage.getItem(DISPLAY_PREFERENCE_STORAGE_KEY);
-    if (raw === null) return null;
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
-    const record = parsed as Record<string, unknown>;
+export const DISPLAY_PREFERENCE = definePreference<DisplayPreference>({
+  key: DISPLAY_PREFERENCE_STORAGE_KEY,
+  scope: DISPLAY_PREFERENCE_DESCRIPTOR.scope,
+  parse(value) {
+    const record = recordOf(value);
     if (
-      Object.keys(record).sort().join('\u001f') !== DISPLAY_PREFERENCE_KEYS.join('\u001f')
+      record === null
+      || !exactKeys(record, DISPLAY_PREFERENCE_KEYS)
       || !isDensity(record.density)
       || !isTheme(record.theme)
     ) return null;
     return { density: record.density, theme: record.theme };
-  } catch {
-    return null;
-  }
+  },
+  serialize(preference) {
+    return isDensity(preference.density) && isTheme(preference.theme)
+      ? { density: preference.density, theme: preference.theme }
+      : null;
+  },
+});
+
+export function loadDisplayPreference(storage: PreferenceReader | null): DisplayPreference | null {
+  return DISPLAY_PREFERENCE.load(storage);
 }
 
 export function saveDisplayPreference(
-  storage: StorageWriter | null,
+  storage: PreferenceWriter | null,
   preference: DisplayPreference,
 ): void {
-  if (storage === null || !isDensity(preference.density) || !isTheme(preference.theme)) return;
-  try {
-    storage.setItem(DISPLAY_PREFERENCE_STORAGE_KEY, JSON.stringify({
-      density: preference.density,
-      theme: preference.theme,
-    }));
-  } catch {
-    // Storage can be disabled or full; the preference remains live for this page.
-  }
-}
-
-export function browserDisplayLocalStorage(
-  target: Pick<Window, 'localStorage'>,
-): Storage | null {
-  try {
-    return target.localStorage;
-  } catch {
-    return null;
-  }
+  DISPLAY_PREFERENCE.save(storage, preference);
 }

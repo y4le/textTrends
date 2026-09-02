@@ -34,12 +34,12 @@ import {
 } from '../../lib/guide/definition.ts';
 import {
   advanceGuideProgress,
-  browserGuideLocalStorage,
   guideProgressCovers,
   loadGuideProgress,
   saveGuideProgress,
   type GuideProgressField,
 } from '../../lib/guide/storage.ts';
+import { browserStorage } from '../../lib/preference-store.ts';
 import {
   classifyGuideNavigation,
   guideReaderTarget,
@@ -111,7 +111,7 @@ export function GuideProvider({ children }: { readonly children: ReactNode }) {
   const [activation, setActivation] = useState<ObservedOccurrenceActivation>('unknown');
   const [active, setActive] = useState<ActiveGuide | null>(null);
   const [progressStorage] = useState<Storage | null>(() => (
-    typeof window === 'undefined' ? null : browserGuideLocalStorage(window)
+    typeof window === 'undefined' ? null : browserStorage(window, 'local')
   ));
   const [guideProgress, setGuideProgress] = useState(() => (
     loadGuideProgress(progressStorage)

@@ -99,12 +99,12 @@ import {
   type TrendRowDetentState,
 } from '../lib/trend-row-detent.ts';
 import {
-  browserTrendRowStorage,
   loadTrendRowPitch,
   resolveTrendRowPitch,
   saveTrendRowPitch,
   trendRowPitchPreference,
 } from '../lib/trend-row-storage.ts';
+import { browserStorage } from '../lib/preference-store.ts';
 import {
   formatTrendDisplayValue,
   trendDisplayValues,
@@ -161,7 +161,7 @@ import {
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
 const trendRowStorage = typeof window === 'undefined'
   ? null
-  : browserTrendRowStorage(window);
+  : browserStorage(window, 'local');
 const TREND_TITLE_ARIA_KEYS = shortcutAria([
   'trend-title-previous',
   'trend-title-next',

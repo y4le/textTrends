@@ -56,8 +56,8 @@ import {
 import {
   loadVocabularyColumnSettings,
   saveVocabularyColumnSettings,
-  vocabularySessionStorage,
 } from '../../lib/vocabulary-column-storage.ts';
+import { browserStorage } from '../../lib/preference-store.ts';
 
 const number = new Intl.NumberFormat('en-US');
 const decimal = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
@@ -197,8 +197,9 @@ export function FrequencyTable({
     mode: view.filter?.mode ?? 'literal' as const,
     query: view.filter?.query ?? '',
   }));
+  const [columnStorage] = useState(() => browserStorage(window, 'session'));
   const [columns, setColumns] = useState<VocabularyColumnSettings>(() =>
-    loadVocabularyColumnSettings(vocabularySessionStorage(window))
+    loadVocabularyColumnSettings(columnStorage)
       ?? VOCABULARY_COLUMN_DEFAULTS);
   const [columnsAdjustable, setColumnsAdjustable] = useState(false);
   const [columnAnnouncement, setColumnAnnouncement] = useState('');
@@ -314,7 +315,7 @@ export function FrequencyTable({
     }
     if (drag.moved) {
       saveVocabularyColumnSettings(
-        vocabularySessionStorage(window),
+        columnStorage,
         drag.currentSettings,
       );
       setColumnAnnouncement(
@@ -426,8 +427,8 @@ export function FrequencyTable({
 
   useEffect(() => {
     if (columnDragRef.current !== null) return;
-    saveVocabularyColumnSettings(vocabularySessionStorage(window), columns);
-  }, [columns]);
+    saveVocabularyColumnSettings(columnStorage, columns);
+  }, [columnStorage, columns]);
 
   useEffect(() => {
     stalePopRequested.current = false;

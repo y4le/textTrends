@@ -1,31 +1,10 @@
 import { LOCAL_LIBRARY_DB_NAME } from './local-library.ts';
-import { MATCHES_COLUMN_STORAGE_KEY } from './matches-column-storage.ts';
-import { VOCABULARY_COLUMN_STORAGE_KEY } from './vocabulary-column-storage.ts';
-import {
-  LEGACY_TREND_ROW_PITCH_STORAGE_KEY,
-  TREND_ROW_PITCH_STORAGE_KEY,
-} from './trend-row-storage.ts';
-import {
-  RSVP_PACING_STORAGE_KEY,
-  RSVP_PACING_V2_STORAGE_KEY,
-  RSVP_WPM_STORAGE_KEY,
-} from './rsvp-storage.ts';
 import { ARTIFACT_DB_NAME } from '../shared/storage-schema.ts';
-import { GUIDE_PROGRESS_STORAGE_KEY } from './guide/storage.ts';
+import { preferenceKeys } from './preferences.ts';
 
-export const OWNED_SESSION_STORAGE_KEYS = Object.freeze([
-  MATCHES_COLUMN_STORAGE_KEY,
-  VOCABULARY_COLUMN_STORAGE_KEY,
-  RSVP_WPM_STORAGE_KEY,
-]);
+export const OWNED_SESSION_STORAGE_KEYS = Object.freeze(preferenceKeys('session'));
 
-export const OWNED_LOCAL_STORAGE_KEYS = Object.freeze([
-  RSVP_PACING_V2_STORAGE_KEY,
-  RSVP_PACING_STORAGE_KEY,
-  TREND_ROW_PITCH_STORAGE_KEY,
-  LEGACY_TREND_ROW_PITCH_STORAGE_KEY,
-  GUIDE_PROGRESS_STORAGE_KEY,
-]);
+export const OWNED_LOCAL_STORAGE_KEYS = Object.freeze(preferenceKeys('local'));
 
 export type DatabaseBlockedHandler = (name: string) => void;
 

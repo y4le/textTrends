@@ -1,12 +1,20 @@
 import type { WidthClass } from './presentation.ts';
 import {
+  definePreference,
+  exactKeys,
+  recordOf,
+  type PreferenceReader,
+  type PreferenceWriter,
+} from './preference-store.ts';
+import { TREND_ROW_PITCH_PREFERENCE_DESCRIPTOR } from './preferences.ts';
+import {
   trendRowSizing,
   type TrendRowPhase,
   type TrendRowSizing,
 } from './trend-row-size.ts';
 
-export const TREND_ROW_PITCH_STORAGE_KEY = 'texttrends/trend-rows/2';
-export const LEGACY_TREND_ROW_PITCH_STORAGE_KEY = 'texttrends/trend-rows/1';
+export const TREND_ROW_PITCH_STORAGE_KEY = TREND_ROW_PITCH_PREFERENCE_DESCRIPTOR.key;
+export const LEGACY_TREND_ROW_PITCH_STORAGE_KEY = TREND_ROW_PITCH_PREFERENCE_DESCRIPTOR.legacyKeys[0]!;
 /** Loose storage sanity bounds; runtime sizing owns tighter contextual limits. */
 export const TREND_ROW_PITCH_STORAGE_MIN = 1;
 export const TREND_ROW_PITCH_STORAGE_MAX = 8192;
@@ -21,9 +29,6 @@ export interface TrendRowPitchPreference {
   readonly pitch: number;
   readonly context: TrendRowPitchContext;
 }
-
-type StorageReader = Pick<Storage, 'getItem'>;
-type StorageWriter = Pick<Storage, 'setItem' | 'removeItem'>;
 
 function validPitch(value: unknown): value is number {
   return typeof value === 'number'
@@ -43,10 +48,6 @@ function validWidth(value: unknown): value is WidthClass {
   return value === 'compact' || value === 'regular' || value === 'wide';
 }
 
-function exactKeys(record: Record<string, unknown>, expected: readonly string[]): boolean {
-  return Object.keys(record).sort().join('\u001f') === [...expected].sort().join('\u001f');
-}
-
 export function trendRowPitchPreference(
   pitch: number,
   context: TrendRowPitchContext,
@@ -63,62 +64,57 @@ export function trendRowPitchPreference(
   });
 }
 
+function parseTrendRowPitch(value: unknown): TrendRowPitchPreference | null {
+  const record = recordOf(value);
+  if (
+    record === null
+    || !exactKeys(record, ['pitch', 'tracks', 'width', 'coarse'])
+    || !validPitch(record.pitch)
+    || !validTracks(record.tracks)
+    || !validWidth(record.width)
+    || typeof record.coarse !== 'boolean'
+  ) return null;
+  return Object.freeze({
+    pitch: record.pitch,
+    context: Object.freeze({
+      tracks: record.tracks,
+      width: record.width,
+      coarse: record.coarse,
+    }),
+  });
+}
+
+export const TREND_ROW_PITCH_PREFERENCE = definePreference<TrendRowPitchPreference>({
+  key: TREND_ROW_PITCH_STORAGE_KEY,
+  scope: TREND_ROW_PITCH_PREFERENCE_DESCRIPTOR.scope,
+  legacyKeys: TREND_ROW_PITCH_PREFERENCE_DESCRIPTOR.legacyKeys,
+  parse: parseTrendRowPitch,
+  serialize(preference) {
+    const valid = trendRowPitchPreference(preference.pitch, preference.context);
+    return valid === null ? null : {
+      pitch: valid.pitch,
+      tracks: valid.context.tracks,
+      width: valid.context.width,
+      coarse: valid.context.coarse,
+    };
+  },
+});
+
 /** Read a durable device-local viewing-density preference. */
 export function loadTrendRowPitch(
-  storage: StorageReader | null,
+  storage: PreferenceReader | null,
 ): TrendRowPitchPreference | null {
-  if (storage === null) return null;
-  try {
-    const raw = storage.getItem(TREND_ROW_PITCH_STORAGE_KEY);
-    if (raw === null) return null;
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
-    const record = parsed as Record<string, unknown>;
-    if (
-      !exactKeys(record, ['pitch', 'tracks', 'width', 'coarse'])
-      || !validPitch(record.pitch)
-      || !validTracks(record.tracks)
-      || !validWidth(record.width)
-      || typeof record.coarse !== 'boolean'
-    ) return null;
-    return Object.freeze({
-      pitch: record.pitch,
-      context: Object.freeze({
-        tracks: record.tracks,
-        width: record.width,
-        coarse: record.coarse,
-      }),
-    });
-  } catch {
-    return null;
-  }
+  return TREND_ROW_PITCH_PREFERENCE.load(storage);
 }
 
 /** Persist an explicit request; null restores automatic sizing and removes
  * both current and legacy keys so an old preference cannot reappear. */
 export function saveTrendRowPitch(
-  storage: StorageWriter | null,
+  storage: PreferenceWriter | null,
   preference: TrendRowPitchPreference | null,
 ): void {
-  if (storage === null) return;
-  try {
-    if (preference === null) {
-      storage.removeItem(TREND_ROW_PITCH_STORAGE_KEY);
-      storage.removeItem(LEGACY_TREND_ROW_PITCH_STORAGE_KEY);
-      return;
-    }
-    const valid = trendRowPitchPreference(preference.pitch, preference.context);
-    if (valid === null) return;
-    storage.setItem(TREND_ROW_PITCH_STORAGE_KEY, JSON.stringify({
-      pitch: valid.pitch,
-      tracks: valid.context.tracks,
-      width: valid.context.width,
-      coarse: valid.context.coarse,
-    }));
-    storage.removeItem(LEGACY_TREND_ROW_PITCH_STORAGE_KEY);
-  } catch {
-    // Storage can be disabled or full; resizing remains live for this page.
-  }
+  if (preference === null) TREND_ROW_PITCH_PREFERENCE.clear(storage);
+  else TREND_ROW_PITCH_PREFERENCE.save(storage, preference);
 }
 
 function phaseProgress(sizing: TrendRowSizing): {
@@ -233,14 +229,4 @@ export function resolveTrendRowPitch(
     trackCount: liveContext.tracks,
     targetPitch: pitchForPhase(treatment.phase, treatment.progress, live),
   }).rowPitch;
-}
-
-export function browserTrendRowStorage(
-  target: Pick<Window, 'localStorage'>,
-): Storage | null {
-  try {
-    return target.localStorage;
-  } catch {
-    return null;
-  }
 }

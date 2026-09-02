@@ -4,14 +4,14 @@ import {
   type DisplayPreference,
 } from './display-preference.ts';
 import {
-  browserDisplayLocalStorage,
   loadDisplayPreference,
   saveDisplayPreference,
 } from './display-storage.ts';
+import { browserStorage } from './preference-store.ts';
 
 type DisplayListener = () => void;
 
-const storage = typeof window === 'undefined' ? null : browserDisplayLocalStorage(window);
+const storage = typeof window === 'undefined' ? null : browserStorage(window, 'local');
 let preference = loadDisplayPreference(storage) ?? DEFAULT_DISPLAY_PREFERENCE;
 const listeners = new Set<DisplayListener>();
 

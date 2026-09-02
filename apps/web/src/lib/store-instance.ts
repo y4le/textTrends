@@ -28,17 +28,12 @@ import {
 import { createResumeMonitor } from './resume.ts';
 import { browserHistoryPort } from './history-port.ts';
 import { pendingAnalysisCount } from './pending-analyses.ts';
-import {
-  browserSessionStorage,
-  loadMatchesColumnSettings,
-  saveMatchesColumnSettings,
-} from './matches-column-storage.ts';
+import { loadMatchesColumnSettings, saveMatchesColumnSettings } from './matches-column-storage.ts';
 import { consumeDemoBootRequest } from './demo-query.ts';
 import { demoLoadNotice, loadDemoCorpus } from './demo-loader.ts';
 import { findScope } from './interaction.ts';
 import { RSVP_PACING_DEFAULTS, type RsvpPacing } from '@texttrends/rsvp';
 import {
-  browserLocalStorage,
   loadRsvpPacing,
   saveRsvpPacing,
 } from './rsvp-storage.ts';
@@ -47,6 +42,7 @@ import {
   saveAtlasNormalization,
 } from './reader-atlas-storage.ts';
 import { DEFAULT_ATLAS_NORMALIZATION } from './reader-view.ts';
+import { browserStorage } from './preference-store.ts';
 
 // Consume the one-shot parameter before createAppRuntime performs any route
 // replace. Otherwise the route layer correctly preserves this foreign key and
@@ -55,9 +51,9 @@ const demoBootRequest = consumeDemoBootRequest(window);
 const trace = __TT_E2E__ ? new RingTrace() : undefined;
 
 const client = new WorkerClient(trace);
-const matchesStorage = browserSessionStorage(window);
+const matchesStorage = browserStorage(window, 'session');
 const restoredMatchesColumns = loadMatchesColumnSettings(matchesStorage);
-const rsvpStorage = browserLocalStorage(window);
+const rsvpStorage = browserStorage(window, 'local');
 const restoredAtlasNormalization = loadAtlasNormalization(rsvpStorage)
   ?? DEFAULT_ATLAS_NORMALIZATION;
 const storedRsvpPacing = loadRsvpPacing(rsvpStorage);

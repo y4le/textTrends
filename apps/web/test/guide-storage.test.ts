@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   GUIDE_PROGRESS_STORAGE_KEY,
   advanceGuideProgress,
-  browserGuideLocalStorage,
   emptyGuideProgress,
   guideProgressCovers,
   loadGuideProgress,
@@ -62,6 +61,7 @@ describe('versioned guide progress', () => {
     const storage = {
       getItem: vi.fn((key: string) => values.get(key) ?? null),
       setItem: vi.fn((key: string, value: string) => { values.set(key, value); }),
+      removeItem: vi.fn((key: string) => { values.delete(key); }),
     };
     saveGuideProgress(storage, VALID);
     expect([...values.keys()]).toEqual([GUIDE_PROGRESS_STORAGE_KEY]);
@@ -69,16 +69,13 @@ describe('versioned guide progress', () => {
     expect(Object.keys(JSON.parse(values.get(GUIDE_PROGRESS_STORAGE_KEY)!)).sort())
       .toEqual(['dismissedInvitationVersion', 'tourSeenVersion', 'v']);
 
-    expect(() => saveGuideProgress({ setItem: () => { throw new Error('quota'); } }, VALID))
+    expect(() => saveGuideProgress({
+      setItem: () => { throw new Error('quota'); },
+      removeItem: () => { throw new Error('disabled'); },
+    }, VALID))
       .not.toThrow();
     expect(loadGuideProgress({ getItem: () => { throw new Error('disabled'); } }))
       .toBe(emptyGuideProgress());
   });
 
-  it('handles a window that refuses localStorage access', () => {
-    expect(browserGuideLocalStorage({ localStorage: {} as Storage })).toEqual({});
-    expect(browserGuideLocalStorage({
-      get localStorage(): Storage { throw new DOMException('disabled', 'SecurityError'); },
-    })).toBeNull();
-  });
 });

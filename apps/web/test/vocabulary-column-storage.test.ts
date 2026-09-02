@@ -10,6 +10,7 @@ const memoryStorage = (initial: string | null = null) => {
   return {
     getItem: () => value,
     setItem: (_key: string, next: string) => { value = next; },
+    removeItem: () => { value = null; },
   };
 };
 
@@ -33,6 +34,7 @@ describe('Vocabulary column session storage', () => {
     expect(loadVocabularyColumnSettings(null)).toBeNull();
     expect(() => saveVocabularyColumnSettings({
       setItem: () => { throw new Error('disabled'); },
+      removeItem: () => { throw new Error('disabled'); },
     }, VOCABULARY_COLUMN_DEFAULTS)).not.toThrow();
   });
 });

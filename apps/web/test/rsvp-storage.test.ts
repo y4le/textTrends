@@ -4,7 +4,6 @@ import {
   RSVP_PACING_STORAGE_KEY,
   RSVP_PACING_V2_STORAGE_KEY,
   RSVP_WPM_STORAGE_KEY,
-  browserLocalStorage,
   loadRsvpPacing,
   saveRsvpPacing,
 } from '../src/lib/rsvp-storage.ts';
@@ -88,8 +87,5 @@ describe('RSVP rhythm local storage', () => {
     };
     expect(loadRsvpPacing(unavailable)).toBeNull();
     expect(() => saveRsvpPacing(unavailable, RSVP_PACING_DEFAULTS)).not.toThrow();
-    expect(browserLocalStorage({
-      get localStorage(): Storage { throw new DOMException('disabled', 'SecurityError'); },
-    })).toBeNull();
   });
 });

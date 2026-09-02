@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_DISPLAY_PREFERENCE } from '../src/lib/display-preference.ts';
 import {
   DISPLAY_PREFERENCE_STORAGE_KEY,
-  browserDisplayLocalStorage,
   loadDisplayPreference,
   saveDisplayPreference,
 } from '../src/lib/display-storage.ts';
@@ -12,6 +11,7 @@ function memoryStorage(initial: string | null = null) {
   return {
     getItem: () => value,
     setItem: (_key: string, next: string) => { value = next; },
+    removeItem: () => { value = null; },
     value: () => value,
   };
 }
@@ -39,11 +39,9 @@ describe('display preference local storage', () => {
     const unavailable = {
       getItem: () => { throw new DOMException('disabled', 'SecurityError'); },
       setItem: () => { throw new DOMException('disabled', 'SecurityError'); },
+      removeItem: () => { throw new DOMException('disabled', 'SecurityError'); },
     };
     expect(loadDisplayPreference(unavailable)).toBeNull();
     expect(() => saveDisplayPreference(unavailable, DEFAULT_DISPLAY_PREFERENCE)).not.toThrow();
-    expect(browserDisplayLocalStorage({
-      get localStorage(): Storage { throw new DOMException('disabled', 'SecurityError'); },
-    })).toBeNull();
   });
 });

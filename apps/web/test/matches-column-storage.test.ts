@@ -11,6 +11,7 @@ function memoryStorage(initial: string | null = null) {
     setItem: (_key: string, next: string) => {
       value = next;
     },
+    removeItem: () => { value = null; },
   };
 }
 
@@ -49,6 +50,7 @@ describe('Matches column session storage', () => {
     const unavailable = {
       getItem: () => { throw new DOMException('disabled', 'SecurityError'); },
       setItem: () => { throw new DOMException('disabled', 'SecurityError'); },
+      removeItem: () => { throw new DOMException('disabled', 'SecurityError'); },
     };
     expect(loadMatchesColumnSettings(unavailable)).toBeNull();
     expect(() => saveMatchesColumnSettings(unavailable, {

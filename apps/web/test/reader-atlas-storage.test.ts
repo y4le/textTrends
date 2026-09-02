@@ -10,6 +10,7 @@ function memoryStorage(initial: string | null = null) {
   return {
     getItem: () => value,
     setItem: (_key: string, next: string) => { value = next; },
+    removeItem: () => { value = null; },
     value: () => value,
   };
 }
@@ -36,6 +37,7 @@ describe('Reader Atlas local storage', () => {
     const unavailable = {
       getItem: () => { throw new DOMException('disabled', 'SecurityError'); },
       setItem: () => { throw new DOMException('disabled', 'SecurityError'); },
+      removeItem: () => { throw new DOMException('disabled', 'SecurityError'); },
     };
     expect(loadAtlasNormalization(unavailable)).toBeNull();
     expect(() => saveAtlasNormalization(unavailable, 'equal')).not.toThrow();

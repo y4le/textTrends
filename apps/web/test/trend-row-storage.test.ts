@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  browserTrendRowStorage,
   LEGACY_TREND_ROW_PITCH_STORAGE_KEY,
   loadTrendRowPitch,
   resolveTrendRowPitch,
@@ -99,7 +98,7 @@ describe('trend row-pitch storage', () => {
       .toBe('{"pitch":58,"tracks":1,"width":"regular","coarse":false}');
   });
 
-  it('keeps storage failures non-fatal and guards browser access', () => {
+  it('keeps storage failures non-fatal', () => {
     const unavailable = {
       getItem: () => { throw new DOMException('disabled', 'SecurityError'); },
       setItem: () => { throw new DOMException('disabled', 'SecurityError'); },
@@ -109,12 +108,6 @@ describe('trend row-pitch storage', () => {
     expect(() => saveTrendRowPitch(unavailable, trendRowPitchPreference(58, regularOne)))
       .not.toThrow();
     expect(() => saveTrendRowPitch(unavailable, null)).not.toThrow();
-
-    const storage = memoryStorage() as unknown as Storage;
-    expect(browserTrendRowStorage({ localStorage: storage })).toBe(storage);
-    expect(browserTrendRowStorage({
-      get localStorage(): Storage { throw new DOMException('disabled', 'SecurityError'); },
-    })).toBeNull();
   });
 });
 
