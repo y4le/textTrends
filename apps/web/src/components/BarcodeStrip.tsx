@@ -28,6 +28,8 @@ import {
 import { barcodeBandHeight } from '../lib/trend-geometry.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import type { TrendView } from '../lib/trend-view.ts';
+import { barcodeTrackRect } from '../lib/barcode-paint.ts';
+import { InfoTooltip } from './InfoTooltip.tsx';
 
 interface BarcodeBandProps {
   readonly view: TrendView;
@@ -45,6 +47,7 @@ interface BarcodeBandProps {
   readonly trackGap: number;
   readonly styleOf: (seriesId: string) => SeriesStyleV1;
   readonly coarse: boolean;
+  readonly occurrenceInteractive?: boolean;
   readonly foregroundOverlay?: boolean;
   readonly reservedTrackCount?: number;
 }
@@ -65,6 +68,7 @@ export function BarcodeBand({
   trackGap,
   styleOf,
   coarse,
+  occurrenceInteractive = true,
   foregroundOverlay = false,
   reservedTrackCount = 0,
 }: BarcodeBandProps) {
@@ -96,6 +100,7 @@ export function BarcodeBand({
         trackGap={trackGap}
         styleOf={styleOf}
         coarse={coarse}
+        occurrenceInteractive={occurrenceInteractive}
         foregroundOverlay={foregroundOverlay}
         reservedTrackCount={reservedTrackCount}
         colorScheme={presentation.colorScheme}
@@ -121,6 +126,7 @@ export function BarcodeBand({
       trackGap={trackGap}
       styleOf={styleOf}
       coarse={coarse}
+      occurrenceInteractive={occurrenceInteractive}
       foregroundOverlay={foregroundOverlay}
       reservedTrackCount={reservedTrackCount}
       colorScheme={presentation.colorScheme}
@@ -145,6 +151,7 @@ function BarcodeCanvas({
   trackGap,
   styleOf,
   coarse,
+  occurrenceInteractive = true,
   foregroundOverlay = false,
   colorScheme,
   docOrdinalById,
@@ -162,12 +169,15 @@ function BarcodeCanvas({
     const canvas = canvasRef.current;
     if (!canvas || width <= 0 || height <= 0) return;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
+    const deviceWidth = Math.round(width * dpr);
+    const deviceHeight = Math.round(height * dpr);
+    if (canvas.width !== deviceWidth) canvas.width = deviceWidth;
+    if (canvas.height !== deviceHeight) canvas.height = deviceHeight;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, width, height);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, deviceWidth, deviceHeight);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const styles = getComputedStyle(canvas);
     const canvasColor = (color: string): string => {
       const property = /^var\(\s*(--[^),\s]+)\s*\)$/.exec(color)?.[1];
@@ -194,8 +204,11 @@ function BarcodeCanvas({
       for (const track of paintTracks) {
         const row = rowBySeries.get(track.seriesId);
         if (row === undefined) continue;
-        const y = overlay ? 0 : row * (trackHeight + trackGap);
-        const markHeight = overlay ? height : trackHeight;
+        const trackRect = overlay
+          ? { top: 0, height }
+          : barcodeTrackRect(row, trackHeight, trackGap, dpr);
+        const y = trackRect.top;
+        const markHeight = trackRect.height;
         // Canvas fillStyle does not resolve CSS custom-property expressions.
         // Resolve the shared series token explicitly so a per-book canvas
         // does not silently retain its default black fill.
@@ -242,6 +255,7 @@ function BarcodeCanvas({
       data-barcode-background-series={backgroundTracks.map((track) => track.seriesId).join(' ')}
       data-barcode-foreground-overlay={foregroundOverlay || undefined}
       data-pointer-contract={coarse
+        || !occurrenceInteractive
         ? 'scrub-only'
         : tracks.length === 0
           ? 'background-only'
@@ -259,7 +273,7 @@ function BarcodeCanvas({
         width,
         height,
         display: 'block',
-        pointerEvents: coarse || tracks.length === 0 ? 'none' : 'auto',
+        pointerEvents: coarse || !occurrenceInteractive || tracks.length === 0 ? 'none' : 'auto',
         zIndex: 1,
       }}
     />
@@ -301,6 +315,14 @@ export function BarcodeLegend({
 
   return (
     <div className="trend-term-navigation">
+      <div className="trend-strip-method">
+        <span>Reading strip</span>
+        <InfoTooltip
+          id="trend-strip-evidence-help"
+          label="reading strip evidence"
+          explanation="An exact mark identifies one reference and can open it. A density band summarizes how many references fall in a span; it can open only a position, not a chosen reference."
+        />
+      </div>
       <ul
         aria-label="Term totals"
         className="trend-term-list"

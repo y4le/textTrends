@@ -1,15 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   liveReaderPlace,
+  readerCursorToken,
   readerPlaceFor,
   sameReaderCursor,
   sameReaderPlace,
 } from '../src/lib/reader-intent.ts';
 
 describe('reader open intent', () => {
+  it('resolves boundary cursors to the real token they name', () => {
+    expect(readerCursorToken({ kind: 'around', token: 7 })).toBe(7);
+    expect(readerCursorToken({ kind: 'from', token: 7 })).toBe(7);
+    expect(readerCursorToken({ kind: 'before', token: 7 })).toBe(6);
+  });
+
   it('turns a live served position into an around cursor', () => {
     expect(readerPlaceFor(
-      { snapshot: 's1', doc: 'a', token: 7, from: 'kwic' },
+      { snapshot: 's1', doc: 'a', token: 7, from: 'kwic', anchor: 'occurrence' },
       's1',
       ['a', 'b'],
     )).toEqual({
@@ -17,14 +24,15 @@ describe('reader open intent', () => {
       doc: 'a',
       cursor: { kind: 'around', token: 7 },
       from: 'kwic',
+      anchor: 'occurrence',
     });
     expect(readerPlaceFor(
-      { snapshot: 's1', doc: 'b', token: 2, from: 'footer' },
+      { snapshot: 's1', doc: 'b', token: 2, from: 'footer', anchor: 'position' },
       's1',
       ['a', 'b'],
     )?.from).toBe('footer');
     expect(readerPlaceFor(
-      { snapshot: 's1', doc: 'a', token: 3, from: 'occurrence' },
+      { snapshot: 's1', doc: 'a', token: 3, from: 'occurrence', anchor: 'occurrence' },
       's1',
       ['a'],
     )?.from).toBe('occurrence');
@@ -32,17 +40,24 @@ describe('reader open intent', () => {
 
   it('refuses stale snapshots, departed docs, and invalid tokens', () => {
     expect(readerPlaceFor(
-      { snapshot: 'old', doc: 'a', token: 7, from: 'kwic' },
+      { snapshot: 'old', doc: 'a', token: 7, from: 'kwic', anchor: 'occurrence' },
       's1',
       ['a'],
     )).toBeNull();
     expect(readerPlaceFor(
-      { snapshot: 's1', doc: 'gone', token: 7, from: 'barcode' },
+      { snapshot: 's1', doc: 'gone', token: 7, from: 'barcode', anchor: 'occurrence' },
       's1',
       ['a'],
     )).toBeNull();
     expect(readerPlaceFor(
-      { snapshot: 's1', doc: 'a', token: -1, from: 'kwic' },
+      { snapshot: 's1', doc: 'a', token: -1, from: 'kwic', anchor: 'occurrence' },
+      's1',
+      ['a'],
+    )).toBeNull();
+    expect(readerPlaceFor(
+      {
+        snapshot: 's1', doc: 'a', token: 1, from: 'kwic', anchor: 'invented',
+      } as never,
       's1',
       ['a'],
     )).toBeNull();
@@ -54,10 +69,12 @@ describe('reader open intent', () => {
       doc: 'a',
       cursor: { kind: 'around' as const, token: 3 },
       from: 'kwic' as const,
+      anchor: 'occurrence' as const,
     };
     expect(sameReaderPlace(place, { ...place, cursor: { ...place.cursor } })).toBe(true);
     expect(sameReaderPlace(place, { ...place, cursor: { kind: 'from', token: 3 } })).toBe(false);
     expect(sameReaderPlace(place, { ...place, from: 'barcode' })).toBe(false);
+    expect(sameReaderPlace(place, { ...place, anchor: 'position' })).toBe(false);
     expect(sameReaderPlace(place, null)).toBe(false);
     expect(sameReaderCursor(place.cursor, { ...place.cursor })).toBe(true);
     expect(sameReaderCursor(place.cursor, { kind: 'from', token: 3 })).toBe(false);
@@ -69,6 +86,7 @@ describe('reader open intent', () => {
       doc: 'a',
       cursor: { kind: 'before' as const, token: 4 },
       from: 'barcode' as const,
+      anchor: 'occurrence' as const,
     };
     expect(liveReaderPlace(place, 's1', ['a'])).toBe(place);
     expect(liveReaderPlace(place, 's2', ['a'])).toBeNull();
@@ -80,6 +98,11 @@ describe('reader open intent', () => {
     )).toBeNull();
     expect(liveReaderPlace(
       { ...place, from: 'invented' },
+      's1',
+      ['a'],
+    )).toBeNull();
+    expect(liveReaderPlace(
+      { ...place, anchor: 'invented' },
       's1',
       ['a'],
     )).toBeNull();

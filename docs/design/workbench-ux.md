@@ -301,7 +301,14 @@ The trend plate preserves these rules:
 - a hard path break at every document boundary;
 - color plus dash plus text identity, never color alone;
 - direct labels where space permits;
+- in separate-row Equal and To scale views, a sticky full-width separator sets
+  one device-local per-row height target; whitespace contracts before plot ink,
+  titles stop painting below their legible lane while remaining keyboard and
+  assistive-technology selectors, barcode rows miniaturize and then collapse as
+  one discrete step, and Combined retains its authored height;
 - dispersion rows embedded at the bottom of the plot;
+- whole-text selection by activating a title, plus inclusive title-to-title
+  press-and-drag selection in either reading-order direction;
 - linked-range selection by mouse drag or keyboard, plus two-touch selection
   and a press-hold-then-tap alternative on touch screens; and
 - exact graph values through the method/detail surfaces.
@@ -311,7 +318,8 @@ an exact barcode row snap only within the specified pixel tolerance; touch
 stays on its direct raw position. This is decided per pointer event, so an iPad
 trackpad retains precise hover and snapping while the same device keeps its
 large touch controls. Density cells never pretend to be exact targets.
-Two stationary touch taps within the main graph lane clear a linked range.
+Two stationary touch taps, or a mouse double-click, within the main graph lane
+clear a linked range.
 Barcode rows, range handles, gaps, an active long-press anchor, and concurrent
 two-finger range selection do not participate in that gesture. The first tap
 retains ordinary reading feedback; the recognizing second tap is consumed.
@@ -332,10 +340,13 @@ the next is in flight, and saves no text or range.
 The passage's native horizontal scrollport covers both the source line and its
 book/token status line; the status is a pointer-transparent visual readout, so
 wheel and touch gestures anywhere in that text area follow one scroll path.
-On the footer sparkline only, a stationary double-click clears the linked
-range; holding and dragging the second press replaces it with a newly brushed
-range. A plain graph drag remains the reading shuttle. Barcode and passage or
-status double-clicks retain their exact navigation and Reader actions.
+On either analytical graph, a stationary double-click clears the linked range.
+In the footer, holding and dragging the second press over the graph or barcode
+replaces it with a newly brushed range. The graph clears on that second press;
+the barcode retains its stationary Reader action and clears only once movement
+turns the press into a brush. A plain first-press footer drag remains the
+reading shuttle. Barcode and passage or status double-clicks retain their exact
+navigation and Reader actions.
 Absolute hover continues to seek the shared corpus
 axis. A mouse press-and-drag instead acts as an explicit reading
 shuttle: horizontal distance from the press point controls a bounded token
@@ -533,7 +544,8 @@ as the visible control. Resize and font settlement preserve the current start
 token and deliberately recompute later boundaries for the new geometry.
 Each settled page also publishes the shared reading position: an initial
 around-token request retains its exact anchor, while ordinary page turns use
-the fitted page's first token.
+the fitted page's first token. Every Reader entrance, including “read from
+here,” moves that shared cursor to the requested reading position.
 
 `w` and `b` move to the next and previous exact occurrence of any shown term
 across the full declared corpus. Overlapping raw matches at one token start are
@@ -541,6 +553,27 @@ one stable reading stop with their member provenance combined; density barcode
 buckets and linked analytical ranges never approximate or narrow this action.
 The shared scrub position and Matches center follow the result, and an open
 Reader replaces its current page around that exact occurrence.
+
+## Reading position history
+
+Reading positions form one bounded, session-only jump list independent of
+browser Back and the governed Reader/row-detail layer stack. `Ctrl+O` visits an
+older reading position and `Ctrl+I` revisits a newer one in both the workbench
+and ordinary Reader. From 1200 CSS pixels up, the workbench header mirrors those
+commands with labelled curved-arrow controls; narrower widths reserve that row
+for the publisher, Scope, Lens, and pinned tools. Reader keeps the keys and Help
+entries without adding a third previous/next pair to its header. A history traversal
+retargets an open Reader in place and neither closes it nor pushes, replaces,
+or consumes a browser-history entry.
+
+Discrete evidence jumps record their departure and destination immediately.
+Continuous footer/Trends scrubbing, Matches scrolling, keyboard reading, and
+Reader page fitting update the source and shared cursor immediately but amend
+one provisional history destination after 400ms of quiet. Forward history
+survives traversal and small landing refinements, and clears only when a new
+branch is committed. The capped list stores only snapshot, document, token,
+and origin; it contains no source snippets and is not part of the workspace.
+RSVP playback does not record each word; exiting records its settled stop.
 
 ## Keys and gestures
 
@@ -560,7 +593,10 @@ Focused controls act first. A local handler that consumes an event prevents the
 root dispatcher from reinterpreting it, and text inputs, selectors, editable
 content, unrelated browser modifier chords, and IME composition retain their
 native behavior. The explicit `Ctrl/Cmd-F` and `Ctrl/Cmd-G` Find chords are the
-narrow exception. Help is a transient modal rather than navigable research
+narrow semantic-search exception. The Ctrl-only `Ctrl+O` / `Ctrl+I` reading
+history chords are a second explicit exception outside editing, dialogs,
+menus, composition, and RSVP; Cmd+O / Cmd+I retain their platform meanings.
+Help is a transient modal rather than navigable research
 state; closing it with Escape, `?`, or its visible control restores the
 invoking focus without adding browser history.
 
@@ -620,6 +656,16 @@ activate a destination until the link is invoked. With at least two active
 texts, `v` on the Trends scrubber cycles the combined, equal-row, and shared-
 token-scale presentations without issuing analysis, alongside its existing
 Arrow, Page, Home/End, and range-selection keys.
+
+The Trends title group contributes one Tab stop regardless of corpus size.
+Left/Up and Right/Down move to the previous and next selectable title without
+wrapping; Home/End move to the first and last, and titles for zero-token texts
+are skipped. Enter or Space selects the focused text in full. Shift plus a
+directional Arrow establishes the focused title as an anchor and immediately
+applies an inclusive whole-text range through each newly focused title. This
+immediate title-range contract is deliberate: unlike the token-precise
+scrubber's preview-then-Enter model, every title is already a complete,
+discrete selection endpoint.
 
 On Trends, reading-footer shortcuts are also page fallbacks; the user does not
 need to focus the footer before reading. A focused local control still wins:

@@ -9,8 +9,8 @@ test('Scope states resident corpus truth and follows the committed range', async
 
   const scope = page.getByRole('region', { name: 'Corpus status' });
   await expect(scope.getByText('Library corpus', { exact: true })).toHaveCount(0);
-  await expect(scope.getByText(`all ${DOC_COUNT} books`, { exact: true })).toHaveCount(0);
-  await expect(scope.getByText(`${DOC_COUNT}/${DOC_COUNT} books ready`, { exact: true })).toHaveCount(0);
+  await expect(scope.getByText(`all ${DOC_COUNT} texts`, { exact: true })).toHaveCount(0);
+  await expect(scope.getByText(`${DOC_COUNT}/${DOC_COUNT} texts ready`, { exact: true })).toHaveCount(0);
 
   const dashboardTokens = await page
     .locator('.catalog-summary')
@@ -44,7 +44,7 @@ test('Scope states resident corpus truth and follows the committed range', async
     name: /Scope: .*tokens 1–3 · 3 tokens.*Open scope details/,
   });
   await expect(scopeChip).toContainText(/3 tokens/);
-  await expect(scope.getByRole('status')).toContainText('1 book in scope');
+  await expect(scope.getByRole('status')).toContainText('1 text in scope');
   const headerAfter = await page.locator('.app-header').evaluate((header) => {
     const box = header.getBoundingClientRect();
     return {
@@ -144,7 +144,7 @@ test('Scope states resident corpus truth and follows the committed range', async
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await details.getByRole('button', { name: 'Use all texts' }).click();
-  await expect(scope.getByText(`all ${DOC_COUNT} books`, { exact: true })).toHaveCount(0);
+  await expect(scope.getByText(`all ${DOC_COUNT} texts`, { exact: true })).toHaveCount(0);
   await expect(scope.getByRole('button', { name: /Open scope details/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Find', exact: true })).toBeFocused();
 

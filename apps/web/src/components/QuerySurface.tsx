@@ -26,6 +26,7 @@ import { rowDetailSurface, rowDetailWrite } from '../lib/row-detail.ts';
 import type { GroupCountVM, NotebookRowVM } from '../lib/notebook-view.ts';
 import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
+import { guideAnchorProps } from '../lib/guide/anchors.ts';
 
 const ADD_TERM_LABEL = 'Add term';
 const TERM_LONG_PRESS_MS = 500;
@@ -608,6 +609,7 @@ export function QuerySurface({
   return (
     <>
       <aside
+        {...guideAnchorProps('terms-rail')}
         className="query-region term-bar"
         aria-label="Terms"
         data-takeover={inlineAddOpen ? 'add' : undefined}

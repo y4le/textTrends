@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
-import { ASOIF, AUSTEN, LOTR, POLITICAL_ARGUMENTS, SHERLOCK } from '../src/lib/project.ts';
+import { ASOIF, AUSTEN, BIBLE, LOTR, POLITICAL_ARGUMENTS, QURAN, SHERLOCK } from '../src/lib/project.ts';
 import { workspaceState } from '../test/support/workspace-fixtures.ts';
 import { awaitReadyCount, openQuickAdd, trackCorpusRequests } from './helpers.ts';
 
@@ -68,6 +68,21 @@ test('a new public one-shot URL loads the complete corpus and starter terms', as
   }
 });
 
+test('the Bible and Quran samples can be analyzed together', async ({ page }) => {
+  await page.goto('./');
+  await page.getByRole('button', { name: 'Try the World English Bible sample' }).click();
+  await awaitReadyCount(page, BIBLE.length);
+
+  const acquisition = page.getByRole('region', { name: 'Add texts' });
+  await acquisition.getByRole('button', { name: 'Show options', exact: true }).click();
+  await acquisition.getByRole('button', { name: 'Add Quran sample', exact: true }).click();
+  await awaitReadyCount(page, BIBLE.length + QURAN.length);
+
+  await expect(page.getByRole('region', { name: 'Active inputs' })
+    .getByRole('list', { name: 'Active input order' }).getByRole('listitem'))
+    .toHaveCount(BIBLE.length + QURAN.length);
+});
+
 test('demos load as additive local texts and merge useful starter terms', async ({ page }) => {
   const requests = trackCorpusRequests(page);
   await page.goto('./');
@@ -75,7 +90,6 @@ test('demos load as additive local texts and merge useful starter terms', async 
   const term = await openQuickAdd(page);
   await term.fill('Reader term');
   await term.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done' }).click();
 
   await page.keyboard.press('Shift+D');
   const debug = page.getByRole('dialog', { name: 'Debug' });
@@ -140,7 +154,6 @@ test('a one-shot demo URL clears active research state but preserves saved sourc
   const term = await openQuickAdd(page);
   await term.fill('Reader term');
   await term.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done' }).click();
   await expect.poll(() => savedResearchCounts(page), { timeout: 10_000 }).toEqual([1, 1]);
   await page.reload();
   await awaitReadyCount(page, 1);
@@ -169,7 +182,6 @@ test('demo acquisition owns the library lane from fetch through activation', asy
   const term = await openQuickAdd(page);
   await term.fill('Reader term');
   await term.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done' }).click();
   const local = page.getByRole('region', { name: 'Local library' });
   await local.evaluate((target) => {
     const transfer = new DataTransfer();

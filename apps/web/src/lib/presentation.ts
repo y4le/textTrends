@@ -1,8 +1,10 @@
 export const COMPACT_MAX_PX = 599.98;
 export const WIDE_MIN_PX = 1024;
+export const SHORT_VIEWPORT_MAX_PX = 520;
 
 export const COMPACT_QUERY = `(max-width: ${COMPACT_MAX_PX}px)`;
 export const WIDE_QUERY = `(min-width: ${WIDE_MIN_PX}px)`;
+export const SHORT_VIEWPORT_QUERY = `(max-height: ${SHORT_VIEWPORT_MAX_PX}px)`;
 export const COARSE_POINTER_QUERY = '(pointer: coarse)';
 export const ANY_COARSE_POINTER_QUERY = '(any-pointer: coarse)';
 export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
@@ -13,6 +15,7 @@ export type ColorScheme = 'dark' | 'light';
 
 export interface Presentation {
   readonly width: WidthClass;
+  readonly shortViewport: boolean;
   /** Layout/accessibility capability only. Interaction precision comes from
    * each PointerEvent so hybrid touch + trackpad devices keep both paths. */
   readonly coarseAvailable: boolean;

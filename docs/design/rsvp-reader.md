@@ -1,9 +1,17 @@
-# Semi-hidden RSVP Reader
+# Speed Reader (RSVP)
 
-**STATUS: IMPLEMENTED (2026-08-22).** This record supersedes the RSVP
+**STATUS: IMPLEMENTED; VISIBLE ENTRY AND MOBILE UX AMENDED (2026-09-01).**
+This record supersedes the RSVP
 recommendations in [interaction-modes-plan.md](interaction-modes-plan.md) where
 they differ. It describes the shipped interaction, package, and pacing
 contracts.
+
+**Accepted amendment, pending implementation:** Speed will replace the
+analytical footer and inline frame/rhythm disclosure with the dedicated
+active-text progress rail, consolidated controls, and overlay settings sheet
+defined in [reader-chrome-spike.md](reader-chrome-spike.md). Until those commits
+land, the layout and acceptance clauses below continue to describe shipped
+behavior.
 
 The decision was informed by repository inspection, direct inspection of
 [Appnull](https://www.appnull.com/), primary-source web research, and an
@@ -33,12 +41,23 @@ same pinned Opus planner (request `req_consult_89a758dc12ea553f`, artifact
 The user-configurable frame character limit followed a further pinned Opus UX
 consultation (request `req_consult_55b1d4b5abb562c6`, artifact
 `art_sha256_4ebc24e0e7ff89af0f19929952c72a5259cdfbe31bb2bb7ea76a3f6912dc196a`).
+The visible-entry, reading-cursor, explicit-exit, and mobile amendment followed
+another explicitly pinned Opus architecture consultation (request
+`req_consult_fcfee050efafba2e`, artifact
+`art_sha256_5fc634b6622b6730a4358d00800602637b95be7731e2c90a817d56ca4f796294`).
+The Reader/Speed chrome consolidation was then accepted through pinned Opus
+product and architecture passes (requests `req_consult_86ac172427f1f02a` and
+`req_consult_afb03055ab855c51`; architecture artifact
+`art_sha256_6689ccad74b18e884b597fcd2917145275841a318e9ae0244e04362768fb853c`).
 
 ## Outcome
 
-Add RSVP as a semi-hidden presentation mode inside the existing full-screen
-Reader. It is not a new browser-history layer. The analytical Reader footer
-remains mounted and follows the displayed token.
+Add RSVP as a visible, secondary presentation mode inside the existing
+full-screen Reader. It is not a new browser-history layer. The analytical
+Reader footer follows the displayed token. In compact portrait it collapses to
+the progress line; in a viewport at most 520 CSS pixels tall it is temporarily
+suppressed so the focal stage owns the scarce height, without overwriting the
+user's remembered footer size.
 
 RSVP is framed as a focus-reading aid with a configurable **pace**, not as a
 promise that comprehension remains unchanged at the displayed WPM. The pace
@@ -65,13 +84,15 @@ lowercase Vim row unambiguous.
 
 | Input | Ordinary Reader | RSVP Reader |
 |---|---|---|
-| `S` | Enter RSVP at the Reader's published reading position | Exit to prose at the displayed token |
+| visible **Speed** control | Enter paused at the selected word or current reading position | — |
+| `S` | Enter playing at the selected word or current reading position | Exit to prose at the displayed token |
 | `Esc` | Close Reader | Exit to prose at the displayed token |
 | `W` | Existing Reader behavior is unchanged | Pause and focus the WPM number input |
 | `h` / `←` | Previous prose page | Reduce pace by 25 WPM |
 | `l` / `→` | Next prose page | Increase pace by 25 WPM |
 | `Space` | No Reader command | Pause or resume RSVP |
-| pointer outside an RSVP control | Existing Reader behavior | Exit to prose at the displayed token; consume that pointer action |
+| stable pointer tap on the focal stage | Select the tapped source token | Pause or resume RSVP |
+| pointer outside the focal stage | Existing Reader behavior | No mode action |
 
 Lowercase `w` and `b`, PageUp/PageDown, Home/End, and the prose paging commands
 are suppressed while RSVP owns the Reader; they never replace its source from
@@ -117,21 +138,27 @@ sessions on the device and remains a local reading preference, never project,
 URL, or history state. The widened range does not change that record's shape or
 invalidate an existing value, so it needs no storage-version migration.
 
-The active mode is visually unmistakable even though entry is semi-hidden. It
+The active mode is visually unmistakable. It
 shows the existing Reader title and position idiom, a central focal frame, and
 visible 44px Back, Play/Pause, Slower, pace, Faster, words-at-once,
 rhythm-disclosure, and Reader controls. The shortcuts surface switches to an
-RSVP-specific context after entry; the ordinary Reader shortcut list does not
-advertise the entry chord.
+RSVP-specific context after entry; Read Help advertises the same Shift+S toggle
+exposed by the visible control.
 
-The experimental entry is intentionally keyboard-only in this version. Touch
-target sizing applies to the controls available after keyboard entry; it does
-not imply a visible Speed read entry action.
+The Read ruler is present for both one-text and multi-text corpora and ends in
+a visible **Speed** control. Before an explicit prose tap, it enters paused at
+the authenticated source anchor or fitted-page start. After a tap, its
+accessible name identifies the selected source word and entry starts exactly
+there without issuing a worker or footer-passage query. Shift+S uses the same
+start-token precedence but preserves immediate playback unless reduced motion
+is requested.
 
-Pointer clicks on the focal frame, surrounding stage, header backdrop, or
-analytical footer exit RSVP. RSVP's own buttons, fields, labels, and rhythm
-disclosure are exempt targets, as is the paused context strip. The exit click
-is consumed so it cannot also seek, resize, or close a second surface.
+Stable primary taps on the focal stage pause or resume. Movement beyond eight
+CSS pixels, holds over 500ms, pointer cancellation, secondary pointers, and
+gestures starting or ending on a nested control do nothing. Header and footer
+backgrounds no longer exit. Return to Reader, Escape, and Shift+S are the
+explicit exits, and each restores the exact displayed token as the visible
+prose reading cursor after the fitted page reloads.
 
 Entry is available only from an authenticated ready Reader source. While the
 source is pending or errored, `S` is consumed without entering RSVP; the
@@ -273,9 +300,11 @@ than part of `RsvpRhythm`; choosing two or three words therefore does not turn
 an otherwise Natural rhythm into Custom, and reset does not erase the choice.
 On compact viewports an authored three-word setting is presented as two words
 at once, while the authored preference is retained for the next wider
-viewport. The radio fieldset spans a full compact control row and divides its
-three 44px choices evenly; it does not compete with transport or pace controls
-for the same two-column row.
+viewport. The radio fieldset divides its three choices evenly. Compact
+transport now uses two rows: Back, Play/Pause,
+Slower, and Faster share the first; pace and the words-at-once choices share the
+second. Every visible entrance and transport target remains at least 44 CSS
+pixels even in short landscape.
 
 The remaining settings live behind a native **frame & rhythm** disclosure;
 opening it pauses playback and closing it never auto-resumes. Its separate
@@ -594,6 +623,15 @@ The frame-limit amendment adds three focused commits:
 24. the separated frame/rhythm settings groups, focusable aria-disabled state,
     responsive styling, and browser acceptance.
 
+The visible-entry and mobile amendment adds five focused commits:
+
+25. exact, query-free prose reading-cursor selection;
+26. the one- or multi-text ruler's visible paused Speed entry;
+27. guarded focal-stage play/pause with explicit exact exits;
+28. compact dock collapse, short-viewport suppression, and responsive mobile
+    transport; and
+29. this amended decision record.
+
 Every staged commit receives an exact Opus review before commit.
 
 Acceptance requires:
@@ -642,8 +680,14 @@ Acceptance requires:
   partition across an immediately preceding hard stop to the greatest start
   strictly below the live cursor, is inert only at the window start, and
   preserves exact exit position;
-- `S`, `W`, the WPM nudges, Space, nested Escape, backdrop exit, reduced
-  motion, and typing-focus priority are covered;
+- visible paused entry, selected-word precedence, `S`, `W`, the WPM nudges,
+  Space, nested Escape, explicit Return, reduced motion, and typing-focus
+  priority are covered;
+- stage taps toggle exactly once while drags, nested controls, header taps, and
+  footer taps remain inert;
+- 390×844 preserves a 44px two-row transport and progress-only dock, while
+  844×390 removes the dock and its reservation without page overflow or
+  mutating the resident dock size;
 - Space on a focused RSVP button activates exactly one action, and the WPM
   editor retains ordinary text/caret editing;
 - entering RSVP with active Find leaves the footer, graph, marks, and query
@@ -662,6 +706,17 @@ Acceptance requires:
 - the anchor glyph remains at the same pixel guide across short and long words; and
 - the normal Reader's page/occurrence shortcuts and fitted-page behavior do
   not regress.
+
+The amendment's exact staged reviews were approved by the pinned Opus reviewer:
+
+- cursor: `req_review_diff_aa7a47684b3e2584`, receipt
+  `rev_sha256_64f47a00092d11f968205c22e13e0d95a58aa73b7c8c6659ea0ab102be31e893`;
+- visible entry: `req_review_diff_c46af77b7a1bc1dd`, receipt
+  `rev_sha256_2d790a15091ccaaed8c3d6a54fe3b9fc71c44caa0d240c9b787974e4973f14eb`;
+- stage interaction: `req_review_diff_f04b6d4ebcabb02f`, receipt
+  `rev_sha256_a016156da9fa890af3283ca1e44e7b6d5240d9e691a96683ad4fc45b340a5f17`;
+- mobile layout: `req_review_diff_00055d6146589793`, receipt
+  `rev_sha256_024d8245273ddf625d7cadffc9a0756237e93ccff2edcb566ab90b37aba1ebb8`.
 
 ## Research basis
 

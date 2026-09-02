@@ -99,7 +99,7 @@ test('Matches merges all terms in corpus order and toggles a term off', async ({
   // A single-book corpus omits the redundant book column and keeps corpus
   // progress in its own rightmost column.
   await expect(grid.locator('.kwic-book-heading')).toHaveCount(0);
-  await expect(grid.getByRole('separator', { name: 'Book width' })).toHaveCount(0);
+  await expect(grid.getByRole('separator', { name: /^text width$/i })).toHaveCount(0);
   await expect(grid
     .getByRole('columnheader', { name: /^position/ })).toBeVisible();
   await expect(grid

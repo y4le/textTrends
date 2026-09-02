@@ -4,7 +4,7 @@
  * IndexedDB from page context; nothing here touches app internals.
  */
 
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import { SHERLOCK } from '../src/lib/project.ts';
 import { PLACE_HEADING, type Place } from '../src/lib/places.ts';
@@ -17,8 +17,9 @@ export const DOC_COUNT = SHERLOCK.length;
 // The REAL database-name constants — a rename in src can never strand these
 // helpers on a stale string literal.
 export const DB_NAME = ARTIFACT_DB_NAME;
+export const WORKSPACE_DB_NAME = LOCAL_LIBRARY_DB_NAME;
 
-export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} books ready`;
+export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} texts ready`;
 
 /**
  * Change place through the rendered workbench tabs, preserving the running
@@ -30,6 +31,27 @@ export async function gotoPlace(page: Page, place: Place): Promise<void> {
     .getByRole('link', { name: PLACE_HEADING[place], exact: true });
   if ((await link.getAttribute('aria-current')) !== 'page') await link.click();
   await expect(page).toHaveURL(new RegExp(`[?&]p=${place}(?:&|#|$)`));
+}
+
+/** Activate a shared Reader command from the presentation that actually fit:
+ * directly from wide rails, or through the compact controls sheet. */
+export async function activateReaderCommand(
+  page: Page,
+  reader: Locator,
+  accessibleName: string,
+): Promise<Locator> {
+  const layout = reader.locator('.reader-read-layout');
+  await expect(layout).toHaveAttribute('data-reader-layout', /^(bar|rails)$/);
+  if (await layout.getAttribute('data-reader-layout') === 'rails') {
+    const command = reader.getByRole('button', { name: accessibleName, exact: true });
+    await command.click();
+    return command;
+  }
+  const trigger = reader.getByRole('button', { name: /Open Reader controls for/ });
+  await trigger.click();
+  await page.getByRole('dialog', { name: 'Reader controls', exact: true })
+    .getByRole('button', { name: accessibleName, exact: true }).click();
+  return trigger;
 }
 
 /** Tests that construct a bespoke corpus opt out of the ordinary additive demo
@@ -47,10 +69,10 @@ export async function clearDemoInputs(page: Page): Promise<void> {
   }
 }
 
-/** Wait for the header's accessible status to report `n/n books ready`. */
+/** Wait for the header's accessible status to report `n/n texts ready`. */
 export async function awaitReadyCount(page: Page, n: number, timeout = 60_000): Promise<void> {
   await expect(page.locator('.scope-organ > [role="status"]'))
-    .toContainText(`${n}/${n} books ready`, { timeout });
+    .toContainText(`${n}/${n} texts ready`, { timeout });
 }
 
 /** Clear the disposable artifact stores. Awaits transaction completion before
@@ -82,6 +104,26 @@ export async function trace(page: Page): Promise<TraceSnapshot> {
     if (!facade) throw new Error('e2e facade missing — was the app built with --mode e2e?');
     return facade.trace() as never;
   });
+}
+
+export async function workspaceRecord(page: Page): Promise<unknown> {
+  return page.evaluate(async (databaseName) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise<unknown>((resolve, reject) => {
+        const request = database.transaction('workspace', 'readonly')
+          .objectStore('workspace').get('current');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      database.close();
+    }
+  }, WORKSPACE_DB_NAME);
 }
 
 /**
@@ -151,6 +193,14 @@ export function events(snapshot: TraceSnapshot, filter: Partial<ProtocolTraceEve
   return snapshot.events.filter((e) =>
     Object.entries(filter).every(([k, v]) => e[k as keyof ProtocolTraceEvent] === v),
   );
+}
+
+export function workerQueriesAfter(
+  traceEvents: TraceSnapshot['events'],
+  mark: number,
+): ProtocolTraceEvent[] {
+  return traceEvents.filter((event) =>
+    event.seq > mark && event.direction === 'to-worker' && event.t === 'query');
 }
 
 /** Wait for the app to report every Sherlock demo text ready. Demo loading is

@@ -100,7 +100,8 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await canvas.click({ position: { x: canvasBox.width * (430.5 / 900), y: 3 } });
   await awaitOps(page, mark, ['matches-window', 'reader-page']);
-  await page.getByRole('main', { name: /Reader: slice-two/ }).getByRole('button', { name: 'back' }).click();
+  await page.getByRole('main', { name: /Reader: slice-two/ })
+    .getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await gotoPlace(page, 'matches');
   await expect(page.getByRole('grid', { name: 'Matches' })
     .locator('[role="row"][aria-selected="true"] .kwic-token-position')).toHaveText('431 / 900');
@@ -160,18 +161,18 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
 
   // Directional source cursors tile at the served seam. With this uniform
   // fixture, returning across the same seam reproduces the initial range.
-  await drawer.getByRole('button', { name: 'next →', exact: true }).focus();
+  await drawer.getByRole('button', { name: 'Next page', exact: true }).focus();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.keyboard.press('Enter');
   await awaitOps(page, mark, ['reader-page']);
   const nextRange = await drawer.locator('[data-reader-page]').getAttribute('data-reader-page');
   expect(nextRange).not.toBe(initialRange);
-  await drawer.getByRole('button', { name: '← previous', exact: true }).focus();
+  await drawer.getByRole('button', { name: 'Previous page', exact: true }).focus();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.keyboard.press('Enter');
   await awaitOps(page, mark, ['reader-page']);
   await expect(drawer.locator(`[data-reader-page="${initialRange}"]`)).toBeVisible();
-  await drawer.getByRole('button', { name: 'back' }).click();
+  await drawer.getByRole('button', { name: 'Return to workbench', exact: true }).click();
 
   // Clearing restores baseline consumers without recomputing/relabeling them
   // as selected evidence.

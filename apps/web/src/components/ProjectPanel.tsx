@@ -499,7 +499,12 @@ export function ProjectPanel() {
             These texts are analyzed in this order. Drop saved or new files here; drag rows or use the move buttons to reorder.
           </p>
           {inputCount === 0 && (
-            <p className="input-card-empty">No active inputs. Nothing is being analyzed.</p>
+            <>
+              <p className="input-card-empty">No active inputs. Nothing is being analyzed.</p>
+              <p className="input-card-empty input-card-next-step">
+                Add a text, then track a term.
+              </p>
+            </>
           )}
           <p
             className={activeNotice ? 'input-card-status' : 'visually-hidden'}

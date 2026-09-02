@@ -120,3 +120,75 @@ describe('protocol import boundary', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe('guided-learning import boundary', () => {
+  it('keeps lib/guide pure and independent of React, stores, workers, and components', () => {
+    const offenders: string[] = [];
+    for (const file of walk(join(SRC, 'lib', 'guide'))) {
+      const rel = relative(SRC, file).split(sep).join('/');
+      for (const spec of moduleSpecifiers(readFileSync(file, 'utf8'))) {
+        if (
+          spec === 'react'
+          || spec.startsWith('react/')
+          || spec === 'react-dom'
+          || spec.startsWith('react-dom/')
+          || spec === 'zustand'
+          || spec.startsWith('zustand/')
+          || spec.includes('/store')
+          || spec.includes('/worker/')
+          || spec.includes('/components/')
+        ) offenders.push(`${rel} -> ${spec}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('keeps presentation-only guide components independent of the app store', () => {
+    const offenders: string[] = [];
+    for (const file of walk(join(SRC, 'components', 'guide'))) {
+      const rel = relative(SRC, file).split(sep).join('/');
+      if (rel === 'components/guide/GuideProvider.tsx') continue;
+      for (const spec of moduleSpecifiers(readFileSync(file, 'utf8'))) {
+        if (spec.includes('/store')) offenders.push(`${rel} -> ${spec}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('exposes only semantic guide hooks outside the dedicated guide components', () => {
+    const offenders: string[] = [];
+    for (const file of walk(SRC)) {
+      const rel = relative(SRC, file).split(sep).join('/');
+      if (rel.startsWith('lib/guide/') || rel.startsWith('components/guide/')) continue;
+      for (const spec of moduleSpecifiers(readFileSync(file, 'utf8'))) {
+        if (!spec.includes('/guide/')) continue;
+        const compositionEdge = (
+          (rel === 'main.tsx' || rel === 'App.tsx')
+          && spec.endsWith('/components/guide/GuideProvider.tsx')
+        ) || (
+          rel === 'components/HelpPane.tsx'
+          && spec.endsWith('/guide/HelpGuides.tsx')
+        ) || (
+          rel === 'components/HelpPane.tsx'
+          && spec.endsWith('/guide/help-content.ts')
+        ) || (
+          rel === 'components/KwicPanel.tsx'
+          && spec.endsWith('/guide/GuideLink.tsx')
+        ) || (
+          rel === 'components/compare/ComparePanel.tsx'
+          && spec.endsWith('/guide/GuideLink.tsx')
+        ) || (
+          rel === 'lib/debug-storage.ts'
+          && spec.endsWith('/guide/storage.ts')
+        );
+        if (
+          !compositionEdge
+          &&
+          !spec.endsWith('/guide/anchors.ts')
+          && !spec.endsWith('/guide/activation.ts')
+        ) offenders.push(`${rel} -> ${spec}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});

@@ -119,8 +119,12 @@ for (const viewport of [
     expect(await seriesChart.locator('[data-series-path]').first().evaluate(
       (path) => (path as SVGGraphicsElement).getBBox().x,
     )).toBe(0);
-    // 132px plot + 3px band gap + three 7px compact barcode rows + 8px tail.
-    expect((await seriesChart.boundingBox())?.height).toBe(164);
+    // 132px plot + 3px band gap + three 7px compact barcode rows + 34px labels.
+    expect((await seriesChart.boundingBox())?.height).toBe(190);
+    expect(await seriesChart.locator('[data-trend-row-title]').count()).toBeGreaterThan(0);
+    expect(await seriesChart.locator('[data-trend-row-title]').first().evaluate(
+      (label) => label.firstChild?.textContent,
+    )).toBe('1');
     const barcodeBand = scrubber.locator('canvas[data-barcode-band="series"]');
     await expect(barcodeBand).toHaveCount(1);
     expect((await barcodeBand.boundingBox())?.height).toBe(21);
@@ -131,8 +135,14 @@ for (const viewport of [
       const owner = await scrubber.boundingBox();
       return chart && owner ? Math.abs(chart.width - owner.width) : Number.POSITIVE_INFINITY;
     }).toBeLessThanOrEqual(1);
-    await expect(seriesChart.locator('text')).not.toContainText('Holmes');
-    await expect(seriesChart.locator('text')).not.toContainText('Moriarty');
+    const paintedLabels = await seriesChart.locator('text').evaluateAll((labels) => labels.map(
+      (label) => [...label.childNodes]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent ?? '')
+        .join(''),
+    ));
+    expect(paintedLabels).not.toContain('Holmes');
+    expect(paintedLabels).not.toContain('Moriarty');
 
     const strokes = await seriesChart.locator('[data-series-path]').evaluateAll((paths) =>
       [...new Set(paths.map((path) => Number(path.getAttribute('stroke-width'))))].sort(),
@@ -181,6 +191,34 @@ for (const viewport of [
       .toBeGreaterThanOrEqual(7);
     const firstRow = await firstHitRow.boundingBox();
     expect(firstRow?.height).toBe(28);
+    const rowResize = page.getByRole('separator', { name: 'Resize trend rows' });
+    const coarseProject = testInfo.project.name === 'webkit-compact';
+    expect((await rowResize.boundingBox())?.height)
+      .toBeGreaterThanOrEqual(coarseProject ? 44 : 24);
+    await expect(rowResize).toHaveCSS('touch-action', 'none');
+    await rowResize.focus();
+    await rowResize.press('ArrowUp');
+    await expect(rowResize).toHaveAttribute('aria-valuetext', /titles hidden/);
+    await expect(byBook.locator('[data-trend-row-title]')).toHaveCount(0);
+    await expect(page.getByRole('group', { name: 'Select whole texts' })
+      .locator('[data-title-painted="false"]')).toHaveCount(
+        await byBook.locator('[data-trend-row-axis]').count(),
+      );
+    if (coarseProject) {
+      await rowResize.press('Home');
+      await expect(rowResize).toHaveAttribute('aria-valuenow', '26');
+      await expect(rowResize).toHaveAttribute('data-row-phase', 'drop');
+      await expect(scrubber.locator('canvas[data-barcode-band="by-book"]')).toHaveCount(0);
+      expect(Number(await firstHitRow.getAttribute('height'))).toBe(24);
+      await rowResize.press('ArrowDown');
+      await expect(rowResize).toHaveAttribute('aria-valuenow', '39');
+      await expect(rowResize).toHaveAttribute('data-row-phase', 'ink');
+      await expect(scrubber.locator('canvas[data-barcode-band="by-book"]')).toHaveCount(
+        await byBook.locator('[data-trend-row-axis]').count(),
+      );
+    }
+    await rowResize.press('Enter');
+    await expect(byBook.locator('[data-trend-row-title]')).not.toHaveCount(0);
 
     const overflow = await page.evaluate(() => ({
       client: document.documentElement.clientWidth,

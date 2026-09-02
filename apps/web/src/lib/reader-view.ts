@@ -4,6 +4,25 @@
 import type { ReaderPageMarkV1, ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import { selectionRangeForDoc, type TokenRangeSelectionV1 } from './selection.ts';
 
+export type ReaderScale = 'read' | 'atlas';
+export type AtlasNormalization = 'equal' | 'to-scale';
+
+export const DEFAULT_READER_SCALE: ReaderScale = 'read';
+export const DEFAULT_ATLAS_NORMALIZATION: AtlasNormalization = 'equal';
+
+export function isReaderScale(value: unknown): value is ReaderScale {
+  return value === 'read' || value === 'atlas';
+}
+
+export function isAtlasNormalization(value: unknown): value is AtlasNormalization {
+  return value === 'equal' || value === 'to-scale';
+}
+
+/** Atlas is a comparison scale, not a second presentation for one text. */
+export function atlasAvailable(readyDocs: readonly string[]): boolean {
+  return readyDocs.length >= 2;
+}
+
 export interface ReaderSelectionChars {
   readonly start: number;
   readonly end: number;

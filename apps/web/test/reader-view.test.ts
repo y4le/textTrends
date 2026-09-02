@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
-import { readerRangeLabel, readerSelectionChars, sliceReaderPage } from '../src/lib/reader-view.ts';
+import {
+  atlasAvailable,
+  isAtlasNormalization,
+  isReaderScale,
+  readerRangeLabel,
+  readerSelectionChars,
+  sliceReaderPage,
+} from '../src/lib/reader-view.ts';
 
 const page = (): ReaderPageResultV1 => ({
   method: 'reader-page/1',
@@ -24,6 +31,17 @@ const page = (): ReaderPageResultV1 => ({
 });
 
 describe('reader view geometry', () => {
+  it('names the two scales and exposes Atlas only for comparison', () => {
+    expect(isReaderScale('read')).toBe(true);
+    expect(isReaderScale('atlas')).toBe(true);
+    expect(isReaderScale('overview')).toBe(false);
+    expect(isAtlasNormalization('equal')).toBe(true);
+    expect(isAtlasNormalization('to-scale')).toBe(true);
+    expect(isAtlasNormalization('combined')).toBe(false);
+    expect(atlasAvailable(['a'])).toBe(false);
+    expect(atlasAvailable(['a', 'b'])).toBe(true);
+  });
+
   it('clips a snapshot-bound token selection to authenticated page offsets', () => {
     expect(readerSelectionChars(page(), {
       snapshot: 's1',

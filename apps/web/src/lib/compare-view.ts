@@ -93,7 +93,7 @@ export function compareSideLabel(
   }
   if (view.restOn === side) {
     const excluded = side === 'a' ? view.documentB : view.documentA;
-    return `all books except ${excluded ? titleOf(excluded) : 'the focus book'}`;
+    return `all texts except ${excluded ? titleOf(excluded) : 'the focus text'}`;
   }
   const doc = side === 'a' ? view.documentA : view.documentB;
   return doc ? titleOf(doc) : 'unavailable';

@@ -64,8 +64,10 @@ import {
   trendBinAtToken,
   trendBinSpan,
   trendRowsForDoc,
+  trendStageDocument,
   trendStageHit,
   type SequenceLayout,
+  type TrendLabelBand,
   type TrendStagePointerIntent,
   type TrendStageSpec,
 } from '../lib/trend-geometry.ts';
@@ -86,6 +88,24 @@ import {
 import { usePresentation } from './PresentationProvider.tsx';
 import { trendGeometryFor, type TrendGeometry } from '../lib/trend-compact.ts';
 import {
+  TREND_BARCODE_INTERACTIVE_STRIDE,
+  trendRowSizing,
+  type TrendRowSizing,
+} from '../lib/trend-row-size.ts';
+import {
+  beginTrendRowDetent,
+  moveTrendRowDetent,
+  stepTrendRowPitch,
+  type TrendRowDetentState,
+} from '../lib/trend-row-detent.ts';
+import {
+  browserTrendRowStorage,
+  loadTrendRowPitch,
+  resolveTrendRowPitch,
+  saveTrendRowPitch,
+  trendRowPitchPreference,
+} from '../lib/trend-row-storage.ts';
+import {
   formatTrendDisplayValue,
   trendDisplayValues,
   trendMeasureUnit,
@@ -101,6 +121,8 @@ import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import { pointerIntentFor } from '../lib/pointer-capability.ts';
 import { useOpenSettings } from './SettingsEntryContext.tsx';
 import { contextualSettingsEntry } from '../lib/settings-entry.ts';
+import { guideAnchorProps } from '../lib/guide/anchors.ts';
+import { occurrenceActivationProps } from '../lib/guide/activation.ts';
 import {
   TOUCH_RANGE_HOLD_MS,
   beginTouchRangeGesture,
@@ -121,8 +143,33 @@ import {
   trendDoubleTapUp,
   type TrendDoubleTapState,
 } from '../lib/trend-double-tap.ts';
+import {
+  RANGE_CLEAR_SUPPRESSION_MS,
+  rangeClearDecision,
+} from '../lib/range-clear-gesture.ts';
+import {
+  idleTrendTitleGesture,
+  nextTrendTitleFocus,
+  resetTrendTitleGesture,
+  trendTitleDown,
+  trendTitleMove,
+  trendTitleUp,
+  type TrendTitleEffect,
+  type TrendTitleGesture,
+} from '../lib/trend-title-gesture.ts';
 
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
+const trendRowStorage = typeof window === 'undefined'
+  ? null
+  : browserTrendRowStorage(window);
+const TREND_TITLE_ARIA_KEYS = shortcutAria([
+  'trend-title-previous',
+  'trend-title-next',
+  'trend-title-first',
+  'trend-title-last',
+  'trend-title-select',
+  'trend-title-extend',
+]);
 interface ReadySeries {
   readonly intent: SeriesIntent;
   readonly trend: NumericTrend;
@@ -145,7 +192,7 @@ function accessibleTrendSeries(ready: readonly DisplayedSeries[]): string {
 }
 
 interface RangePreview {
-  readonly mode: 'pointer' | 'touch' | 'touch-anchor' | 'keyboard' | 'handle';
+  readonly mode: 'pointer' | 'touch' | 'touch-anchor' | 'keyboard' | 'handle' | 'title';
   readonly origin: ScrubTarget;
   readonly head: ScrubTarget;
 }
@@ -188,10 +235,12 @@ export function TrendPanel() {
   const setTrendView = useApp((s) => s.setTrendView);
   const trendMeasure = useApp((s) => s.trendMeasure);
   const centerKwicAt = useApp((s) => s.centerKwicAt);
-  const setScrub = useApp((s) => s.setScrub);
   const openReader = useApp((s) => s.openReader);
   const presentation = usePresentation();
-  const geometry = trendGeometryFor(presentation.width);
+  const baseGeometry = trendGeometryFor(presentation.width);
+  const [rowPitchPreference, setRowPitchPreference] = useState(() =>
+    loadTrendRowPitch(trendRowStorage));
+  const committedRowPitchPreference = useRef(rowPitchPreference);
   const activeTextCount = project?.data.order.length ?? 0;
   const viewSwitcher = activeTextCount > 1 ? (
     <TrendViewSwitcher
@@ -267,6 +316,39 @@ export function TrendPanel() {
     return state?.status === 'ready' ? [{ intent, trend: state.trend }] : [];
   });
   const readyGeo = activeReady[0]?.trend ?? ghostReady[0]?.trend ?? null;
+  const reservedTrackCount = findMode ? Math.max(series.length, activeSeries.length) : 0;
+  const sizingTrackCount = useMemo(() => {
+    if (graphGate !== 'ready' || !readyGeo) return reservedTrackCount;
+    return Math.max(
+      projectedBarcodeTracks(
+        displayedDispersion,
+        readyGeo.order,
+        activeSeries.map((item) => item.id),
+      ).length,
+      reservedTrackCount,
+    );
+  }, [activeSeries, displayedDispersion, graphGate, readyGeo, reservedTrackCount]);
+  const rowPitchContext = {
+    width: presentation.width,
+    coarse: presentation.coarseAvailable,
+    tracks: sizingTrackCount,
+  } as const;
+  const rowPitchTarget = resolveTrendRowPitch(rowPitchPreference, rowPitchContext);
+  const rowSizing = useMemo(() => trendRowSizing({
+    width: presentation.width,
+    coarse: presentation.coarseAvailable,
+    trackCount: sizingTrackCount,
+    targetPitch: rowPitchTarget,
+    barcodeRequired: findMode && find !== null,
+  }), [
+    find,
+    findMode,
+    presentation.coarseAvailable,
+    presentation.width,
+    rowPitchTarget,
+    sizingTrackCount,
+  ]);
+  const geometry = trendView === 'series' ? baseGeometry : rowSizing.geometry;
   const stageProjection = useMemo(() => {
     if (
       graphGate !== 'ready'
@@ -282,19 +364,26 @@ export function TrendPanel() {
         : null,
       selectedDocs: displayedSelection?.ranges.map((range) => range.doc) ?? [],
       geometry,
-      reservedTrackCount: findMode ? Math.max(series.length, activeSeries.length) : 0,
+      reservedTrackCount,
       foregroundBarcodeOverlay: findMode && find !== null,
     });
-  }, [activeSeries, displayedDispersion, displayedSelection, find, findMode, geometry, graphGate, readyGeo, selectedDispersion, series.length]);
+  }, [activeSeries, displayedDispersion, displayedSelection, find, findMode, geometry, graphGate, readyGeo, reservedTrackCount, selectedDispersion]);
+  const occurrenceInteractive = trendView === 'series'
+    || rowSizing.barcodeInteractive
+    || (findMode
+      && find !== null
+      && (stageProjection?.barcodeHeight ?? 0) >= TREND_BARCODE_INTERACTIVE_STRIDE);
   const stageGeometry = useMemo(() => stageProjection
     ? trendStageGeometry(stageProjection, {
         plotWidth: plotW,
         view: trendView,
+        titlesPainted: trendView === 'series' || rowSizing.titlesPainted,
+        barcodeInteractive: occurrenceInteractive,
       })
     : null,
-  [plotW, stageProjection, trendView]);
+  [occurrenceInteractive, plotW, rowSizing.titlesPainted, stageProjection, trendView]);
   const snapIndexCache = useRef<{
-    readonly projection: NonNullable<typeof stageProjection>;
+    readonly tracks: readonly BarcodeTrackVM[];
     readonly indexes: ReturnType<typeof trendStageSnapIndexes>;
   } | null>(null);
   const styleBySeries = useMemo(
@@ -318,7 +407,7 @@ export function TrendPanel() {
   // re-fits as each line lands reads as data changing when it isn't.
   if (graphGate === 'pending') {
     return (
-      <section>
+      <section {...guideAnchorProps('trend-plate')}>
         <TrendPanelHeader>{viewSwitcher}</TrendPanelHeader>
         <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>computing trends…</p>
       </section>
@@ -326,7 +415,7 @@ export function TrendPanel() {
   }
   if ((!findMode || find !== null) && activeReady.length === 0) {
     return failed.length > 0 ? (
-      <section>
+      <section {...guideAnchorProps('trend-plate')}>
         <TrendPanelHeader>{viewSwitcher}</TrendPanelHeader>
         <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
           {failed.map(failureText).join(' · ')}
@@ -361,6 +450,7 @@ export function TrendPanel() {
   const {
     edgeX,
     hitSpec,
+    labelBands,
     rowDomain,
   } = stageGeometry;
   // Presentation titles come from the project's document metadata — doc ids
@@ -377,16 +467,16 @@ export function TrendPanel() {
     allowExactSnap,
   ) => {
     // Exact tracks can contain 250k occurrences. Allocate their pixel indexes
-    // only on the first precise barcode event, retain them for this projection,
+    // only on the first precise barcode event, retain them for these tracks,
     // and never turn hover into a React render/chart commit.
     let exactIndexes: ReturnType<typeof trendStageSnapIndexes> = [];
     if (allowExactSnap) {
       const cached = snapIndexCache.current;
-      if (cached?.projection === stageProjection) {
+      if (cached?.tracks === tracks) {
         exactIndexes = cached.indexes;
       } else {
         exactIndexes = trendStageSnapIndexes(stageProjection);
-        snapIndexCache.current = { projection: stageProjection, indexes: exactIndexes };
+        snapIndexCache.current = { tracks, indexes: exactIndexes };
       }
     }
     return captureBarcodePointerTarget(
@@ -403,7 +493,6 @@ export function TrendPanel() {
     openExact = false,
   ) => {
     if (!target) return;
-    setScrub({ doc: target.doc, token: target.token });
     centerKwicAt(
       track.seriesId,
       target.doc,
@@ -419,6 +508,7 @@ export function TrendPanel() {
         doc: readerTarget.doc,
         token: readerTarget.token,
         from: 'barcode',
+        anchor: 'occurrence',
       });
     }
   };
@@ -454,9 +544,29 @@ export function TrendPanel() {
   );
   const maxValue = Math.max(1e-9, dataMaxValue);
   const strokeFor = () => geometry.strokeWidth;
+  const previewRowPitch = (target: number | null) => {
+    setRowPitchPreference(target === null
+      ? null
+      : trendRowPitchPreference(target, rowPitchContext));
+  };
+  const commitRowPitch = (target: number | null) => {
+    if (findMode && target !== null) {
+      setRowPitchPreference(committedRowPitchPreference.current);
+      return;
+    }
+    const preference = target === null
+      ? null
+      : trendRowPitchPreference(target, rowPitchContext);
+    committedRowPitchPreference.current = preference;
+    setRowPitchPreference(preference);
+    saveTrendRowPitch(trendRowStorage, preference);
+  };
+  const cancelRowPitch = () => {
+    setRowPitchPreference(committedRowPitchPreference.current);
+  };
 
   return (
-    <section>
+    <section {...guideAnchorProps('trend-plate')}>
       <TrendPanelHeader>
         {viewSwitcher}
         <BarcodeLegend
@@ -481,6 +591,18 @@ export function TrendPanel() {
           failed: {failed.map(failureText).join(' · ')}
         </p>
       )}
+      {trendView !== 'series' && docs.length > 1 && (
+        <TrendRowResizeHandle
+          sizing={rowSizing}
+          trackCount={sizingTrackCount}
+          legendTrackCount={tracks.length}
+          occurrenceInteractive={occurrenceInteractive}
+          coarse={presentation.coarseAvailable}
+          onPreview={previewRowPitch}
+          onCommit={commitRowPitch}
+          onCancel={cancelRowPitch}
+        />
+      )}
       <ScrubSurface
         containerRef={setContainerEl}
         trendView={trendView}
@@ -492,14 +614,17 @@ export function TrendPanel() {
         series={activeSeries}
         geometry={geometry}
         barcodeHeight={barcodeHeight}
+        barcodeVisible={trendView === 'series' || rowSizing.barcodeVisible}
+        barcodeInteractive={occurrenceInteractive}
         rowPitch={rowPitch}
         rowDomain={rowDomain}
+        labelBands={labelBands}
         barcodeTracks={tracks}
         captureBarcode={captureBarcode}
         hitSpec={hitSpec}
         coarse={presentation.coarseAvailable}
         onBarcodeActivate={activateBarcode}
-        barcodeBand={(
+        barcodeBand={(trendView === 'series' || rowSizing.barcodeVisible) ? (
           <BarcodeBand
             view={trendView}
             docs={docs}
@@ -516,10 +641,11 @@ export function TrendPanel() {
             trackGap={geometry.barcodeTrackGap}
             styleOf={styleOf}
             coarse={presentation.coarseAvailable}
+            occurrenceInteractive={occurrenceInteractive}
             foregroundOverlay={findMode && find !== null}
             reservedTrackCount={findMode ? Math.max(series.length, activeSeries.length) : 0}
           />
-        )}
+        ) : null}
       >
         {trendView === 'series' ? (
           <SeriesView
@@ -535,6 +661,7 @@ export function TrendPanel() {
             strokeFor={strokeFor}
             geometry={geometry}
             barcodeHeight={barcodeHeight}
+            labelBands={labelBands}
           />
         ) : (
           <ByBookView
@@ -548,6 +675,7 @@ export function TrendPanel() {
             plotW={plotW}
             strokeFor={strokeFor}
             geometry={geometry}
+            labelBands={labelBands}
             rowPitch={rowPitch}
             rowDomain={rowDomain}
           />
@@ -610,6 +738,244 @@ function TrendViewSwitcher({
   );
 }
 
+function TrendRowResizeHandle({
+  sizing,
+  trackCount,
+  legendTrackCount,
+  occurrenceInteractive,
+  coarse,
+  onPreview,
+  onCommit,
+  onCancel,
+}: {
+  readonly sizing: TrendRowSizing;
+  readonly trackCount: number;
+  readonly legendTrackCount: number;
+  readonly occurrenceInteractive: boolean;
+  readonly coarse: boolean;
+  readonly onPreview: (target: number | null) => void;
+  readonly onCommit: (target: number | null) => void;
+  readonly onCancel: () => void;
+}) {
+  const [resizing, setResizing] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [detentHint, setDetentHint] = useState<'hide' | 'restore' | null>(null);
+  const resizeFrame = useRef<number | null>(null);
+  const pendingTarget = useRef<number | null>(null);
+  const keyboardTarget = useRef<number | null>(null);
+  const drag = useRef<{
+    readonly pointerId: number;
+    readonly startY: number;
+    readonly startPitch: number;
+    detent: TrendRowDetentState;
+    lastTarget: number;
+  } | null>(null);
+
+  useEffect(() => () => {
+    if (resizeFrame.current !== null) cancelAnimationFrame(resizeFrame.current);
+    document.documentElement.removeAttribute('data-trend-row-resizing');
+  }, []);
+
+  const setResizeActive = (active: boolean) => {
+    setResizing(active);
+    if (active) document.documentElement.setAttribute('data-trend-row-resizing', 'true');
+    else document.documentElement.removeAttribute('data-trend-row-resizing');
+  };
+  const commitPendingTarget = () => {
+    if (resizeFrame.current !== null) {
+      cancelAnimationFrame(resizeFrame.current);
+      resizeFrame.current = null;
+    }
+    const pending = pendingTarget.current;
+    pendingTarget.current = null;
+    if (pending !== null) onPreview(pending);
+  };
+  const scheduleTarget = (next: number) => {
+    pendingTarget.current = next;
+    if (drag.current) drag.current.lastTarget = next;
+    resizeFrame.current ??= requestAnimationFrame(() => {
+      resizeFrame.current = null;
+      const pending = pendingTarget.current;
+      pendingTarget.current = null;
+      if (pending !== null) onPreview(pending);
+    });
+  };
+  const finishResize = (pointerId: number) => {
+    const active = drag.current;
+    if (active?.pointerId !== pointerId) return;
+    commitPendingTarget();
+    drag.current = null;
+    setResizeActive(false);
+    setDetentHint(null);
+    onCommit(active.lastTarget);
+  };
+  const stateText = `${sizing.rowPitch} pixels per text · ${
+    sizing.titlesPainted ? 'titles shown' : 'titles hidden'
+  }${trackCount > 0 && !sizing.barcodeVisible
+    ? ' · occurrence rows hidden · smallest row'
+    : trackCount > 0 && sizing.rowPitch === sizing.inkPitch
+      ? ' · occurrence rows minimized · smallest row with occurrence rows'
+    : ''}`;
+  const valuetext = detentHint === 'hide'
+    ? `${sizing.inkPitch} pixels per text · keep dragging up to hide ${trackCount} occurrence row${trackCount === 1 ? '' : 's'}`
+    : detentHint === 'restore'
+      ? `${sizing.minPitch} pixels per text · keep dragging down to restore occurrence rows`
+      : stateText;
+  const commitKeyboardTarget = () => {
+    const pending = keyboardTarget.current;
+    keyboardTarget.current = null;
+    if (pending !== null) onCommit(pending);
+  };
+
+  const resizeByKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const direction = event.key === 'ArrowDown' || event.key === 'PageDown'
+      ? 1
+      : event.key === 'ArrowUp' || event.key === 'PageUp'
+        ? -1
+        : 0;
+    if (direction === 0 && !['Home', 'End', 'Enter', 'Escape'].includes(event.key)) return;
+    if (event.key === 'Escape' && drag.current === null) return;
+    event.preventDefault();
+    setFocused(true);
+    if (event.key === 'Escape') {
+      const active = drag.current;
+      if (active) {
+        if (resizeFrame.current !== null) cancelAnimationFrame(resizeFrame.current);
+        resizeFrame.current = null;
+        pendingTarget.current = null;
+        drag.current = null;
+        if (event.currentTarget.hasPointerCapture(active.pointerId)) {
+          event.currentTarget.releasePointerCapture(active.pointerId);
+        }
+        onCancel();
+        setResizeActive(false);
+        setDetentHint(null);
+      }
+      return;
+    }
+    if (event.key === 'Enter') {
+      keyboardTarget.current = null;
+      onCommit(null);
+      return;
+    }
+    const step = event.shiftKey
+      ? 1
+      : event.key === 'PageUp' || event.key === 'PageDown'
+        ? 32
+        : 8;
+    const currentPitch = keyboardTarget.current ?? sizing.rowPitch;
+    const next = event.key === 'Home'
+      ? sizing.minPitch
+      : event.key === 'End'
+        ? sizing.maxPitch
+        : stepTrendRowPitch(
+            currentPitch,
+            direction as -1 | 1,
+            step,
+            sizing,
+          );
+    keyboardTarget.current = next;
+    onPreview(next);
+  };
+
+  return (
+    <div
+      className="trend-row-resize-handle"
+      role="separator"
+      aria-label="Resize trend rows"
+      aria-orientation="horizontal"
+      aria-controls="reading-position-scrubber"
+      aria-valuemin={sizing.minPitch}
+      aria-valuemax={sizing.maxPitch}
+      aria-valuenow={sizing.rowPitch}
+      aria-valuetext={valuetext}
+      aria-describedby={legendTrackCount > 0 && !sizing.barcodeVisible
+        ? 'trend-hidden-barcode-note'
+        : legendTrackCount > 0 && !occurrenceInteractive
+          ? 'trend-mini-barcode-note'
+          : undefined}
+      aria-keyshortcuts={shortcutAria([
+        'trend-rows-step',
+        'trend-rows-fine',
+        'trend-rows-page',
+        'trend-rows-limits',
+        'trend-rows-reset',
+      ])}
+      tabIndex={0}
+      data-resizing={resizing || undefined}
+      data-titles-painted={sizing.titlesPainted}
+      data-row-phase={sizing.phase}
+      data-barcode-visible={sizing.barcodeVisible}
+      data-barcode-interactive={occurrenceInteractive}
+      style={{ '--trend-row-resize-target': coarse ? '44px' : '24px' } as React.CSSProperties}
+      onDoubleClick={() => { onCommit(null); }}
+      onKeyDown={resizeByKeyboard}
+      onKeyUp={(event) => {
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) {
+          commitKeyboardTarget();
+        }
+      }}
+      onFocus={(event) => {
+        setFocused(event.currentTarget.matches(':focus-visible'));
+      }}
+      onBlur={() => {
+        setFocused(false);
+        commitKeyboardTarget();
+      }}
+      onPointerDown={(event) => {
+        if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+        event.preventDefault();
+        setFocused(false);
+        commitKeyboardTarget();
+        event.currentTarget.focus();
+        drag.current = {
+          pointerId: event.pointerId,
+          startY: event.clientY,
+          startPitch: sizing.rowPitch,
+          detent: beginTrendRowDetent(sizing.rowPitch, sizing.minPitch, event.clientY),
+          lastTarget: sizing.rowPitch,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setResizeActive(true);
+      }}
+      onPointerMove={(event) => {
+        const active = drag.current;
+        if (active?.pointerId !== event.pointerId) return;
+        event.preventDefault();
+        const requestedPitch = Math.max(
+          sizing.minPitch,
+          Math.min(
+            sizing.maxPitch,
+            Math.round(active.startPitch + event.clientY - active.startY),
+          ),
+        );
+        const transition = moveTrendRowDetent(active.detent, {
+          clientY: event.clientY,
+          requestedPitch,
+          minPitch: sizing.minPitch,
+          inkPitch: sizing.inkPitch,
+          coarse,
+        });
+        active.detent = transition.state;
+        active.lastTarget = transition.pitch;
+        setDetentHint(transition.hint);
+        scheduleTarget(transition.pitch);
+      }}
+      onPointerUp={(event) => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        finishResize(event.pointerId);
+      }}
+      onPointerCancel={(event) => { finishResize(event.pointerId); }}
+      onLostPointerCapture={(event) => { finishResize(event.pointerId); }}
+    >
+      <span className="trend-row-resize-mark" aria-hidden="true" />
+      {(resizing || focused) && <span className="trend-row-resize-readout">{valuetext}</span>}
+    </div>
+  );
+}
+
 /**
  * The per-frame half of the trend panel: the ONLY component that subscribes
  * to `scrub` (which updates once per pointer animation frame). It
@@ -636,8 +1002,11 @@ function ScrubSurface({
   series,
   geometry,
   barcodeHeight,
+  barcodeVisible,
+  barcodeInteractive,
   rowPitch,
   rowDomain,
+  labelBands,
   barcodeTracks,
   captureBarcode,
   hitSpec,
@@ -656,8 +1025,11 @@ function ScrubSurface({
   series: readonly SeriesIntent[];
   geometry: TrendGeometry;
   barcodeHeight: number;
+  barcodeVisible: boolean;
+  barcodeInteractive: boolean;
   rowPitch: number;
   rowDomain: readonly number[];
+  labelBands: readonly TrendLabelBand[];
   barcodeTracks: readonly BarcodeTrackVM[];
   captureBarcode: CaptureBarcodePointer;
   hitSpec: TrendStageSpec;
@@ -685,6 +1057,8 @@ function ScrubSurface({
     readonly timer: ReturnType<typeof setTimeout>;
   } | null>(null);
   const releasedTouchPointers = useRef(new Set<number>());
+  const suppressDoubleClickUntil = useRef(0);
+  const lastDirectPointerAt = useRef(0);
   const rangeHandleDrag = useRef<{
     readonly pointerId: number;
     readonly edge: 'start' | 'end';
@@ -692,6 +1066,11 @@ function ScrubSurface({
     head: ScrubTarget;
     moved: boolean;
   } | null>(null);
+  const titleGesture = useRef<TrendTitleGesture>(idleTrendTitleGesture());
+  const titleKeyboardAnchor = useRef<number | null>(null);
+  const titleControlRefs = useRef(new Map<number, HTMLButtonElement>());
+  const [titleFocusOrdinal, setTitleFocusOrdinal] = useState(() =>
+    layout.tokenCounts.findIndex((count) => count > 0));
 
   // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
   const pointerSample = useRef<ScrubTarget | null>(null);
@@ -774,7 +1153,7 @@ function ScrubSurface({
     if (!selection) {
       if (range.mode !== 'keyboard') setPreview(null);
       setRangeAnnouncement('Range selection cancelled.');
-      return;
+      return null;
     }
     setLinkedSelection(selection);
     setPreview(null);
@@ -782,6 +1161,68 @@ function ScrubSurface({
     setRangeAnnouncement(
       `Range applied: ${tokenCount.toLocaleString()} token${tokenCount === 1 ? '' : 's'}.`,
     );
+    return selection;
+  };
+
+  const wholeTextRange = (anchor: number, head: number): RangePreview | null => {
+    const first = Math.min(anchor, head);
+    const last = Math.max(anchor, head);
+    const firstDoc = docs[first];
+    const lastDoc = docs[last];
+    const firstCount = docTokenCount[first] ?? 0;
+    const lastCount = docTokenCount[last] ?? 0;
+    if (!firstDoc || !lastDoc || firstCount <= 0 || lastCount <= 0) return null;
+    return {
+      mode: 'title',
+      origin: { doc: firstDoc, token: 0 },
+      head: { doc: lastDoc, token: lastCount - 1 },
+    };
+  };
+
+  const commitWholeTextRange = (anchor: number, head: number) => {
+    const range = wholeTextRange(anchor, head);
+    if (!range) {
+      setPreview((current) => current?.mode === 'title' ? null : current);
+      return;
+    }
+    const selection = commitPreview(range);
+    if (!selection) return;
+    const first = selection.ranges[0];
+    const last = selection.ranges.at(-1);
+    if (!first || !last) return;
+    if (selection.ranges.length === 1) {
+      setRangeAnnouncement(`Selected whole text: ${titleByDoc.get(first.doc) ?? first.doc}.`);
+      return;
+    }
+    setRangeAnnouncement(
+      `Selected ${selection.ranges.length} texts: ${titleByDoc.get(first.doc) ?? first.doc} through ${titleByDoc.get(last.doc) ?? last.doc}.`,
+    );
+  };
+
+  const applyTitleEffect = (effect: TrendTitleEffect) => {
+    switch (effect.kind) {
+      case 'preview': {
+        const range = wholeTextRange(effect.anchor, effect.head);
+        if (range) setPreview(range);
+        return;
+      }
+      case 'commit': {
+        commitWholeTextRange(effect.anchor, effect.head);
+        if (effect.dragged) {
+          suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
+        }
+        return;
+      }
+      case 'cancel':
+        setPreview((current) => current?.mode === 'title' ? null : current);
+        return;
+      case 'none':
+        return;
+      default: {
+        const exhaustive: never = effect;
+        return exhaustive;
+      }
+    }
   };
 
   const applyTouchRangeEffect = (effect: TouchRangeEffect) => {
@@ -854,12 +1295,22 @@ function ScrubSurface({
   };
 
   useEffect(() => {
+    suppressDoubleClickUntil.current = 0;
+    lastDirectPointerAt.current = 0;
     clearTouchHold();
     const reset = resetTouchRangeGesture(touchGesture.current);
     touchGesture.current = reset.state;
     trendDoubleTap.current = idleTrendDoubleTap();
+    const titleReset = resetTrendTitleGesture(titleGesture.current);
+    titleGesture.current = titleReset.state;
+    titleKeyboardAnchor.current = null;
+    setTitleFocusOrdinal((current) =>
+      (docTokenCount[current] ?? 0) > 0
+        ? current
+        : docTokenCount.findIndex((count) => count > 0));
+    applyTitleEffect(titleReset.effect);
     applyTouchRangeEffect(reset.effect);
-  }, [snapshot?.snapshot, trend]);
+  }, [snapshot?.snapshot, trend, trendView]);
 
   const pointerDrag = useRef<{
     pointerId: number;
@@ -1102,7 +1553,7 @@ function ScrubSurface({
     const first = ranges[0]!;
     const last = ranges.at(-1)!;
     const count = selectionTokenCount({ snapshot: '', ranges });
-    return `${titleByDoc.get(first.doc) ?? first.doc} token ${first.tokens.start + 1} → ${titleByDoc.get(last.doc) ?? last.doc} token ${last.tokens.end} · ${count.toLocaleString()} tokens across ${ranges.length} books`;
+    return `${titleByDoc.get(first.doc) ?? first.doc} token ${first.tokens.start + 1} → ${titleByDoc.get(last.doc) ?? last.doc} token ${last.tokens.end} · ${count.toLocaleString()} tokens across ${ranges.length} texts`;
   };
   const anchoredWaiting = preview?.mode === 'touch-anchor'
     && touchGesture.current.phase === 'anchored'
@@ -1112,6 +1563,7 @@ function ScrubSurface({
       ? `Range start set at ${describeRanges(shownRanges)} · tap another position`
       : `Selecting ${describeRanges(shownRanges)}`
     : '';
+  const hiddenTitles = labelBands.some((band) => !band.titlePainted);
 
   const pointerTap = useRef<{
     readonly pointerId: number;
@@ -1122,7 +1574,7 @@ function ScrubSurface({
     moved: boolean;
   } | null>(null);
   return (
-    <div ref={containerRef} style={{ width: '100%' }}>
+    <div ref={containerRef} style={{ width: '100%', position: 'relative' }}>
       <div
         ref={sliderRef}
         className="trend-scrubber"
@@ -1162,6 +1614,37 @@ function ScrubSurface({
         style={{ width: '100%', outline: 'none', position: 'relative', touchAction: 'pan-y' }}
         onContextMenu={(event) => {
           if (touchGesture.current.phase !== 'idle') event.preventDefault();
+        }}
+        onDoubleClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          const hit = trendStageHit(
+            event.clientX - rect.left,
+            event.clientY - rect.top,
+            hitSpec,
+            'extend',
+          );
+          const decision = rangeClearDecision({
+            zone: hit?.zone === 'plot'
+              ? 'graph'
+              : hit?.zone === 'barcode' ? 'barcode' : 'outside',
+            interactiveTarget: event.target instanceof Element
+              && event.target.closest('button, a, [role="button"]') !== null,
+            now: Date.now(),
+            suppressedUntil: suppressDoubleClickUntil.current,
+            lastDirectPointerAt: lastDirectPointerAt.current,
+          });
+          if (decision.kind !== 'clear') return;
+          event.preventDefault();
+          clearTouchHold();
+          const reset = resetTouchRangeGesture(touchGesture.current);
+          touchGesture.current = reset.state;
+          applyTouchRangeEffect(reset.effect);
+          const cancelledPreview = preview !== null;
+          setPreview(null);
+          setLinkedSelection(null);
+          if (linkedSelection !== null) setRangeAnnouncement('Range cleared.');
+          else if (cancelledPreview) setRangeAnnouncement('Range selection cancelled.');
+          suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
         }}
         onPointerMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
@@ -1225,6 +1708,7 @@ function ScrubSurface({
           const rect = e.currentTarget.getBoundingClientRect();
           const precise = pointerIntentFor(e.pointerType) === 'precise';
           if (e.pointerType === 'touch') {
+            lastDirectPointerAt.current = Date.now();
             // Sequential taps are recognized independently from the
             // concurrent two-contact range machine. Both taps must land in
             // the plot lane; barcodes, gaps, and range handles remain inert.
@@ -1247,6 +1731,7 @@ function ScrubSurface({
             });
             trendDoubleTap.current = transition.state;
             if (transition.effect.kind === 'clear') {
+              suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
               clearTouchHold();
               const cancelledPreview = preview !== null;
               setPreview(null);
@@ -1341,6 +1826,7 @@ function ScrubSurface({
         }}
         onPointerUp={(e) => {
           if (e.pointerType === 'touch') {
+            lastDirectPointerAt.current = Date.now();
             trendDoubleTap.current = trendDoubleTapUp(
               trendDoubleTap.current,
               e.pointerId,
@@ -1408,6 +1894,7 @@ function ScrubSurface({
             e.currentTarget.releasePointerCapture(e.pointerId);
           }
           if (drag.active) {
+            suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
             commitPreview({ mode: 'pointer', origin: drag.origin, head: drag.head });
           } else {
             setScrub(drag.origin);
@@ -1415,6 +1902,7 @@ function ScrubSurface({
         }}
         onPointerCancel={(e) => {
           if (e.pointerType === 'touch') {
+            lastDirectPointerAt.current = Date.now();
             trendDoubleTap.current = trendDoubleTapCancel(
               trendDoubleTap.current,
               e.pointerId,
@@ -1444,6 +1932,25 @@ function ScrubSurface({
       >
         {children}
         {barcodeBand}
+        {barcodeVisible && barcodeTracks.length > 0 && (
+          <div
+            {...guideAnchorProps('dispersion-strip')}
+            {...occurrenceActivationProps({ coarse, barcodeInteractive })}
+            className="guide-dispersion-anchor"
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: (trendView === 'series' ? geometry.seriesHeight : geometry.rowHeight)
+                + geometry.barcodeBandGap,
+              width: plotW,
+              height: trendView === 'series'
+                ? barcodeHeight
+                : Math.max(0, docs.length - 1) * rowPitch + barcodeHeight,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
         {rangeBoxes.map((rangeBox, index) => (
           <div
             key={`${rangeBox.left}:${rangeBox.top}:${rangeBox.right}`}
@@ -1536,6 +2043,7 @@ function ScrubSurface({
                   event.currentTarget.releasePointerCapture(event.pointerId);
                 }
                 if (drag.moved) {
+                  suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
                   commitPreview({ mode: 'handle', origin: drag.fixed, head: drag.head });
                 } else {
                   setPreview(null);
@@ -1567,6 +2075,7 @@ function ScrubSurface({
         })}
         {scrubX !== null && (
           <div
+            {...guideAnchorProps('chart-cursor')}
             aria-hidden="true"
             data-testid="chart-cursor"
             style={{
@@ -1584,6 +2093,212 @@ function ScrubSurface({
           />
         )}
       </div>
+      <div
+        className="trend-title-controls"
+        role="group"
+        aria-label="Select whole texts"
+        aria-describedby={hiddenTitles ? 'trend-hidden-title-note' : undefined}
+        style={{
+          width: plotW,
+          height: labelBands.reduce(
+            (maximum, band) => Math.max(maximum, band.focusTop + band.focusHeight),
+            0,
+          ),
+        }}
+      >
+        {labelBands.map((band) => {
+          const doc = docs[band.d];
+          const title = doc ? titleByDoc.get(doc) ?? doc : '';
+          const disabled = !doc || (docTokenCount[band.d] ?? 0) <= 0;
+          const bandWidth = Math.max(0, band.right - band.left);
+          // A by-book label is left-aligned. Keep its touch target around the
+          // rendered title rather than blocking vertical page scroll across
+          // the row's full width. Combined labels use pan-y below.
+          const targetWidth = trendView === 'series'
+            ? bandWidth
+            : band.titlePainted
+              ? Math.min(bandWidth, Math.max(44, title.length * 7 + 12))
+              : bandWidth;
+          const titleTargetFromPointer = (clientX: number, clientY: number): number | null => {
+            const rect = sliderRef.current?.getBoundingClientRect();
+            if (!rect) return null;
+            const ordinal = trendStageDocument(
+              clientX - rect.left,
+              clientY - rect.top,
+              hitSpec,
+            );
+            return ordinal !== null && (docTokenCount[ordinal] ?? 0) > 0 ? ordinal : null;
+          };
+          return (
+            <button
+              key={doc ?? band.d}
+              type="button"
+              ref={(element) => {
+                if (element) titleControlRefs.current.set(band.d, element);
+                else titleControlRefs.current.delete(band.d);
+              }}
+              className="trend-title-control"
+              data-trend-title-control={band.d}
+              data-title-painted={String(band.titlePainted)}
+              disabled={disabled}
+              tabIndex={!disabled && band.d === titleFocusOrdinal ? 0 : -1}
+              aria-keyshortcuts={TREND_TITLE_ARIA_KEYS}
+              aria-label={`Text ${band.d + 1} of ${docs.length}: ${title} — select whole text`}
+              title={title}
+              style={{
+                left: band.left,
+                top: band.focusTop,
+                width: targetWidth,
+                height: band.focusHeight,
+                pointerEvents: band.titlePainted ? undefined : 'none',
+                touchAction: trendView === 'series' ? 'pan-y' : 'none',
+              }}
+              onFocus={() => setTitleFocusOrdinal(band.d)}
+              onKeyDown={(event) => {
+                if (event.ctrlKey || event.metaKey || event.altKey) return;
+                const move = event.key === 'Home'
+                  ? 'first'
+                  : event.key === 'End'
+                    ? 'last'
+                    : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+                      ? 'previous'
+                      : event.key === 'ArrowRight' || event.key === 'ArrowDown'
+                        ? 'next'
+                        : null;
+                if (move === null) return;
+                const enabled = docTokenCount.map((count) => count > 0);
+                const next = nextTrendTitleFocus(band.d, move, enabled);
+                if (next === null) return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (next !== band.d) {
+                  setTitleFocusOrdinal(next);
+                  titleControlRefs.current.get(next)?.focus();
+                }
+                if (event.shiftKey) {
+                  if (next === band.d) return;
+                  titleKeyboardAnchor.current ??= band.d;
+                  commitWholeTextRange(titleKeyboardAnchor.current, next);
+                } else {
+                  titleKeyboardAnchor.current = null;
+                }
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                // Direct pointers commit on pointerup. A zero-detail click is
+                // keyboard or assistive-technology activation.
+                if (event.detail === 0) {
+                  titleKeyboardAnchor.current = null;
+                  commitWholeTextRange(band.d, band.d);
+                }
+              }}
+              onDoubleClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onPointerDown={(event) => {
+                if (!event.isPrimary || event.button !== 0 || disabled) return;
+                trendDoubleTap.current = idleTrendDoubleTap();
+                clearTouchHold();
+                const touchReset = resetTouchRangeGesture(touchGesture.current);
+                touchGesture.current = touchReset.state;
+                applyTouchRangeEffect(touchReset.effect);
+                pointerTap.current = null;
+                pointerDrag.current = null;
+                rangeHandleDrag.current = null;
+                titleKeyboardAnchor.current = null;
+                setTitleFocusOrdinal(band.d);
+                setPreview(null);
+                const transition = trendTitleDown(
+                  event.pointerId,
+                  band.d,
+                  event.clientX,
+                  event.clientY,
+                );
+                titleGesture.current = transition.state;
+                try {
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                } catch {
+                  // Synthetic PointerEvents do not create native capture state.
+                }
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onPointerMove={(event) => {
+                const transition = trendTitleMove(titleGesture.current, {
+                  pointerId: event.pointerId,
+                  ordinal: titleTargetFromPointer(event.clientX, event.clientY),
+                  clientX: event.clientX,
+                  clientY: event.clientY,
+                });
+                titleGesture.current = transition.state;
+                applyTitleEffect(transition.effect);
+                if (transition.state.phase === 'pressed') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }
+              }}
+              onPointerUp={(event) => {
+                const moved = trendTitleMove(titleGesture.current, {
+                  pointerId: event.pointerId,
+                  ordinal: titleTargetFromPointer(event.clientX, event.clientY),
+                  clientX: event.clientX,
+                  clientY: event.clientY,
+                });
+                titleGesture.current = moved.state;
+                applyTitleEffect(moved.effect);
+                const transition = trendTitleUp(titleGesture.current, event.pointerId);
+                titleGesture.current = transition.state;
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+                applyTitleEffect(transition.effect);
+                if (transition.effect.kind !== 'none') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }
+              }}
+              onPointerCancel={(event) => {
+                if (
+                  titleGesture.current.phase !== 'pressed'
+                  || titleGesture.current.pointerId !== event.pointerId
+                ) return;
+                const transition = resetTrendTitleGesture(titleGesture.current);
+                titleGesture.current = transition.state;
+                applyTitleEffect(transition.effect);
+                event.stopPropagation();
+              }}
+              onLostPointerCapture={(event) => {
+                if (
+                  titleGesture.current.phase !== 'pressed'
+                  || titleGesture.current.pointerId !== event.pointerId
+                ) return;
+                const transition = resetTrendTitleGesture(titleGesture.current);
+                titleGesture.current = transition.state;
+                applyTitleEffect(transition.effect);
+              }}
+            />
+          );
+        })}
+      </div>
+      {hiddenTitles && (
+        <span id="trend-hidden-title-note" className="visually-hidden">
+          Titles are hidden at this row height. Selection remains available from the keyboard.
+        </span>
+      )}
+      {!barcodeVisible && barcodeTracks.length > 0 && (
+        <span id="trend-hidden-barcode-note" className="visually-hidden">
+          Occurrence rows are hidden at this row height. Occurrence totals and stepping remain
+          available in the term legend.
+        </span>
+      )}
+      {barcodeVisible && !barcodeInteractive && barcodeTracks.length > 0 && (
+        <span id="trend-mini-barcode-note" className="visually-hidden">
+          Occurrence rows are minimized at this row height. Their marks remain visible, but
+          occurrence clicking is unavailable; totals and stepping remain in the term legend.
+        </span>
+      )}
       {(rangeStatus || linkedSelection) && (
         <p
           style={{
@@ -1673,6 +2388,7 @@ const SeriesView = memo(function SeriesView({
   strokeFor,
   geometry,
   barcodeHeight,
+  labelBands,
 }: {
   ready: readonly DisplayedSeries[];
   selected: readonly DisplayedSeries[];
@@ -1686,6 +2402,7 @@ const SeriesView = memo(function SeriesView({
   strokeFor: (id: string) => number;
   geometry: TrendGeometry;
   barcodeHeight: number;
+  labelBands: readonly TrendLabelBand[];
 }) {
   const foregroundReady = ready.filter((item) => !item.ghost);
   const rawReady = foregroundReady.length > 0 ? foregroundReady : ready;
@@ -1697,7 +2414,9 @@ const SeriesView = memo(function SeriesView({
   const y = linearMap(0, maxValue, geometry.seriesHeight, geometry.topPad);
   const axisY = geometry.seriesHeight;
   const barcodeBottom = axisY + barcodeBandExtent(geometry.barcodeBandGap, barcodeHeight);
-  const height = barcodeBottom + (geometry.bookMarks === 'ticks' ? 34 : 8);
+  const height = labelBands[0]
+    ? labelBands[0].top + labelBands[0].height
+    : barcodeBottom + 8;
 
   // One path segment per (series, doc) — the break at every boundary is
   // mandatory; connecting them would invent data.
@@ -1733,7 +2452,7 @@ const SeriesView = memo(function SeriesView({
       width={plotW}
       height={height}
       role="img"
-      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${accessibleTrendSeries(ready)} across ${docs.length} books in reading order`}
+      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${accessibleTrendSeries(ready)} across ${docs.length} texts in reading order`}
     >
       <line
         data-trend-axis="series"
@@ -1745,8 +2464,9 @@ const SeriesView = memo(function SeriesView({
         strokeWidth={1}
       />
       {docs.map((doc, d) => {
-        const x0 = x(bases[d] ?? 0);
-        const x1 = x((bases[d] ?? 0) + (geo.docTokenCount[d] ?? 0));
+        const band = labelBands[d];
+        const x0 = band?.left ?? x(bases[d] ?? 0);
+        const x1 = band?.right ?? x((bases[d] ?? 0) + (geo.docTokenCount[d] ?? 0));
         const title = titles[d] ?? doc;
         const n = String(d + 1);
         const label = (x1 - x0) > 7 * (title.length + 4) ? `${n} · ${title}` : n;
@@ -1755,14 +2475,16 @@ const SeriesView = memo(function SeriesView({
             {d > 0 && (
               <line x1={x0} y1={0} x2={x0} y2={axisY} stroke="var(--rule)" strokeWidth={1} />
             )}
-            {geometry.bookMarks === 'ticks' && (
+            {band && (
               <text
+                data-trend-row-title={d}
                 x={(x0 + x1) / 2}
-                y={barcodeBottom + 14}
+                y={band.top + 14}
                 textAnchor="middle"
                 fill="var(--fg-muted)"
                 fontSize="var(--text-xs)"
                 fontFamily="var(--font-mono)"
+                aria-hidden="true"
               >
                 {label}
                 <title>{title}</title>
@@ -1924,6 +2646,7 @@ const ByBookView = memo(function ByBookView({
   plotW,
   strokeFor,
   geometry,
+  labelBands,
   rowPitch,
   rowDomain,
 }: {
@@ -1937,6 +2660,7 @@ const ByBookView = memo(function ByBookView({
   plotW: number;
   strokeFor: (id: string) => number;
   geometry: TrendGeometry;
+  labelBands: readonly TrendLabelBand[];
   rowPitch: number;
   rowDomain: readonly number[];
 }) {
@@ -1965,7 +2689,7 @@ const ByBookView = memo(function ByBookView({
       width={plotW}
       height={height}
       role="img"
-      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${accessibleTrendSeries(ready)} within each of ${docs.length} books${view === 'by-book-scaled' ? '; shared token scale, shorter books end early' : '; each book fills an equal-width row'}`}
+      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${accessibleTrendSeries(ready)} within each of ${docs.length} texts${view === 'by-book-scaled' ? '; shared token scale, shorter texts end early' : '; each text fills an equal-width row'}`}
     >
       {docs.map((doc, d) => {
         const rowBase = d * rowPitch;
@@ -1974,23 +2698,25 @@ const ByBookView = memo(function ByBookView({
         const tokens = geo.docTokenCount[d] ?? 0;
         const domain = rowDomain[d] ?? 0;
         const rowEnd = bookXFromTokenEdge(tokens, plotW, domain);
-        const titleFontSize = geometry.rowGap <= 8 ? 9 : 11;
-        const titleBandTop = rowBase + rowPitch - geometry.rowGap;
+        const titleFontSize = geometry.rowGap >= 14 ? 11 : 9;
+        const titleBandTop = labelBands[d]?.top ?? rowBase + rowPitch - geometry.rowGap;
         const titleBaseline = titleBandTop + Math.max(7, Math.min(15, geometry.rowGap - 3));
         return (
           <g key={doc}>
-            <text
-              data-trend-row-title={d}
-              x={0}
-              y={titleBaseline}
-              fill="var(--fg-muted)"
-              fontFamily="var(--font-mono)"
-              fontSize={titleFontSize}
-              pointerEvents="none"
-              aria-hidden="true"
-            >
-              {title}
-            </text>
+            {labelBands[d]?.titlePainted !== false && (
+              <text
+                data-trend-row-title={d}
+                x={0}
+                y={titleBaseline}
+                fill="var(--fg-muted)"
+                fontFamily="var(--font-mono)"
+                fontSize={titleFontSize}
+                pointerEvents="none"
+                aria-hidden="true"
+              >
+                {title}
+              </text>
+            )}
             <line
               data-trend-row-axis={d}
               x1={0}

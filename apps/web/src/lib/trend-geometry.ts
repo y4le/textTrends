@@ -185,11 +185,32 @@ export type TrendStageSpec =
       readonly barcodeBandGap: number;
       readonly barcodeHeight: number;
       readonly band: BarcodeBandSpec;
+      /** Miniature barcode rows relinquish occurrence-specific pointer zones;
+       * their pixels become ordinary plot interaction space. */
+      readonly barcodeZone: 'tracks' | 'plot';
       readonly tokenCounts: readonly number[];
       /** Per-row x denominator: own extent for equal rows, shared maximum for
        * token-scaled rows. */
       readonly rowDomain: readonly number[];
     };
+
+export interface TrendLabelBand {
+  readonly d: number;
+  readonly left: number;
+  readonly right: number;
+  /** Painted title lane, retained even when its title is withdrawn. */
+  readonly top: number;
+  readonly height: number;
+  /** Keyboard focus rectangle. Hidden titles use their complete row. */
+  readonly focusTop: number;
+  readonly focusHeight: number;
+  /** Painted titles accept pointers; hidden titles remain keyboard/AT only. */
+  readonly titlePainted: boolean;
+}
+
+/** Combined labels use one stable lane at every width. When a title does not
+ * fit, the painter reduces it to its ordinal rather than removing identity. */
+export const TREND_SERIES_LABEL_BAND_HEIGHT = 34;
 
 /** One by-book stage row is a plot, embedded barcode, and title band (reusing
  * rowGap). Keep this centralized so painting, pointer hit-testing, cursors and
@@ -201,6 +222,70 @@ export function byBookRowPitch(
   barcodeHeight: number,
 ): number {
   return rowHeight + barcodeBandExtent(barcodeBandGap, barcodeHeight) + rowGap;
+}
+
+/** One document-label band per declared document. The SVG painter and the
+ * HTML interaction overlay both consume these rectangles, so visible labels
+ * and their targets cannot drift apart as barcodes or layouts change. */
+export function trendLabelBands(
+  stage: TrendStageSpec,
+  titlesPainted = true,
+): readonly TrendLabelBand[] {
+  if (stage.view === 'series') {
+    const top = stage.plotHeight
+      + barcodeBandExtent(stage.barcodeBandGap, stage.barcodeHeight);
+    return stage.layout.tokenCounts.map((count, d) => ({
+      d,
+      left: seriesXFromTokenEdge(d, 0, stage.plotWidth, stage.layout),
+      right: seriesXFromTokenEdge(d, count, stage.plotWidth, stage.layout),
+      top,
+      height: TREND_SERIES_LABEL_BAND_HEIGHT,
+      focusTop: top,
+      focusHeight: TREND_SERIES_LABEL_BAND_HEIGHT,
+      titlePainted: true,
+    }));
+  }
+  const pitch = byBookRowPitch(
+    stage.rowHeight,
+    stage.rowGap,
+    stage.barcodeBandGap,
+    stage.barcodeHeight,
+  );
+  const bandOffset = stage.rowHeight
+    + barcodeBandExtent(stage.barcodeBandGap, stage.barcodeHeight);
+  return stage.tokenCounts.map((_, d) => ({
+    d,
+    left: 0,
+    right: stage.plotWidth,
+    top: d * pitch + bandOffset,
+    height: stage.rowGap,
+    focusTop: titlesPainted ? d * pitch + bandOffset : d * pitch,
+    focusHeight: titlesPainted ? stage.rowGap : pitch,
+    titlePainted: titlesPainted,
+  }));
+}
+
+/** Resolve the document selected while an already-armed label drag traverses
+ * the stage. The sequence resolver and by-book row clamp extend coordinates
+ * to the first/last document, so the pointer need not stay in the label lane. */
+export function trendStageDocument(
+  px: number,
+  py: number,
+  stage: TrendStageSpec,
+): number | null {
+  if (stage.view === 'series') {
+    if (!Number.isFinite(px) || stage.plotWidth <= 0) return null;
+    return seriesTokenFromX(px, stage.plotWidth, stage.layout)?.d ?? null;
+  }
+  if (!Number.isFinite(py) || stage.tokenCounts.length === 0) return null;
+  const pitch = byBookRowPitch(
+    stage.rowHeight,
+    stage.rowGap,
+    stage.barcodeBandGap,
+    stage.barcodeHeight,
+  );
+  if (pitch <= 0) return null;
+  return Math.max(0, Math.min(stage.tokenCounts.length - 1, Math.floor(py / pitch)));
 }
 
 function barcodeTrackRow(
@@ -255,7 +340,11 @@ export function trendStageHit(
   const token = Math.min(domainToken, extent - 1);
   if (localY <= stage.rowHeight) return { d, token, zone: 'plot' };
   const barcodeTop = stage.rowHeight + stage.barcodeBandGap;
-  if (localY < barcodeTop || localY >= barcodeTop + stage.barcodeHeight) return null;
+  const barcodeBottom = barcodeTop + stage.barcodeHeight;
+  if (stage.barcodeZone === 'plot') {
+    return localY < barcodeBottom ? { d, token, zone: 'plot' } : null;
+  }
+  if (localY < barcodeTop || localY >= barcodeBottom) return null;
   const trackRow = barcodeTrackRow(
     localY - barcodeTop,
     stage.band.trackCount,

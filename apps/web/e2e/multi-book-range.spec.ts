@@ -41,7 +41,7 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
 
   await gotoPlace(page, 'inputs');
   await expect(page.getByRole('button', {
-    name: /Scope: alpha token .* → beta token .* across 2 books.*Open scope details/i,
+    name: /Scope: alpha token .* → beta token .* across 2 texts.*Open scope details/i,
   })).toBeVisible();
   const rows = page.getByRole('table', { name: 'Text details' })
     .locator(':scope > tbody > tr[data-catalog-book]');
@@ -53,9 +53,9 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   await gotoPlace(page, 'matches');
   const matches = page.getByRole('grid', { name: 'Matches' });
   await expect(matches).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText(/occurrences · .*ready books/i)).toHaveCount(0);
+  await expect(page.getByText(/occurrences · .*ready texts/i)).toHaveCount(0);
   await expect(matches.locator('.kwic-book-heading')).toBeVisible();
-  await expect(matches.getByRole('columnheader', { name: 'token', exact: true }))
+  await expect(matches.getByRole('columnheader', { name: /^position/ }))
     .toBeVisible();
   const firstBook = matches.locator('[role="row"][aria-rowindex] .kwic-book').first();
   await expect(firstBook).toHaveText(/^\([12]\) (alpha|beta)$/);
@@ -91,7 +91,7 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
 
   await page.getByRole('toolbar', { name: 'Match columns' })
     .getByRole('button', { name: 'Adjust column widths' }).click();
-  const bookWidth = matches.getByRole('separator', { name: 'Book width' });
+  const bookWidth = matches.getByRole('separator', { name: /^text width$/i });
   await expect(bookWidth).toHaveAttribute('aria-valuenow', '3');
   await bookWidth.focus();
   await bookWidth.press('End');

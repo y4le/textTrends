@@ -1,33 +1,22 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { RsvpState } from '../lib/interaction.ts';
 import {
   rsvpBoundedFrameStart,
   rsvpCursorStep,
   rsvpNeedsContinuation,
-  RSVP_FRAME_CHAR_LIMIT_STEP,
-  RSVP_LENGTH_EMPHASIS_STEP,
-  RSVP_MAX_FRAME_CHAR_LIMIT,
-  RSVP_MAX_LENGTH_EMPHASIS,
-  RSVP_MAX_PARAGRAPH_PAUSE_MS,
-  RSVP_MAX_SENTENCE_PAUSE_MS,
   RSVP_MAX_WPM,
-  RSVP_MIN_EXPOSURE_MS,
-  RSVP_MIN_FRAME_CHAR_LIMIT,
   RSVP_MIN_WPM,
-  RSVP_PARAGRAPH_PAUSE_STEP_MS,
   RSVP_REST_CUE_MIN_MS,
-  RSVP_REST_FLOOR_CROSSOVER_WPM,
   RSVP_RHYTHM_PRESETS,
-  RSVP_RHYTHM_RESET,
-  RSVP_SENTENCE_PAUSE_STEP_MS,
   RSVP_WPM_STEP,
-  clampRsvpPacing,
   effectiveRsvpWordsPerFrame,
   rsvpFrameAt,
   rsvpFrameTiming,
@@ -40,10 +29,19 @@ import {
   type RsvpRhythmPreset,
 } from '@texttrends/rsvp';
 import { RSVP_WPM_INPUT_ID } from '../lib/rsvp-ui.ts';
-import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
+import { readerProgress } from '../lib/reader-progress.ts';
+import {
+  interactionShortcutAllowed,
+  shortcutAria,
+  shortcutMatches,
+} from '../lib/shortcuts.ts';
 import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
+import {
+  ReaderProgressRail,
+  type ReaderSeekPhase,
+} from './reader/ReaderProgressRail.tsx';
 
 export type RsvpReaderSource =
   | { readonly status: 'pending' }
@@ -61,7 +59,7 @@ export interface RsvpReaderProps {
   readonly onSeek: (token: number) => void;
   readonly onExit: (token: number) => void;
   readonly onRetry: () => void;
-  readonly onOpenHelp: () => void;
+  readonly onOpenSettings: (returnFocus: HTMLElement, restSummary: string) => void;
 }
 
 interface PlaybackPhase {
@@ -70,34 +68,15 @@ interface PlaybackPhase {
   readonly startedAt: number;
 }
 
-type NumberSettingKey =
-  | 'frameCharLimit'
-  | 'sentencePauseMs'
-  | 'paragraphPauseMs'
-  | 'lengthEmphasis';
+interface StagePointer {
+  readonly id: number;
+  readonly x: number;
+  readonly y: number;
+  readonly time: number;
+  readonly target: EventTarget | null;
+}
 
 const RSVP_PACE_HELP_ID = 'reader-rsvp-pace-help';
-const RSVP_HIGH_SPEED_HELP_ID = 'reader-rsvp-high-speed-help';
-const RSVP_MULTI_WORD_HINT_WPM = 1_200;
-const RSVP_FRAME_CHAR_LIMIT_HELP_ID = 'reader-rsvp-frame-char-limit-help';
-const RSVP_FRAME_GROUP_HEADING_ID = 'reader-rsvp-frame-group-heading';
-const RSVP_RHYTHM_GROUP_HEADING_ID = 'reader-rsvp-rhythm-group-heading';
-const RSVP_SENTENCE_REST_HELP_ID = 'reader-rsvp-sentence-rest-help';
-const RSVP_PARAGRAPH_REST_HELP_ID = 'reader-rsvp-paragraph-rest-help';
-
-const NUMBER_SETTING_LABEL: Readonly<Record<NumberSettingKey, string>> = Object.freeze({
-  frameCharLimit: 'character limit',
-  sentencePauseMs: 'sentence rest',
-  paragraphPauseMs: 'paragraph rest',
-  lengthEmphasis: 'length emphasis',
-});
-
-const NUMBER_SETTING_UNIT: Readonly<Record<NumberSettingKey, string>> = Object.freeze({
-  frameCharLimit: 'characters',
-  sentencePauseMs: 'milliseconds',
-  paragraphPauseMs: 'milliseconds',
-  lengthEmphasis: 'percent',
-});
 
 function contains(page: ReaderPageResultV1, token: number): boolean {
   return token >= page.tokens.start && token < page.tokens.end;
@@ -111,6 +90,23 @@ function clockNow(): number {
   return typeof performance === 'undefined' ? 0 : performance.now();
 }
 
+function frameWordAt(target: EventTarget | null): number | null {
+  if (!(target instanceof Element)) return null;
+  const raw = target.closest<HTMLElement>('[data-rsvp-frame-token]')
+    ?.dataset.rsvpFrameToken;
+  if (raw === undefined) return null;
+  const token = Number(raw);
+  return Number.isSafeInteger(token) && token >= 0 ? token : null;
+}
+
+function collapsedFrameGap(
+  page: ReaderPageResultV1,
+  leftEnd: number,
+  rightStart: number,
+): string {
+  return page.text.slice(leftEnd, rightStart).replace(/\s+/gu, ' ');
+}
+
 export function RsvpReader({
   title,
   mode,
@@ -121,7 +117,7 @@ export function RsvpReader({
   onSeek,
   onExit,
   onRetry,
-  onOpenHelp,
+  onOpenSettings,
 }: RsvpReaderProps) {
   const presentation = usePresentation();
   const initial = source.status === 'ready'
@@ -134,12 +130,6 @@ export function RsvpReader({
   const [completed, setCompleted] = useState(false);
   const [editingPace, setEditingPace] = useState(false);
   const [paceDraft, setPaceDraft] = useState(String(mode.wpm));
-  const [settingDrafts, setSettingDrafts] = useState<Record<NumberSettingKey, string>>({
-    frameCharLimit: String(mode.frameCharLimit),
-    sentencePauseMs: String(mode.sentencePauseMs),
-    paragraphPauseMs: String(mode.paragraphPauseMs),
-    lengthEmphasis: String(mode.lengthEmphasis),
-  });
   const [settingStatus, setSettingStatus] = useState('');
   const [phase, setPhase] = useState<PlaybackPhase>({
     frameKey: '',
@@ -148,12 +138,13 @@ export function RsvpReader({
   });
   const resumeAfterEdit = useRef(false);
   const editingPaceRef = useRef(false);
-  const editingSettingRef = useRef<NumberSettingKey | null>(null);
   const requestedSource = useRef<string | null>(null);
   const nextFrameStart = useRef<number | null>(null);
+  const frameReturn = useRef<number | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playRef = useRef<HTMLButtonElement | null>(null);
   const exitRef = useRef<HTMLButtonElement | null>(null);
+  const stagePointer = useRef<StagePointer | null>(null);
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
 
@@ -161,7 +152,6 @@ export function RsvpReader({
     mode.wordsPerFrame,
     presentation.width === 'compact',
   );
-  const frameLimitInert = effectiveWords === 1;
   const playbackPacing = useMemo<RsvpPacing>(() => ({
     wpm: mode.wpm,
     wordsPerFrame: effectiveWords,
@@ -187,23 +177,6 @@ export function RsvpReader({
   useEffect(() => {
     if (!editingPace) setPaceDraft(String(mode.wpm));
   }, [editingPace, mode.wpm]);
-
-  useEffect(() => {
-    setSettingDrafts((current) => ({
-      frameCharLimit: editingSettingRef.current === 'frameCharLimit'
-        ? current.frameCharLimit
-        : String(mode.frameCharLimit),
-      sentencePauseMs: editingSettingRef.current === 'sentencePauseMs'
-        ? current.sentencePauseMs
-        : String(mode.sentencePauseMs),
-      paragraphPauseMs: editingSettingRef.current === 'paragraphPauseMs'
-        ? current.paragraphPauseMs
-        : String(mode.paragraphPauseMs),
-      lengthEmphasis: editingSettingRef.current === 'lengthEmphasis'
-        ? current.lengthEmphasis
-        : String(mode.lengthEmphasis),
-    }));
-  }, [mode.frameCharLimit, mode.lengthEmphasis, mode.paragraphPauseMs, mode.sentencePauseMs]);
 
   useEffect(() => {
     setSettingStatus('');
@@ -266,26 +239,16 @@ export function RsvpReader({
     () => frame && spanPlan ? rsvpFrameTiming(spanPlan, frame) : null,
     [frame, spanPlan],
   );
-  const previousRelative = useMemo(
-    () => resident
-      && relative >= 0
-      && relative < resident.tokens.end - resident.tokens.start
-      ? rsvpPreviousFrameStart(resident, relative, {
-          wordsPerFrame: effectiveWords,
-          charLimit: mode.frameCharLimit,
-        })
-      : relative,
-    [effectiveWords, mode.frameCharLimit, relative, resident],
-  );
   const pausedContext = useMemo(
     () => resident && frame && source.status !== 'error' && !mode.playing && !completed
       ? rsvpPausedContext(resident, frame)
       : null,
     [completed, frame, mode.playing, resident, source.status],
   );
-  const canGoBack = resident !== null
-    && previousRelative >= 0
-    && previousRelative < relative;
+  const canGoWordBack = cursor > 0;
+  const canGoWordForward = cursor < mode.docTokenCount - 1;
+  const nextFrameToken = frame === null ? null : cursor + frame.words.length;
+  const canGoFrameForward = nextFrameToken !== null && nextFrameToken < mode.docTokenCount;
   const frameKey = frame
     ? `${frame.startToken}:${frame.words.map((word) => word.token).join(',')}:${frame.text}`
     : '';
@@ -334,6 +297,7 @@ export function RsvpReader({
     const advance = (scheduledDeadline: number) => {
       const step = rsvpCursorStep(resident, cursor, frame.words.length);
       if (step.kind === 'next') {
+        frameReturn.current = null;
         nextFrameStart.current = scheduledDeadline;
         setCursor(step.token);
         onPublish(step.token);
@@ -387,14 +351,102 @@ export function RsvpReader({
     onPublish(cursor);
     onSetPlaying(!mode.playing);
   };
-  const goBack = () => {
-    if (!resident || !canGoBack) return;
-    const next = resident.tokens.start + previousRelative;
+  const moveToToken = useCallback((
+    token: number,
+    status: string,
+    retainFrameReturn = false,
+  ) => {
+    if (!Number.isSafeInteger(token) || token < 0 || token >= mode.docTokenCount) return;
+    if (!retainFrameReturn) frameReturn.current = null;
+    nextFrameStart.current = null;
     onSetPlaying(false);
     setCompleted(false);
-    setCursor(next);
-    onPublish(next);
-    setSettingStatus('back one frame');
+    setCursor(token);
+    onPublish(token);
+    if (resident === null || !contains(resident, token)) onSeek(token);
+    setSettingStatus(status);
+  }, [mode.docTokenCount, onPublish, onSeek, onSetPlaying, resident]);
+  const moveWord = useCallback((direction: -1 | 1) => {
+    const next = cursor + direction;
+    if (next < 0 || next >= mode.docTokenCount) return;
+    moveToToken(next, direction === -1 ? 'previous word' : 'next word');
+  }, [cursor, mode.docTokenCount, moveToToken]);
+  const moveFrame = (direction: -1 | 1) => {
+    if (direction === 1) {
+      if (nextFrameToken !== null) {
+        frameReturn.current = cursor;
+        moveToToken(nextFrameToken, 'next frame', true);
+      }
+      return;
+    }
+    const remembered = frameReturn.current;
+    frameReturn.current = null;
+    const canonical = resident !== null && contains(resident, cursor)
+      ? resident.tokens.start + rsvpPreviousFrameStart(resident, relative, {
+          wordsPerFrame: effectiveWords,
+          charLimit: mode.frameCharLimit,
+        })
+      : cursor;
+    const previous = canonical < cursor ? canonical : Math.max(0, cursor - 1);
+    moveToToken(remembered ?? previous, 'previous frame');
+  };
+  const seekFromProgress = (token: number, phase: ReaderSeekPhase) => {
+    moveToToken(token, phase === 'commit' ? 'position selected' : '');
+  };
+
+  useEffect(() => {
+    const handleWordShortcut = (event: globalThis.KeyboardEvent) => {
+      if (!interactionShortcutAllowed(event)) return;
+      if (shortcutMatches(event, 'rsvp-word-previous')) {
+        event.preventDefault();
+        moveWord(-1);
+      } else if (shortcutMatches(event, 'rsvp-word-next')) {
+        event.preventDefault();
+        moveWord(1);
+      }
+    };
+    document.addEventListener('keydown', handleWordShortcut);
+    return () => document.removeEventListener('keydown', handleWordShortcut);
+  }, [moveWord]);
+
+  const stageControlAt = (target: EventTarget | null) =>
+    target instanceof Element && target.closest('[data-rsvp-control]') !== null;
+  const handleStagePointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    stagePointer.current = null;
+    if (!event.isPrimary || event.button !== 0 || stageControlAt(event.target)) return;
+    stagePointer.current = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      time: event.timeStamp,
+      target: event.target,
+    };
+    if (frameWordAt(event.target) !== null && mode.playing) {
+      onPublish(cursor);
+      onSetPlaying(false);
+    }
+  };
+  const handleStagePointerUp = (event: ReactPointerEvent<HTMLElement>) => {
+    const down = stagePointer.current;
+    stagePointer.current = null;
+    if (
+      down === null
+      || down.id !== event.pointerId
+      || !event.isPrimary
+      || event.timeStamp - down.time > 500
+      || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 8
+      || stageControlAt(down.target)
+      || stageControlAt(event.target)
+    ) return;
+    event.preventDefault();
+    const downToken = frameWordAt(down.target);
+    const upToken = frameWordAt(event.target);
+    if (upToken !== null) {
+      moveToToken(upToken, 'word selected');
+      return;
+    }
+    if (downToken !== null) return;
+    togglePlaying();
   };
   const beginPaceEdit = () => {
     if (editingPaceRef.current) return;
@@ -440,61 +492,12 @@ export function RsvpReader({
     onSetPacing(patch);
     setSettingStatus(status);
   };
-  const finishNumberSettingEdit = (key: NumberSettingKey, commit: boolean) => {
-    if (editingSettingRef.current !== key) return;
-    editingSettingRef.current = null;
-    if (key === 'frameCharLimit' && frameLimitInert) {
-      setSettingDrafts((current) => ({
-        ...current,
-        frameCharLimit: String(mode.frameCharLimit),
-      }));
-      return;
-    }
-    const parsed = settingDrafts[key].trim() === '' ? Number.NaN : Number(settingDrafts[key]);
-    if (commit && Number.isFinite(parsed)) {
-      const patch = { [key]: parsed } as Pick<RsvpPacing, NumberSettingKey>;
-      const bounded = clampRsvpPacing({ ...mode, ...patch });
-      updatePacing(
-        patch,
-        `${NUMBER_SETTING_LABEL[key]} ${bounded[key]} ${NUMBER_SETTING_UNIT[key]}`,
-      );
-    } else {
-      setSettingDrafts((current) => ({ ...current, [key]: String(mode[key]) }));
-    }
-  };
-  const handleNumberSettingKeyDown = (
-    event: KeyboardEvent<HTMLInputElement>,
-    key: NumberSettingKey,
-  ) => {
-    if (event.key === 'Escape' || shortcutMatches(event, 'reader-rsvp-toggle')) {
-      event.preventDefault();
-      event.stopPropagation();
-      exit();
-    } else if (key === 'frameCharLimit' && frameLimitInert) {
-      if (event.key !== 'Tab') {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      event.stopPropagation();
-      finishNumberSettingEdit(key, true);
-      event.currentTarget.blur();
-    } else {
-      stopControlSpace(event);
-    }
-  };
-  const selectPreset = (preset: RsvpRhythmPreset) => {
-    updatePacing(RSVP_RHYTHM_PRESETS[preset], `rhythm preset ${preset}`);
-  };
-  const resetRhythm = () => {
-    updatePacing(RSVP_RHYTHM_RESET, 'rhythm reset to Natural at 300 words per minute');
-  };
   const trapTab = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Tab') return;
     const controls = Array.from(
       shellRef.current?.querySelectorAll<HTMLElement>(
-        '[data-rsvp-control]:is(button,input,select,summary,[tabindex]):not(:disabled)',
+        '[data-rsvp-control]:is(button,input,select,summary,[tabindex]):not(:disabled), '
+          + '.reader-rsvp-progress[role="slider"]',
       ) ?? [],
     ).filter((control) => {
       const details = control.closest('details');
@@ -519,16 +522,6 @@ export function RsvpReader({
     && spanPlan.restMs < spanPlan.configuredRestMs
     ? `${spanPlan.boundary} rest ${spanPlan.configuredRestMs} ms (${spanPlan.restMs} ms here)`
     : '';
-  const highSpeedNote = [
-    mode.wpm > RSVP_MULTI_WORD_HINT_WPM && effectiveWords === 1
-      ? 'Showing 2 or 3 words at once keeps each frame on screen longer.'
-      : '',
-    mode.wpm === RSVP_MAX_WPM
-      ? `Boundary rests are zero at this pace to preserve the ${RSVP_MIN_EXPOSURE_MS} ms word floor.`
-      : mode.wpm > RSVP_REST_FLOOR_CROSSOVER_WPM
-        ? `Boundary rests may be capped by the ${RSVP_MIN_EXPOSURE_MS} ms word floor.`
-        : '',
-  ].filter(Boolean).join(' ');
   const stableStatus = completed
     ? 'End of document. Speed reading paused.'
     : source.status === 'error'
@@ -540,48 +533,53 @@ export function RsvpReader({
     && phase.kind === 'rest'
     && (timing?.pauseMs ?? 0) >= RSVP_REST_CUE_MIN_MS;
   const preset = rsvpPresetSelection(mode);
+  const progress = readerProgress(cursor, mode.docTokenCount, title);
 
   return (
     <div ref={shellRef} className="reader-rsvp-shell" onKeyDown={trapTab}>
-      <header className="reader-header">
-        <div>
-          <h2 id="reader-title" style={{ margin: 0, fontSize: 'var(--text-lg)' }}>
+      <header className="reader-rsvp-topbar">
+        <button
+          ref={exitRef}
+          className="reader-rsvp-exit"
+          type="button"
+          data-rsvp-control="true"
+          aria-label="Return to Reader"
+          aria-keyshortcuts={shortcutAria(['reader-rsvp-toggle', 'rsvp-exit'])}
+          onClick={exit}
+          onKeyDown={stopControlSpace}
+        >
+          <span aria-hidden="true">←</span>{' '}Reader
+        </button>
+        <div className="reader-rsvp-identity">
+          <h2 id="reader-title">
             <span className="visually-hidden">Reader: </span>{title}
           </h2>
           <p className="reader-position" aria-hidden="true">
-            token {(cursor + 1).toLocaleString()} of {mode.docTokenCount.toLocaleString()}
-            {' · '}{mode.wpm.toLocaleString()} WPM pace
-            {effectiveWords > 1 ? ` · ${effectiveWords} words at once` : ''}
-            {restSummary === '' ? '' : ` · ${restSummary}`}
+            token {(cursor + 1).toLocaleString()}
+            {' · '}{progress?.percent ?? 0}%
+            {' · '}{mode.wpm.toLocaleString()} WPM
           </p>
           <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
             {settingStatus === '' ? stableStatus : `${stableStatus} ${settingStatus}.`}
           </p>
           {restSummary !== '' && <p className="visually-hidden">{restSummary}</p>}
         </div>
-        <div className="reader-header-actions">
-          <button
-            type="button"
-            data-rsvp-control="true"
-            aria-keyshortcuts={shortcutAria(['show-help'])}
-            onClick={onOpenHelp}
-            onKeyDown={stopControlSpace}
-            style={SMALL_BUTTON_STYLE}
-          >
-            help
-          </button>
-          <button
-            ref={exitRef}
-            type="button"
-            data-rsvp-control="true"
-            aria-keyshortcuts={shortcutAria(['reader-rsvp-toggle', 'rsvp-exit'])}
-            onClick={exit}
-            onKeyDown={stopControlSpace}
-            style={SMALL_BUTTON_STYLE}
-          >
-            return to Reader
-          </button>
-        </div>
+        <button
+          id="reader-rsvp-settings-open"
+          className="reader-rsvp-settings-open"
+          type="button"
+          data-rsvp-control="true"
+          aria-label="Open Speed settings"
+          onClick={(event) => {
+            onPublish(cursor);
+            onSetPlaying(false);
+            onOpenSettings(event.currentTarget, restSummary);
+          }}
+          onKeyDown={stopControlSpace}
+        >
+          <span className="reader-rsvp-settings-label">settings</span>
+          <span className="reader-rsvp-settings-icon" aria-hidden="true">⋯</span>
+        </button>
       </header>
 
       <section
@@ -589,13 +587,50 @@ export function RsvpReader({
         data-rsvp-words={effectiveWords}
         data-rsvp-rest={restCue ? 'true' : undefined}
         aria-label="Speed reading word"
+        onPointerDown={handleStagePointerDown}
+        onPointerUp={handleStagePointerUp}
+        onPointerCancel={() => { stagePointer.current = null; }}
       >
         <div className="reader-rsvp-word" aria-hidden="true">
           {frame ? (
             <>
-              <span className="reader-rsvp-before">{frame.before}</span>
-              <span className="reader-rsvp-anchor">{frame.anchor}</span>
-              <span className="reader-rsvp-after">{frame.after}</span>
+              <span
+                className="reader-rsvp-before reader-rsvp-frame-word"
+                data-rsvp-frame-token={frame.startToken}
+              >
+                {frame.before}
+              </span>
+              <span
+                className="reader-rsvp-anchor reader-rsvp-frame-word"
+                data-rsvp-frame-token={frame.startToken}
+              >
+                {frame.anchor}
+              </span>
+              <span className="reader-rsvp-after">
+                <span
+                  className="reader-rsvp-frame-word"
+                  data-rsvp-frame-token={frame.startToken}
+                >
+                  {frame.words[0]?.after ?? ''}
+                </span>
+                {frame.words.slice(1).map((word, index) => {
+                  const previous = frame.words[index]!;
+                  return (
+                    <span
+                      className="reader-rsvp-frame-word"
+                      data-rsvp-frame-token={word.token}
+                      key={word.token}
+                    >
+                      {collapsedFrameGap(
+                        resident!,
+                        previous.displayEndUtf16,
+                        word.displayStartUtf16,
+                      )}
+                      {word.display}
+                    </span>
+                  );
+                })}
+              </span>
             </>
           ) : (
             <span className="reader-rsvp-loading">loading source text…</span>
@@ -636,81 +671,127 @@ export function RsvpReader({
       </section>
 
       <div className="reader-rsvp-controls-region">
-        <nav className="reader-rsvp-controls" aria-label="Speed reading controls">
-          <button
-            type="button"
-            data-rsvp-control="true"
-            disabled={!canGoBack}
-            onClick={goBack}
-            onKeyDown={stopControlSpace}
-            style={SMALL_BUTTON_STYLE}
-          >
-            back
-          </button>
-          <button
-            ref={playRef}
-            type="button"
-            data-rsvp-control="true"
-            disabled={completed}
-            aria-pressed={mode.playing}
-            aria-keyshortcuts={shortcutAria(['rsvp-toggle-play'])}
-            onClick={togglePlaying}
-            onKeyDown={stopControlSpace}
-            style={SMALL_BUTTON_STYLE}
-          >
-            {completed ? 'completed' : mode.playing ? 'pause' : 'play'}
-          </button>
-          <button
-            type="button"
-            data-rsvp-control="true"
-            aria-label={`Slower, ${RSVP_WPM_STEP} words per minute`}
-            aria-keyshortcuts={shortcutAria(['rsvp-pace-down'])}
-            onClick={() => onSetPacing({ wpm: mode.wpm - RSVP_WPM_STEP })}
-            onKeyDown={stopControlSpace}
-            style={SMALL_BUTTON_STYLE}
-          >
-            slower
-          </button>
-          <label className="reader-rsvp-pace" data-rsvp-control="true" htmlFor={RSVP_WPM_INPUT_ID}>
-            <span className="reader-rsvp-pace-caption">
-              <span>pace</span>
-              <span id={RSVP_PACE_HELP_ID}>including rests</span>
-            </span>
-            <input
-              id={RSVP_WPM_INPUT_ID}
+        <ReaderProgressRail
+          className="reader-rsvp-progress"
+          progress={progress}
+          accessibleName={`Position in ${title}`}
+          onSeek={seekFromProgress}
+        />
+        <nav className="reader-rsvp-transport" aria-label="Speed reading transport">
+          <div className="reader-rsvp-movement">
+            <button
+              className="reader-rsvp-frame-previous"
+              type="button"
               data-rsvp-control="true"
-              type="number"
-              inputMode="numeric"
-              min={RSVP_MIN_WPM}
-              max={RSVP_MAX_WPM}
-              step={RSVP_WPM_STEP}
-              value={paceDraft}
-              aria-label="Pace in words per minute"
-              aria-describedby={highSpeedNote === ''
-                ? RSVP_PACE_HELP_ID
-                : `${RSVP_PACE_HELP_ID} ${RSVP_HIGH_SPEED_HELP_ID}`}
-              aria-keyshortcuts={shortcutAria(['rsvp-pace-editor'])}
-              onFocus={(event) => {
-                beginPaceEdit();
-                event.currentTarget.select();
-              }}
-              onChange={(event) => setPaceDraft(event.currentTarget.value)}
-              onKeyDown={handlePaceKeyDown}
-              onBlur={() => finishPaceEdit(false)}
-            />
-            <span>WPM</span>
-          </label>
-          <button
-            type="button"
-            data-rsvp-control="true"
-            aria-label={`Faster, ${RSVP_WPM_STEP} words per minute`}
-            aria-keyshortcuts={shortcutAria(['rsvp-pace-up'])}
-            onClick={() => onSetPacing({ wpm: mode.wpm + RSVP_WPM_STEP })}
-            onKeyDown={stopControlSpace}
-            style={SMALL_BUTTON_STYLE}
-          >
-            faster
-          </button>
+              aria-label="Previous frame"
+              disabled={!canGoWordBack}
+              onClick={() => moveFrame(-1)}
+              onKeyDown={stopControlSpace}
+            >
+              <span aria-hidden="true">«</span>
+            </button>
+            <button
+              className="reader-rsvp-word-previous"
+              type="button"
+              data-rsvp-control="true"
+              aria-label="Previous word"
+              aria-keyshortcuts={shortcutAria(['rsvp-word-previous'])}
+              disabled={!canGoWordBack}
+              onClick={() => moveWord(-1)}
+              onKeyDown={stopControlSpace}
+            >
+              <span aria-hidden="true">‹</span>
+            </button>
+            <button
+              className="reader-rsvp-toggle"
+              ref={playRef}
+              type="button"
+              data-rsvp-control="true"
+              disabled={completed}
+              aria-pressed={mode.playing}
+              aria-keyshortcuts={shortcutAria(['rsvp-toggle-play'])}
+              onClick={togglePlaying}
+              onKeyDown={stopControlSpace}
+            >
+              {completed ? 'completed' : mode.playing ? 'pause' : 'play'}
+            </button>
+            <button
+              className="reader-rsvp-word-next"
+              type="button"
+              data-rsvp-control="true"
+              aria-label="Next word"
+              aria-keyshortcuts={shortcutAria(['rsvp-word-next'])}
+              disabled={!canGoWordForward}
+              onClick={() => moveWord(1)}
+              onKeyDown={stopControlSpace}
+            >
+              <span aria-hidden="true">›</span>
+            </button>
+            <button
+              className="reader-rsvp-frame-next"
+              type="button"
+              data-rsvp-control="true"
+              aria-label="Next frame"
+              disabled={!canGoFrameForward}
+              onClick={() => moveFrame(1)}
+              onKeyDown={stopControlSpace}
+            >
+              <span aria-hidden="true">»</span>
+            </button>
+          </div>
+          <div className="reader-rsvp-pace-stepper">
+            <button
+              className="reader-rsvp-slower"
+              type="button"
+              data-rsvp-control="true"
+              aria-label={`Slower, ${RSVP_WPM_STEP} words per minute`}
+              aria-keyshortcuts={shortcutAria(['rsvp-pace-down'])}
+              disabled={mode.wpm <= RSVP_MIN_WPM}
+              onClick={() => onSetPacing({ wpm: mode.wpm - RSVP_WPM_STEP })}
+              onKeyDown={stopControlSpace}
+            >
+              <span aria-hidden="true">−</span>
+            </button>
+            <label className="reader-rsvp-pace" data-rsvp-control="true" htmlFor={RSVP_WPM_INPUT_ID}>
+              <span id={RSVP_PACE_HELP_ID} className="visually-hidden">
+                Including rests
+              </span>
+              <input
+                id={RSVP_WPM_INPUT_ID}
+                data-rsvp-control="true"
+                type="number"
+                inputMode="numeric"
+                min={RSVP_MIN_WPM}
+                max={RSVP_MAX_WPM}
+                step={RSVP_WPM_STEP}
+                value={paceDraft}
+                aria-label="Pace in words per minute"
+                aria-describedby={RSVP_PACE_HELP_ID}
+                aria-keyshortcuts={shortcutAria(['rsvp-pace-editor'])}
+                onFocus={(event) => {
+                  beginPaceEdit();
+                  event.currentTarget.select();
+                }}
+                onChange={(event) => setPaceDraft(event.currentTarget.value)}
+                onKeyDown={handlePaceKeyDown}
+                onBlur={() => finishPaceEdit(false)}
+              />
+            </label>
+            <button
+              className="reader-rsvp-faster"
+              type="button"
+              data-rsvp-control="true"
+              aria-label={`Faster, ${RSVP_WPM_STEP} words per minute`}
+              aria-keyshortcuts={shortcutAria(['rsvp-pace-up'])}
+              disabled={mode.wpm >= RSVP_MAX_WPM}
+              onClick={() => onSetPacing({ wpm: mode.wpm + RSVP_WPM_STEP })}
+              onKeyDown={stopControlSpace}
+            >
+              <span aria-hidden="true">+</span>
+            </button>
+          </div>
+        </nav>
+        <div className="reader-rsvp-shape" aria-label="Speed frame shape">
           <fieldset className="reader-rsvp-words" data-rsvp-control="true">
             <legend className="visually-hidden">
               {presentation.width === 'compact'
@@ -718,10 +799,7 @@ export function RsvpReader({
                 : 'Words at once (maximum)'}
             </legend>
             <span className="reader-rsvp-words-caption" aria-hidden="true">
-              words at once
-              <span>
-                {presentation.width === 'compact' ? 'max · 3 becomes 2 here' : 'maximum'}
-              </span>
+              frame
             </span>
             <span className="reader-rsvp-words-options">
               {[1, 2, 3].map((value) => (
@@ -734,6 +812,8 @@ export function RsvpReader({
                     checked={mode.wordsPerFrame === value}
                     aria-label={`${value} ${value === 1 ? 'word' : 'words'} at once`}
                     onChange={() => {
+                      onPublish(cursor);
+                      onSetPlaying(false);
                       updatePacing(
                         { wordsPerFrame: value },
                         `${effectiveRsvpWordsPerFrame(value, presentation.width === 'compact')} words at once`,
@@ -746,199 +826,31 @@ export function RsvpReader({
               ))}
             </span>
           </fieldset>
-        </nav>
-        {highSpeedNote !== '' && (
-          <p id={RSVP_HIGH_SPEED_HELP_ID} className="reader-rsvp-speed-note">
-            {highSpeedNote}
-          </p>
-        )}
-
-        <details
-          className="reader-rsvp-rhythm"
-          data-rsvp-control="true"
-          onToggle={(event) => {
-            if (!event.currentTarget.open) return;
-            onPublish(cursor);
-            onSetPlaying(false);
-          }}
-        >
-          <summary data-rsvp-control="true" onKeyDown={stopControlSpace}>frame &amp; rhythm</summary>
-          <div className="reader-rsvp-rhythm-body">
-            <section
-              className="reader-rsvp-settings-group reader-rsvp-frame-settings"
-              aria-labelledby={RSVP_FRAME_GROUP_HEADING_ID}
+          <label className="reader-rsvp-preset" data-rsvp-control="true">
+            <span>rhythm</span>
+            <select
+              data-rsvp-control="true"
+              aria-label="Rhythm preset"
+              value={preset}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                if (value === 'custom') return;
+                onPublish(cursor);
+                onSetPlaying(false);
+                updatePacing(
+                  RSVP_RHYTHM_PRESETS[value as RsvpRhythmPreset],
+                  `rhythm preset ${value}`,
+                );
+              }}
+              onKeyDown={stopControlSpace}
             >
-              <h3 id={RSVP_FRAME_GROUP_HEADING_ID}>frame</h3>
-              <p className="reader-rsvp-settings-note">
-                Frames stop at the word limit, the character limit, or punctuation — whichever
-                comes first. Spaces and punctuation count, and a single long word is always shown whole.
-              </p>
-              <label data-rsvp-control="true">
-                <span className="reader-rsvp-setting-label">
-                  character limit
-                  <span id={RSVP_FRAME_CHAR_LIMIT_HELP_ID}>
-                    {frameLimitInert ? 'applies with 2+ words' : 'per frame · at most'}
-                  </span>
-                </span>
-                <span className="reader-rsvp-setting-input">
-                  <input
-                    data-rsvp-control="true"
-                    type="number"
-                    inputMode="numeric"
-                    min={RSVP_MIN_FRAME_CHAR_LIMIT}
-                    max={RSVP_MAX_FRAME_CHAR_LIMIT}
-                    step={RSVP_FRAME_CHAR_LIMIT_STEP}
-                    value={settingDrafts.frameCharLimit}
-                    readOnly={frameLimitInert}
-                    aria-disabled={frameLimitInert || undefined}
-                    aria-label="Frame character limit in characters"
-                    aria-describedby={RSVP_FRAME_CHAR_LIMIT_HELP_ID}
-                    onFocus={(event) => {
-                      editingSettingRef.current = 'frameCharLimit';
-                      event.currentTarget.select();
-                    }}
-                    onChange={(event) => {
-                      if (frameLimitInert) return;
-                      const value = event.currentTarget.value;
-                      setSettingDrafts((current) => ({ ...current, frameCharLimit: value }));
-                    }}
-                    onKeyDown={(event) => handleNumberSettingKeyDown(event, 'frameCharLimit')}
-                    onBlur={() => finishNumberSettingEdit('frameCharLimit', true)}
-                  />
-                  <span>chars</span>
-                </span>
-              </label>
-            </section>
-
-            <section
-              className="reader-rsvp-settings-group reader-rsvp-rhythm-settings"
-              aria-labelledby={RSVP_RHYTHM_GROUP_HEADING_ID}
-            >
-              <h3 id={RSVP_RHYTHM_GROUP_HEADING_ID}>rhythm</h3>
-              <p className="reader-rsvp-settings-note">
-                Rest values are maxima taken from the current sentence&rsquo;s time.
-                {restSummary === '' ? '' : ` Current ${restSummary}.`}
-              </p>
-              <label data-rsvp-control="true">
-                <span>rhythm preset</span>
-                <select
-                  data-rsvp-control="true"
-                  aria-label="Rhythm preset"
-                  value={preset}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    if (value !== 'custom') selectPreset(value as RsvpRhythmPreset);
-                  }}
-                  onKeyDown={stopControlSpace}
-                >
-                  <option value="natural">Natural</option>
-                  <option value="even">Even</option>
-                  <option value="study">Study</option>
-                  <option value="custom" disabled>Custom</option>
-                </select>
-              </label>
-
-              <label data-rsvp-control="true">
-                <span className="reader-rsvp-setting-label">
-                  sentence rest
-                  <span id={RSVP_SENTENCE_REST_HELP_ID}>at most · from sentence time</span>
-                </span>
-                <span className="reader-rsvp-setting-input">
-                  <input
-                    data-rsvp-control="true"
-                    type="number"
-                    inputMode="numeric"
-                    min="0"
-                    max={RSVP_MAX_SENTENCE_PAUSE_MS}
-                    step={RSVP_SENTENCE_PAUSE_STEP_MS}
-                    value={settingDrafts.sentencePauseMs}
-                    aria-label="Sentence rest in milliseconds"
-                    aria-describedby={RSVP_SENTENCE_REST_HELP_ID}
-                    onFocus={(event) => {
-                      editingSettingRef.current = 'sentencePauseMs';
-                      event.currentTarget.select();
-                    }}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setSettingDrafts((current) => ({ ...current, sentencePauseMs: value }));
-                    }}
-                    onKeyDown={(event) => handleNumberSettingKeyDown(event, 'sentencePauseMs')}
-                    onBlur={() => finishNumberSettingEdit('sentencePauseMs', true)}
-                  />
-                  <span>ms</span>
-                </span>
-              </label>
-
-              <label data-rsvp-control="true">
-                <span className="reader-rsvp-setting-label">
-                  paragraph rest
-                  <span id={RSVP_PARAGRAPH_REST_HELP_ID}>at most · from sentence time</span>
-                </span>
-                <span className="reader-rsvp-setting-input">
-                  <input
-                    data-rsvp-control="true"
-                    type="number"
-                    inputMode="numeric"
-                    min={mode.sentencePauseMs}
-                    max={RSVP_MAX_PARAGRAPH_PAUSE_MS}
-                    step={RSVP_PARAGRAPH_PAUSE_STEP_MS}
-                    value={settingDrafts.paragraphPauseMs}
-                    aria-label="Paragraph rest in milliseconds"
-                    aria-describedby={RSVP_PARAGRAPH_REST_HELP_ID}
-                    onFocus={(event) => {
-                      editingSettingRef.current = 'paragraphPauseMs';
-                      event.currentTarget.select();
-                    }}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setSettingDrafts((current) => ({ ...current, paragraphPauseMs: value }));
-                    }}
-                    onKeyDown={(event) => handleNumberSettingKeyDown(event, 'paragraphPauseMs')}
-                    onBlur={() => finishNumberSettingEdit('paragraphPauseMs', true)}
-                  />
-                  <span>ms</span>
-                </span>
-              </label>
-
-              <label data-rsvp-control="true">
-                <span>length emphasis</span>
-                <span className="reader-rsvp-setting-input">
-                  <input
-                    data-rsvp-control="true"
-                    type="number"
-                    inputMode="numeric"
-                    min="0"
-                    max={RSVP_MAX_LENGTH_EMPHASIS}
-                    step={RSVP_LENGTH_EMPHASIS_STEP}
-                    value={settingDrafts.lengthEmphasis}
-                    aria-label="Length emphasis in percent"
-                    onFocus={(event) => {
-                      editingSettingRef.current = 'lengthEmphasis';
-                      event.currentTarget.select();
-                    }}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setSettingDrafts((current) => ({ ...current, lengthEmphasis: value }));
-                    }}
-                    onKeyDown={(event) => handleNumberSettingKeyDown(event, 'lengthEmphasis')}
-                    onBlur={() => finishNumberSettingEdit('lengthEmphasis', true)}
-                  />
-                  <span>%</span>
-                </span>
-              </label>
-
-              <button
-                type="button"
-                data-rsvp-control="true"
-                onClick={resetRhythm}
-                onKeyDown={stopControlSpace}
-                style={SMALL_BUTTON_STYLE}
-              >
-                reset
-              </button>
-            </section>
-          </div>
-        </details>
+              <option value="natural">Natural</option>
+              <option value="even">Even</option>
+              <option value="study">Study</option>
+              <option value="custom" disabled>Custom</option>
+            </select>
+          </label>
+        </div>
       </div>
     </div>
   );

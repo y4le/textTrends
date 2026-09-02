@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { PresentationProvider } from './components/PresentationProvider.tsx';
 import { SeriesPaletteSync } from './components/SeriesPaletteSync.tsx';
+import { GuideProvider } from './components/guide/GuideProvider.tsx';
 import './lib/display-store.ts';
 import './style/tokens.css';
 
@@ -13,7 +14,9 @@ createRoot(root).render(
   <StrictMode>
     <PresentationProvider>
       <SeriesPaletteSync />
-      <App />
+      <GuideProvider>
+        <App />
+      </GuideProvider>
     </PresentationProvider>
   </StrictMode>,
 );

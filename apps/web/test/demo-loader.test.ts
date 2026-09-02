@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
+import { INGEST_CAPS_V0 } from '@texttrends/core';
 import type { LoadedDemoCorpus } from '../src/lib/demo-corpora.ts';
 import { loadDemoCorpus } from '../src/lib/demo-loader.ts';
-import { BUILTIN_QURAN_ID, BUILTIN_SHERLOCK_ID, builtinCorpusOption } from '../src/lib/project.ts';
+import {
+  BUILTIN_BIBLE_ID,
+  BUILTIN_QURAN_ID,
+  BUILTIN_SHERLOCK_ID,
+  builtinCorpusOption,
+  demoCorpusFixtures,
+} from '../src/lib/project.ts';
 import type { AppState } from '../src/lib/store.ts';
 
 function harness(fetchCorpus: () => Promise<LoadedDemoCorpus>) {
@@ -72,15 +79,35 @@ describe('demo loader', () => {
   it('rejects an additive sample that cannot fit before downloading or persisting it', async () => {
     const fetchCorpus = vi.fn(async () => ({ option: builtinCorpusOption(BUILTIN_QURAN_ID)!, files: [] }));
     const subject = harness(fetchCorpus);
+    const activeCount = INGEST_CAPS_V0.maxDocsPerProject - demoCorpusFixtures(BUILTIN_QURAN_ID).length + 1;
     subject.state.projectSession = {
-      project: { data: { docs: Array.from({ length: 20 }, (_, index) => ({ doc: `active-${index}` })) } },
+      project: { data: { docs: Array.from({ length: activeCount }, (_, index) => ({ doc: `active-${index}` })) } },
       imports: [],
     } as unknown as AppState['projectSession'];
 
     await expect(loadDemoCorpus(BUILTIN_QURAN_ID, 'additive', subject.dependencies))
-      .rejects.toThrow(/128-document limit/);
+      .rejects.toThrow(new RegExp(`${INGEST_CAPS_V0.maxDocsPerProject}-document limit`));
     expect(fetchCorpus).not.toHaveBeenCalled();
     expect(subject.library.add).not.toHaveBeenCalled();
+    expect(subject.operation.release).toHaveBeenCalledWith(subject.lease);
+  });
+
+  it('allows the Bible and Quran demos to be active together', async () => {
+    const fetchCorpus = vi.fn(async () => ({ option: builtinCorpusOption(BUILTIN_QURAN_ID)!, files: [] }));
+    const subject = harness(fetchCorpus);
+    subject.state.projectSession = {
+      project: {
+        data: {
+          docs: demoCorpusFixtures(BUILTIN_BIBLE_ID).map((fixture) => ({ doc: fixture.doc })),
+        },
+      },
+      imports: [],
+    } as unknown as AppState['projectSession'];
+
+    await expect(loadDemoCorpus(BUILTIN_QURAN_ID, 'additive', subject.dependencies)).resolves.toMatchObject({
+      label: 'Quran — Pickthall translation',
+    });
+    expect(fetchCorpus).toHaveBeenCalledOnce();
     expect(subject.operation.release).toHaveBeenCalledWith(subject.lease);
   });
 });

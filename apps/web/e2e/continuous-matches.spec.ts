@@ -206,11 +206,13 @@ test('continuous Matches virtualizes rows and synchronizes scrolling with the sh
       max: (node as HTMLElement).scrollHeight - (node as HTMLElement).clientHeight,
     }));
     return Math.abs((geometry.max - geometry.top) - 16);
-  }).toBeLessThanOrEqual(1); // the last row is a half-pitch above the end sentinel
+  // Native scroll extents can round once at each edge; the selected row's
+  // independent centeredGeometry assertion above remains the stricter 1px gate.
+  }).toBeLessThanOrEqual(2); // the last row is a half-pitch above the end sentinel
 
   await grid.press('Enter');
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
-  await reader.getByRole('button', { name: 'back', exact: true }).click();
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(grid).toBeFocused();
 });

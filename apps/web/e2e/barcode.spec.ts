@@ -147,7 +147,7 @@ test('the barcode summarizes exact occurrences, steps into Matches, and never qu
     }, { timeout: 30_000 })
     .toBe('answered');
   await page.getByRole('main', { name: /Reader: beasts/ })
-    .getByRole('button', { name: 'back', exact: true })
+    .getByRole('button', { name: 'Return to workbench', exact: true })
     .click();
   await gotoPlace(page, 'matches');
   await expect(page.getByRole('grid', { name: 'Matches' })
@@ -187,7 +187,7 @@ test('to-scale rows share a token ruler, end at their real lengths, and leave bl
   const chart = page.locator('svg[data-trend-view="by-book-scaled"]');
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   await expect(chart).toBeVisible();
-  await expect(chart).toHaveAttribute('aria-label', /shared token scale, shorter books end early/i);
+  await expect(chart).toHaveAttribute('aria-label', /shared token scale, shorter texts end early/i);
   await expect(chart.locator('[data-trend-row-title]')).toHaveText(['short', 'long']);
   await expect(scrubber.locator('canvas[data-barcode-band="by-book-scaled"]')).toHaveCount(2);
   const [shortAxis, longAxis] = await Promise.all([

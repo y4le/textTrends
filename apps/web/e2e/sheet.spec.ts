@@ -54,7 +54,7 @@ test('Settings keeps its Trends context while navigation moves beneath it', asyn
 test('an open Settings pane preserves its draft and focus across widths', async ({ page }) => {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const pane = page.getByRole('dialog', { name: 'Settings' });
-  const bins = pane.getByRole('spinbutton', { name: 'Bins per book', exact: true });
+  const bins = pane.getByRole('spinbutton', { name: 'Bins per text', exact: true });
   await bins.fill('23');
   await expect(pane).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -71,7 +71,7 @@ test('unchanged settings stay open while close discards the draft', async ({ pag
   const settings = page.getByRole('button', { name: 'Settings', exact: true });
   await settings.click();
   let pane = page.getByRole('dialog', { name: 'Settings' });
-  let bins = pane.getByRole('spinbutton', { name: 'Bins per book', exact: true });
+  let bins = pane.getByRole('spinbutton', { name: 'Bins per text', exact: true });
 
   await pane.getByRole('button', { name: 'Apply', exact: true }).click();
   await expect(pane).toBeVisible();
@@ -84,6 +84,6 @@ test('unchanged settings stay open while close discards the draft', async ({ pag
 
   await settings.click();
   pane = page.getByRole('dialog', { name: 'Settings' });
-  bins = pane.getByRole('spinbutton', { name: 'Bins per book', exact: true });
+  bins = pane.getByRole('spinbutton', { name: 'Bins per text', exact: true });
   await expect(bins).toHaveValue('40');
 });

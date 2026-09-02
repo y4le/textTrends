@@ -3,10 +3,10 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { useApp } from './lib/store-instance.ts';
@@ -21,12 +21,12 @@ import {
   type SettingsEntry,
 } from './lib/settings-entry.ts';
 import { SettingsEntryProvider } from './components/SettingsEntryContext.tsx';
-import { occurrenceNavigationText, type ReaderVisibleRangeV1 } from './lib/store.ts';
+import { occurrenceNavigationText } from './lib/store.ts';
 import {
   advanceShortcutSequence,
+  chordShortcutAllowed,
   interactionShortcutAllowed,
   rootShortcutAllowed,
-  shortcutAria,
   shortcutMatches,
   type ShortcutId,
   type ShortcutHelpContext,
@@ -39,6 +39,13 @@ import { FIND_INPUT_ID, findScope } from './lib/interaction.ts';
 import { RSVP_WPM_STEP } from '@texttrends/rsvp';
 import { RSVP_WPM_INPUT_ID } from './lib/rsvp-ui.ts';
 import { usePresentation } from './components/PresentationProvider.tsx';
+import { guideAnchorProps } from './lib/guide/anchors.ts';
+import {
+  GuideInvitation,
+  useGuide,
+  type GuideId,
+  type GuideReadinessRemedy,
+} from './components/guide/GuideProvider.tsx';
 
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
@@ -64,40 +71,25 @@ const SettingsPane = lazy(() =>
 const DebugSurface = lazy(() =>
   import('./components/DebugSurface.tsx').then(({ DebugSurface: surface }) => ({ default: surface })),
 );
-
-interface ReaderEdgePointer {
-  readonly id: number;
-  readonly x: number;
-  readonly y: number;
-  readonly time: number;
-  readonly target: EventTarget | null;
-  readonly geometry: string;
-}
+const ReaderControlsPane = lazy(() =>
+  import('./components/reader/ReaderControlsPane.tsx')
+    .then(({ ReaderControlsPane: pane }) => ({ default: pane })),
+);
+const SpeedSettingsPane = lazy(() =>
+  import('./components/reader/SpeedSettingsPane.tsx')
+    .then(({ SpeedSettingsPane: pane }) => ({ default: pane })),
+);
 
 type OpenUtilityPane =
   | { readonly kind: 'settings'; readonly entry: SettingsEntry }
   | { readonly kind: 'debug' }
+  | { readonly kind: 'reader-controls' }
+  | { readonly kind: 'speed-settings'; readonly restSummary: string }
   | { readonly kind: 'help'; readonly context: ShortcutHelpContext };
 
-function isInteractiveReaderTarget(target: EventTarget | null): boolean {
-  return target instanceof Element
-    && target.closest(
-      'button, a, input, select, textarea, [role="button"], [data-reader-mark]',
-    ) !== null;
-}
-
-function settledReaderGeometry(
-  region: HTMLElement,
-  visible: ReaderVisibleRangeV1 | null,
-): string | null {
-  const pane = region.querySelector<HTMLElement>('.reader-prose-pane');
-  if (
-    pane === null
-    || pane.hasAttribute('data-reader-fitting')
-    || visible === null
-    || !visible.geometry.startsWith(`${pane.clientWidth}x${pane.clientHeight}:`)
-  ) return null;
-  return visible.geometry;
+interface CloseUtilityPaneOptions {
+  readonly restoreFocus?: boolean;
+  readonly onSettled?: (interactive: boolean) => void;
 }
 
 function PlaceSurface({
@@ -167,7 +159,9 @@ function NoInputsPlace({ onOpenInputs }: { readonly onOpenInputs: () => void }) 
 }
 
 export function App() {
+  const [appHeaderEl, setAppHeaderEl] = useState<HTMLElement | null>(null);
   const presentation = usePresentation();
+  const guide = useGuide();
   const inputError = useApp((s) => s.inputError);
   const retryAnalysis = useApp((s) => s.retryAnalysis);
   const loadError = useApp((s) => s.loadError);
@@ -180,6 +174,7 @@ export function App() {
   const trendSettingsNotice = useApp((s) => s.trendSettingsNotice);
   const readerPlace = useApp((s) => s.readerPlace);
   const readerPage = useApp((s) => s.readerPage);
+  const readerScale = useApp((s) => s.readerScale);
   const readerNavigation = useApp((s) => s.readerNavigation);
   const readerVisibleRange = useApp((s) => s.readerVisibleRange);
   const occurrenceNavigation = useApp((s) => s.occurrenceNavigation);
@@ -192,6 +187,7 @@ export function App() {
   const setRsvpPacing = useApp((s) => s.setRsvpPacing);
   const closeReader = useApp((s) => s.closeReader);
   const navigateReader = useApp((s) => s.navigateReader);
+  const stepReaderDocument = useApp((s) => s.stepReaderDocument);
   const stepOccurrence = useApp((s) => s.stepOccurrence);
   const project = useApp((s) => s.projectSession?.project ?? null);
   const pendingInputCount = useApp((s) => s.projectSession?.imports.length ?? 0);
@@ -213,12 +209,28 @@ export function App() {
   const findReturnFocus = useRef<HTMLElement | null>(null);
   const restoreFindFocus = useRef(false);
   const previousFindScope = useRef(findScope(interaction) !== null);
-  const readerEdgePointer = useRef<ReaderEdgePointer | null>(null);
-  const consumeRsvpClick = useRef(false);
   const shortcutSequence = useRef<ShortcutSequenceState | null>(null);
   const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyboardNavigationStatus, setKeyboardNavigationStatus] = useState('');
   const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation);
+
+  useLayoutEffect(() => {
+    if (appHeaderEl === null) return undefined;
+    const root = document.documentElement.style;
+    const publish = () => {
+      root.setProperty(
+        '--app-header-block-size',
+        `${Math.ceil(appHeaderEl.getBoundingClientRect().height)}px`,
+      );
+    };
+    const observer = new ResizeObserver(publish);
+    observer.observe(appHeaderEl);
+    publish();
+    return () => {
+      observer.disconnect();
+      root.removeProperty('--app-header-block-size');
+    };
+  }, [appHeaderEl]);
 
   useEffect(() => {
     if (
@@ -290,6 +302,20 @@ export function App() {
     if (interaction.kind === 'rsvp') setRsvpPlaying(false);
     setUtilityPane({ kind: 'debug' });
   };
+  const openReaderControls = (returnFocus: HTMLElement) => {
+    clearShortcutSequence();
+    setKeyboardNavigationStatus('');
+    utilityPaneReturnFocus.current = returnFocus;
+    setUtilityPane({ kind: 'reader-controls' });
+  };
+  const openSpeedSettings = (returnFocus: HTMLElement, restSummary: string) => {
+    if (interaction.kind !== 'rsvp') return;
+    clearShortcutSequence();
+    setKeyboardNavigationStatus('');
+    utilityPaneReturnFocus.current = returnFocus;
+    setRsvpPlaying(false);
+    setUtilityPane({ kind: 'speed-settings', restSummary });
+  };
   const focusFindInput = (selectAll = false) => {
     requestAnimationFrame(() => {
       const input = document.getElementById(FIND_INPUT_ID);
@@ -319,7 +345,7 @@ export function App() {
     restoreFindFocus.current = true;
     exitInteraction();
   };
-  const closeUtilityPane = () => {
+  const closeUtilityPane = (options: CloseUtilityPaneOptions = {}) => {
     const target = utilityPaneReturnFocus.current;
     const targetId = target?.id ?? '';
     setUtilityPane(null);
@@ -329,14 +355,60 @@ export function App() {
         requestAnimationFrame(() => restore(attempt + 1));
         return;
       }
-      const connectedTarget = target?.isConnected
-        ? target
-        : targetId === ''
-          ? null
-          : document.getElementById(targetId);
-      connectedTarget?.focus({ preventScroll: true });
+      const interactive = root?.inert !== true;
+      if (options.restoreFocus !== false && interactive) {
+        const connectedTarget = target?.isConnected
+          ? target
+          : targetId === ''
+            ? null
+            : document.getElementById(targetId);
+        connectedTarget?.focus({ preventScroll: true });
+      }
+      options.onSettled?.(interactive);
     };
     requestAnimationFrame(() => restore(0));
+  };
+  const startGuideFromHelp = (id: GuideId) => {
+    const originPlace = useApp.getState().place;
+    const returnId = utilityPaneReturnFocus.current?.id;
+    const focusCandidates = [
+      ...(returnId ? [returnId] : []),
+      'global-help-open',
+      `place-${originPlace}-heading`,
+    ].filter((candidate, index, all) => all.indexOf(candidate) === index);
+    closeUtilityPane({
+      restoreFocus: false,
+      onSettled: (interactive) => {
+        if (!interactive) return;
+        void guide.startGuide(id, { place: originPlace, focusCandidates }).then((started) => {
+          if (!started) document.getElementById('global-help-open')?.focus({ preventScroll: true });
+        });
+      },
+    });
+  };
+  const applyGuideRemedy = (remedy: GuideReadinessRemedy) => {
+    closeUtilityPane({
+      restoreFocus: false,
+      onSettled: (interactive) => {
+        if (!interactive) return;
+        const state = useApp.getState();
+        if (remedy.id === 'add-text') {
+          state.replacePlace('inputs');
+          focusAfterRender('place-inputs-heading');
+          return;
+        }
+        state.replacePlace('trends');
+        const openTermEntry = (attempt: number) => {
+          const control = document.getElementById('term-add');
+          if (control instanceof HTMLButtonElement) {
+            control.click();
+            return;
+          }
+          if (attempt < 3) requestAnimationFrame(() => openTermEntry(attempt + 1));
+        };
+        requestAnimationFrame(() => openTermEntry(0));
+      },
+    });
   };
   const exitActiveRsvp = (): boolean => {
     const state = useApp.getState();
@@ -399,6 +471,38 @@ export function App() {
       }
       default: return false;
     }
+  };
+  const stepPositionHistory = (direction: -1 | 1) => {
+    const state = useApp.getState();
+    const target = state.stepPositionHistory(direction);
+    const way = direction === -1 ? 'previous' : 'next';
+    const message = target === null
+      ? `No ${way} reading position`
+      : `${way === 'previous' ? 'Previous' : 'Next'} reading position · ${
+          state.projectSession?.project.data.docs.find((document) => document.doc === target.doc)
+            ?.meta.title ?? target.doc
+        } · token ${(target.token + 1).toLocaleString()}`;
+    if (readerOpen) setReaderKeyboardStatus(message);
+    else setKeyboardNavigationStatus(message);
+  };
+  const handlePositionHistoryShortcut = (
+    event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent,
+  ): boolean => {
+    if (
+      utilityPane !== null
+      || interaction.kind === 'rsvp'
+      || !chordShortcutAllowed(event)
+    ) return false;
+    const direction = shortcutMatches(event, 'position-previous')
+      ? -1
+      : shortcutMatches(event, 'position-next')
+        ? 1
+        : null;
+    if (direction === null) return false;
+    event.preventDefault();
+    clearShortcutSequence();
+    stepPositionHistory(direction);
+    return true;
   };
   const handleRootShortcut = (
     event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent,
@@ -498,10 +602,10 @@ export function App() {
       }
       if (
         shortcutMatches(event, 'find-open')
-        || shortcutMatches(event, 'reader-page-previous')
-        || shortcutMatches(event, 'reader-page-next')
         || shortcutMatches(event, 'reader-occurrence-previous')
         || shortcutMatches(event, 'reader-occurrence-next')
+        || shortcutMatches(event, 'reader-text-previous')
+        || shortcutMatches(event, 'reader-text-next')
         || shortcutMatches(event, 'reader-book-start')
         || shortcutMatches(event, 'reader-book-end')
       ) {
@@ -515,9 +619,14 @@ export function App() {
       openFind(false, event.ctrlKey || event.metaKey);
       return true;
     }
-    if (readerOpen && shortcutMatches(event, 'reader-rsvp-toggle')) {
+    if (readerOpen && readerScale === 'read' && shortcutMatches(event, 'reader-rsvp-toggle')) {
       event.preventDefault();
       enterRsvp(!presentation.reducedMotion);
+      return true;
+    }
+    if (readerOpen && readerScale === 'atlas' && shortcutMatches(event, 'reader-rsvp-toggle')) {
+      event.preventDefault();
+      setReaderKeyboardStatus('Speed reading is available in Read.');
       return true;
     }
     if (active.kind !== 'find') return false;
@@ -543,11 +652,14 @@ export function App() {
     if (!readerOpen) return undefined;
     const frame = requestAnimationFrame(() => {
       if (document.activeElement === document.body || document.activeElement === null) {
-        document.getElementById('reader-region')?.focus({ preventScroll: true });
+        const destination = readerScale === 'atlas'
+          ? document.getElementById('reader-atlas-plane')
+          : document.getElementById('reader-region');
+        destination?.focus({ preventScroll: true });
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [readerOpen]);
+  }, [readerOpen, readerScale]);
 
   useEffect(() => {
     const onDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -556,6 +668,7 @@ export function App() {
       // authoritative. The document seam also reaches a fresh workbench while
       // focus still rests on <body>.
       if (utilityPane !== null) return;
+      if (handlePositionHistoryShortcut(event)) return;
       if (handleInteractionShortcut(event)) return;
       handleRootShortcut(
         event,
@@ -623,67 +736,12 @@ export function App() {
     setReaderKeyboardStatus('');
     navigateReader(cursor);
   };
-  const onReaderPointerDownCapture = (event: ReactPointerEvent<HTMLElement>) => {
-    if (useApp.getState().interaction.kind !== 'rsvp') return;
-    const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest('[data-rsvp-control]')) return;
-    consumeRsvpClick.current = true;
-    event.preventDefault();
-    event.stopPropagation();
-    exitActiveRsvp();
+  const moveReaderDocument = (direction: 1 | -1) => {
+    const target = stepReaderDocument(direction);
+    setReaderKeyboardStatus(target === null
+      ? direction === 1 ? 'last readable text' : 'first readable text'
+      : '');
   };
-  const onReaderPointerUpCapture = (event: ReactPointerEvent<HTMLElement>) => {
-    if (!consumeRsvpClick.current) return;
-    event.preventDefault();
-    event.stopPropagation();
-    window.setTimeout(() => { consumeRsvpClick.current = false; }, 0);
-  };
-  const onReaderClickCapture = (event: React.MouseEvent<HTMLElement>) => {
-    if (!consumeRsvpClick.current) return;
-    consumeRsvpClick.current = false;
-    event.preventDefault();
-    event.stopPropagation();
-  };
-  const onReaderPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
-    readerEdgePointer.current = null;
-    if (event.pointerType !== 'touch' || !event.isPrimary) return;
-    const geometry = settledReaderGeometry(event.currentTarget, readerVisibleRange);
-    if (geometry === null) return;
-    readerEdgePointer.current = {
-      id: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-      time: event.timeStamp,
-      target: event.target,
-      geometry,
-    };
-  };
-  const onReaderPointerUp = (event: ReactPointerEvent<HTMLElement>) => {
-    const down = readerEdgePointer.current;
-    readerEdgePointer.current = null;
-    if (
-      down === null
-      || down.id !== event.pointerId
-      || event.pointerType !== 'touch'
-      || event.timeStamp - down.time > 500
-      || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 8
-      || isInteractiveReaderTarget(down.target)
-      || isInteractiveReaderTarget(event.target)
-      || window.getSelection()?.isCollapsed === false
-      || down.geometry !== settledReaderGeometry(event.currentTarget, readerVisibleRange)
-    ) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const edge = Math.max(44, Math.min(120, rect.width * 0.18));
-    const x = event.clientX - rect.left;
-    if (x <= edge && readerNavigation?.previous) {
-      event.preventDefault();
-      moveReaderPage(-1);
-    } else if (x >= rect.width - edge && readerNavigation?.next) {
-      event.preventDefault();
-      moveReaderPage(1);
-    }
-  };
-
   const utilityPaneSurface = utilityPane?.kind === 'help'
     ? (
         <HelpPane
@@ -696,7 +754,12 @@ export function App() {
             true,
           )}
           onDebug={() => openDebug(true)}
-          onClose={closeUtilityPane}
+          guideReadiness={guide.guidedTourReadiness}
+          guideActive={guide.activeGuideId === 'guided-tour'}
+          guideSeen={guide.guidedTourSeen}
+          onStartGuide={startGuideFromHelp}
+          onGuideRemedy={applyGuideRemedy}
+          onClose={() => closeUtilityPane()}
         />
       )
     : utilityPane?.kind === 'settings'
@@ -704,54 +767,78 @@ export function App() {
           <Suspense fallback={null}>
             <SettingsPane
               entry={utilityPane.entry}
-              onClose={closeUtilityPane}
+              onClose={() => closeUtilityPane()}
             />
           </Suspense>
         )
       : utilityPane?.kind === 'debug'
         ? (
             <Suspense fallback={null}>
-              <DebugSurface onClose={closeUtilityPane} />
+              <DebugSurface onClose={() => closeUtilityPane()} />
             </Suspense>
           )
+      : utilityPane?.kind === 'reader-controls'
+        ? (
+            <Suspense fallback={null}>
+              <ReaderControlsPane
+                onClose={() => closeUtilityPane()}
+                onAnnounce={setReaderKeyboardStatus}
+                onOpenFind={() => openFind(true)}
+                onOpenSettings={() => openSettingsEntry(
+                  globalSettingsEntry('reader'),
+                  null,
+                  true,
+                )}
+                onOpenHelp={() => openHelp('reader', true)}
+              />
+            </Suspense>
+          )
+        : utilityPane?.kind === 'speed-settings' && interaction.kind === 'rsvp'
+          ? (
+              <Suspense fallback={null}>
+                <SpeedSettingsPane
+                  mode={interaction.rsvp}
+                  restSummary={utilityPane.restSummary}
+                  onSetPacing={setRsvpPacing}
+                  onOpenHelp={() => openHelp('rsvp', true)}
+                  onClose={() => closeUtilityPane()}
+                />
+              </Suspense>
+            )
       : null;
 
   if (readerPlace) {
     const readerTitle = project?.data.docs.find((document) => document.doc === readerPlace.doc)?.meta.title
       ?? readerPlace.doc;
+    const readerDockPresent = readerScale === 'atlas';
     return (
       <>
       <main
         id="reader-region"
         className="reader-region"
-        data-reader-footer="true"
+        data-reader-footer={readerDockPresent ? 'true' : 'false'}
         data-shortcut-context={interaction.kind === 'rsvp' ? 'rsvp' : 'reader'}
         data-reader-fit-size={readerVisibleRange?.geometry.split(':', 1)[0]}
         aria-labelledby="reader-title"
         tabIndex={-1}
-        onPointerDownCapture={onReaderPointerDownCapture}
-        onPointerUpCapture={onReaderPointerUpCapture}
-        onClickCapture={onReaderClickCapture}
-        onPointerDown={onReaderPointerDown}
-        onPointerUp={onReaderPointerUp}
-        onPointerCancel={() => {
-          readerEdgePointer.current = null;
-          consumeRsvpClick.current = false;
-        }}
         onKeyDown={(event) => {
           if (handleInteractionShortcut(event)) return;
+          if (interaction.kind === 'rsvp') {
+            handleRootShortcut(event, 'rsvp');
+            return;
+          }
           if (!rootShortcutAllowed(event)) return;
           if (shortcutMatches(event, 'reader-close')) {
             event.preventDefault();
             closeReader();
             return;
           }
-          if (shortcutMatches(event, 'reader-page-previous')) {
+          if (readerScale === 'read' && shortcutMatches(event, 'reader-page-previous')) {
             event.preventDefault();
             moveReaderPage(-1);
             return;
           }
-          if (shortcutMatches(event, 'reader-page-next')) {
+          if (readerScale === 'read' && shortcutMatches(event, 'reader-page-next')) {
             event.preventDefault();
             moveReaderPage(1);
             return;
@@ -768,13 +855,23 @@ export function App() {
             stepOccurrence(-1);
             return;
           }
-          if (shortcutMatches(event, 'reader-book-start')) {
+          if (shortcutMatches(event, 'reader-text-previous')) {
+            event.preventDefault();
+            moveReaderDocument(-1);
+            return;
+          }
+          if (shortcutMatches(event, 'reader-text-next')) {
+            event.preventDefault();
+            moveReaderDocument(1);
+            return;
+          }
+          if (readerScale === 'read' && shortcutMatches(event, 'reader-book-start')) {
             event.preventDefault();
             setReaderKeyboardStatus('');
             navigateReader({ kind: 'from', token: 0 });
             return;
           }
-          if (shortcutMatches(event, 'reader-book-end')) {
+          if (readerScale === 'read' && shortcutMatches(event, 'reader-book-end')) {
             event.preventDefault();
             const page = readerPage?.state.status === 'ready' ? readerPage.state.page : null;
             if (page && page.docTokenCount > 0) {
@@ -783,7 +880,7 @@ export function App() {
             }
             return;
           }
-          handleRootShortcut(event, interaction.kind === 'rsvp' ? 'rsvp' : 'reader');
+          handleRootShortcut(event, 'reader');
         }}
       >
         <span
@@ -797,48 +894,64 @@ export function App() {
         <Suspense
           fallback={(
             <>
-              <header className="reader-header">
-                <div>
-                  <h2 id="reader-title" style={{ margin: 0, fontSize: 'var(--text-lg)' }}>
-                    <span className="visually-hidden">Reader: </span>{readerTitle}
-                  </h2>
-                  <p className="reader-position" role="status">loading reader…</p>
-                </div>
-                <div className="reader-header-actions">
-                  <button
-                    id="reader-settings-open"
-                    type="button"
-                    onClick={(event) => openSettings('reader', event.currentTarget)}
-                  >
-                    settings
-                  </button>
-                  <button
-                    type="button"
-                    aria-keyshortcuts={shortcutAria(['show-help'])}
-                    onClick={() => openHelp('reader')}
-                  >
-                    help
-                  </button>
-                  <button type="button" onClick={closeReader}>back</button>
-                </div>
-              </header>
-              <div className="reader-prose-pane" aria-hidden="true" />
+              <h2 id="reader-title" className="visually-hidden">Reader: {readerTitle}</h2>
+              <p className="reader-position visually-hidden" role="status">loading reader…</p>
+              <div
+                {...guideAnchorProps('reader-prose')}
+                className="reader-prose-pane"
+                aria-hidden="true"
+              />
+              <nav className="reader-control-bar" aria-label="Reader controls">
+                <span className="reader-progress-rail reader-control-progress" aria-hidden="true" />
+                <button
+                  type="button"
+                  className="reader-control-exit"
+                  aria-label="Return to workbench"
+                  onClick={closeReader}
+                >
+                  <span aria-hidden="true">←</span>{' '}<span>back</span>
+                </button>
+                <button type="button" className="reader-control-page" disabled aria-label="Previous page">
+                  <span aria-hidden="true">‹</span>
+                </button>
+                <button
+                  type="button"
+                  className="reader-control-position"
+                  aria-label={`Open Reader controls for ${readerTitle}`}
+                  disabled
+                >
+                  <strong>{readerTitle}</strong>
+                  <span>loading position…</span>
+                </button>
+                <button type="button" className="reader-control-page" disabled aria-label="Next page">
+                  <span aria-hidden="true">›</span>
+                </button>
+                <button type="button" className="reader-control-speed" disabled aria-label="Speed reading unavailable">
+                  <span aria-hidden="true">▶</span>
+                </button>
+              </nav>
             </>
           )}
         >
           <ReaderDrawer
+            onAnnounce={setReaderKeyboardStatus}
+            onCloseFind={closeFind}
+            onOpenFind={() => openFind()}
+            onOpenControls={openReaderControls}
+            onOpenSpeedSettings={openSpeedSettings}
             onOpenSettings={(returnFocus) => openSettings('reader', returnFocus)}
             onOpenHelp={() => openHelp(
               interaction.kind === 'rsvp' ? 'rsvp' : 'reader',
             )}
           />
         </Suspense>
-        <WorkbenchDock
-          mode="reader"
-          globalShortcuts={false}
-          inactive={interaction.kind === 'rsvp'}
-          onCloseFind={closeFind}
-        />
+        {readerDockPresent && (
+          <WorkbenchDock
+            mode="reader"
+            globalShortcuts={false}
+            onCloseFind={closeFind}
+          />
+        )}
       </main>
       {utilityPaneSurface}
       </>
@@ -873,7 +986,7 @@ export function App() {
       >
         {keyboardNavigationStatus}
       </p>
-      <header className="app-header">
+      <header ref={setAppHeaderEl} className="app-header">
         <div className="app-identity">
           <h1 className="app-brand">
             <a
@@ -893,9 +1006,17 @@ export function App() {
           onOpenFind={() => openFind()}
           onOpenSettings={() => openSettings()}
           onOpenHelp={() => openHelp('workbench')}
+          onStepPositionHistory={stepPositionHistory}
         />
         <WorkbenchTabs />
       </header>
+      {guide.guidedTourInvitation.status === 'available' && (
+        <GuideInvitation
+          starting={guide.guidedTourInvitation.starting}
+          onStart={guide.guidedTourInvitation.start}
+          onDismiss={guide.guidedTourInvitation.dismiss}
+        />
+      )}
       <ResumeStatus />
       <p
         role="status"

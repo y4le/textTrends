@@ -12,7 +12,6 @@ describe('trendGeometryFor', () => {
       barcodeTrackGap: 2,
       barcodeBandGap: 3,
       strokeWidth: 2,
-      bookMarks: 'boundaries',
     });
   });
 
@@ -26,7 +25,6 @@ describe('trendGeometryFor', () => {
       barcodeTrackGap: 2,
       barcodeBandGap: 3,
       strokeWidth: 1.5,
-      bookMarks: 'ticks',
     });
   });
 

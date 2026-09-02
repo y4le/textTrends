@@ -15,7 +15,9 @@ import {
   bookXFromTokenEdge,
   byBookRowPitch,
   seriesXFromTokenEdge,
+  trendLabelBands,
   type SequenceLayout,
+  type TrendLabelBand,
   type TrendStageSpec,
 } from './trend-geometry.ts';
 import { trendRowDomain, type TrendView } from './trend-view.ts';
@@ -147,6 +149,11 @@ export function trendStageSnapIndexes(
 export interface TrendStageGeometryInput {
   readonly plotWidth: number;
   readonly view: TrendView;
+  /** Separate-row titles may be visually withdrawn without losing focus geometry. */
+  readonly titlesPainted?: boolean;
+  /** A visually miniature barcode remains context but no longer owns a narrow
+   * occurrence-specific pointer lane. Combined view ignores this switch. */
+  readonly barcodeInteractive?: boolean;
 }
 
 export interface TrendStageGeometryModel {
@@ -154,6 +161,7 @@ export interface TrendStageGeometryModel {
   readonly projection: TrendStageProjection;
   readonly edgeX: (docOrdinal: number, token: number) => number;
   readonly hitSpec: TrendStageSpec;
+  readonly labelBands: readonly TrendLabelBand[];
   readonly rowDomain: readonly number[];
 }
 
@@ -204,6 +212,7 @@ export function trendStageGeometry(
         barcodeBandGap: geometry.barcodeBandGap,
         barcodeHeight,
         band,
+        barcodeZone: input.barcodeInteractive === false ? 'plot' : 'tracks',
         tokenCounts,
         rowDomain,
       };
@@ -211,6 +220,7 @@ export function trendStageGeometry(
     projection,
     edgeX,
     hitSpec,
+    labelBands: trendLabelBands(hitSpec, input.titlesPainted),
     rowDomain,
   };
 }

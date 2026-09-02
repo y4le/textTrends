@@ -10,6 +10,8 @@ export type ShortcutId =
   | 'find-next'
   | 'find-previous'
   | 'find-close'
+  | 'position-previous'
+  | 'position-next'
   | 'focus-horizontal-previous'
   | 'focus-horizontal-next'
   | 'go-inputs'
@@ -48,6 +50,17 @@ export type ShortcutId =
   | 'trend-selection-commit'
   | 'trend-selection-cancel'
   | 'trend-toggle-view'
+  | 'trend-title-previous'
+  | 'trend-title-next'
+  | 'trend-title-first'
+  | 'trend-title-last'
+  | 'trend-title-select'
+  | 'trend-title-extend'
+  | 'trend-rows-step'
+  | 'trend-rows-fine'
+  | 'trend-rows-page'
+  | 'trend-rows-limits'
+  | 'trend-rows-reset'
   | 'footer-page-previous'
   | 'footer-page-next'
   | 'footer-token-previous'
@@ -65,14 +78,25 @@ export type ShortcutId =
   | 'dock-resize-reset'
   | 'reader-page-previous'
   | 'reader-page-next'
+  | 'reader-atlas-text-previous'
+  | 'reader-atlas-text-next'
+  | 'reader-atlas-position-previous'
+  | 'reader-atlas-position-next'
+  | 'reader-atlas-page-previous'
+  | 'reader-atlas-page-next'
+  | 'reader-atlas-descend'
   | 'reader-occurrence-previous'
   | 'reader-occurrence-next'
+  | 'reader-text-previous'
+  | 'reader-text-next'
   | 'reader-book-start'
   | 'reader-book-end'
   | 'reader-close'
   | 'reader-rsvp-toggle'
   | 'rsvp-exit'
   | 'rsvp-toggle-play'
+  | 'rsvp-word-previous'
+  | 'rsvp-word-next'
   | 'rsvp-pace-editor'
   | 'rsvp-pace-down'
   | 'rsvp-pace-up';
@@ -90,7 +114,7 @@ interface ShortcutStroke {
 
 interface ShortcutDefinition {
   readonly id: ShortcutId;
-  readonly group: 'Global' | 'Find' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Reading footer' | 'Footer size' | 'Reader' | 'Speed reader';
+  readonly group: 'Global' | 'Find' | 'Reading position history' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Trend rows' | 'Reading footer' | 'Footer size' | 'Reader' | 'Speed reader';
   readonly helpContexts: readonly ShortcutHelpContext[];
   readonly label: string;
   readonly strokes: readonly ShortcutStroke[];
@@ -118,13 +142,14 @@ export interface ShortcutHelpSection {
 }
 
 export type ShortcutHelpScope =
-  | { readonly context: 'reader' }
+  | { readonly context: 'reader'; readonly scale: 'read' | 'atlas' }
   | { readonly context: 'rsvp' }
   | {
       readonly context: 'workbench';
       readonly place: Place;
       readonly activeTextCount: number;
       readonly footerAvailable: boolean;
+      readonly trendView: 'series' | 'by-book' | 'by-book-scaled';
     };
 
 export const SHORTCUT_SEQUENCE_TIMEOUT_MS = 900;
@@ -185,6 +210,20 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     helpContexts: ['workbench', 'reader'],
     label: 'Close find',
     strokes: [{ key: 'Escape' }],
+  },
+  {
+    id: 'position-previous',
+    group: 'Reading position history',
+    helpContexts: ['workbench', 'reader'],
+    label: 'Previous reading position',
+    strokes: [{ key: 'o', ctrl: true }],
+  },
+  {
+    id: 'position-next',
+    group: 'Reading position history',
+    helpContexts: ['workbench', 'reader'],
+    label: 'Next reading position',
+    strokes: [{ key: 'i', ctrl: true }],
   },
   {
     id: 'focus-horizontal-previous',
@@ -421,14 +460,14 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     id: 'trend-book-start',
     group: 'Trends',
     helpContexts: ['workbench'],
-    label: 'Start of current book',
+    label: 'Start of current text',
     strokes: [{ key: 'Home' }],
   },
   {
     id: 'trend-book-end',
     group: 'Trends',
     helpContexts: ['workbench'],
-    label: 'End of current book',
+    label: 'End of current text',
     strokes: [{ key: 'End' }],
   },
   {
@@ -458,6 +497,88 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     helpContexts: ['workbench'],
     label: 'Cycle combined / equal / to scale views',
     strokes: [{ key: 'v' }],
+  },
+  {
+    id: 'trend-title-previous',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Previous selectable text title',
+    strokes: [{ key: 'ArrowLeft' }, { key: 'ArrowUp' }],
+  },
+  {
+    id: 'trend-title-next',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Next selectable text title',
+    strokes: [{ key: 'ArrowRight' }, { key: 'ArrowDown' }],
+  },
+  {
+    id: 'trend-title-first',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'First selectable text title',
+    strokes: [{ key: 'Home' }],
+  },
+  {
+    id: 'trend-title-last',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Last selectable text title',
+    strokes: [{ key: 'End' }],
+  },
+  {
+    id: 'trend-title-select',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Select the whole focused text',
+    strokes: [{ key: 'Enter' }, { key: ' ' }],
+  },
+  {
+    id: 'trend-title-extend',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Immediately select through the previous or next text title',
+    strokes: [
+      { key: 'ArrowLeft', shift: true },
+      { key: 'ArrowRight', shift: true },
+      { key: 'ArrowUp', shift: true },
+      { key: 'ArrowDown', shift: true },
+    ],
+  },
+  {
+    id: 'trend-rows-step',
+    group: 'Trend rows',
+    helpContexts: ['workbench'],
+    label: 'Resize each trend row',
+    strokes: [{ key: 'ArrowUp' }, { key: 'ArrowDown' }],
+  },
+  {
+    id: 'trend-rows-fine',
+    group: 'Trend rows',
+    helpContexts: ['workbench'],
+    label: 'Resize each row by one pixel',
+    strokes: [{ key: 'ArrowUp', shift: true }, { key: 'ArrowDown', shift: true }],
+  },
+  {
+    id: 'trend-rows-page',
+    group: 'Trend rows',
+    helpContexts: ['workbench'],
+    label: 'Resize each row by a large step',
+    strokes: [{ key: 'PageUp' }, { key: 'PageDown' }],
+  },
+  {
+    id: 'trend-rows-limits',
+    group: 'Trend rows',
+    helpContexts: ['workbench'],
+    label: 'Hide occurrence rows at minimum, or use maximum row size',
+    strokes: [{ key: 'Home' }, { key: 'End' }],
+  },
+  {
+    id: 'trend-rows-reset',
+    group: 'Trend rows',
+    helpContexts: ['workbench'],
+    label: 'Restore automatic row size',
+    strokes: [{ key: 'Enter' }],
   },
   {
     id: 'footer-page-previous',
@@ -579,6 +700,55 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     strokes: [{ key: 'l' }, { key: 'ArrowRight' }, { key: 'PageDown' }],
   },
   {
+    id: 'reader-atlas-text-previous',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Previous text in Atlas',
+    strokes: [{ key: 'h' }, { key: 'ArrowLeft' }],
+  },
+  {
+    id: 'reader-atlas-text-next',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Next text in Atlas',
+    strokes: [{ key: 'l' }, { key: 'ArrowRight' }],
+  },
+  {
+    id: 'reader-atlas-position-previous',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Move up in the active text',
+    strokes: [{ key: 'ArrowUp' }],
+  },
+  {
+    id: 'reader-atlas-position-next',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Move down in the active text',
+    strokes: [{ key: 'ArrowDown' }],
+  },
+  {
+    id: 'reader-atlas-page-previous',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Move up by a large step',
+    strokes: [{ key: 'PageUp' }],
+  },
+  {
+    id: 'reader-atlas-page-next',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Move down by a large step',
+    strokes: [{ key: 'PageDown' }],
+  },
+  {
+    id: 'reader-atlas-descend',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Read at the active Atlas position',
+    strokes: [{ key: 'Enter' }],
+  },
+  {
     id: 'reader-occurrence-previous',
     group: 'Reader',
     helpContexts: ['reader'],
@@ -593,17 +763,31 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     strokes: [{ key: 'w' }],
   },
   {
+    id: 'reader-text-previous',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Previous text at the same relative position',
+    strokes: [{ key: '[' }],
+  },
+  {
+    id: 'reader-text-next',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Next text at the same relative position',
+    strokes: [{ key: ']' }],
+  },
+  {
     id: 'reader-book-start',
     group: 'Reader',
     helpContexts: ['reader'],
-    label: 'Start of book',
+    label: 'Start of text',
     strokes: [{ key: 'Home' }],
   },
   {
     id: 'reader-book-end',
     group: 'Reader',
     helpContexts: ['reader'],
-    label: 'End of book',
+    label: 'End of text',
     strokes: [{ key: 'End' }],
   },
   {
@@ -616,8 +800,8 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
   {
     id: 'reader-rsvp-toggle',
     group: 'Speed reader',
-    helpContexts: ['rsvp'],
-    label: 'Return to normal Reader',
+    helpContexts: ['reader', 'rsvp'],
+    label: 'Toggle Speed reader',
     strokes: [{ key: 'S', shift: true, explicitShift: true }],
   },
   {
@@ -635,6 +819,20 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     strokes: [{ key: ' ' }],
   },
   {
+    id: 'rsvp-word-previous',
+    group: 'Speed reader',
+    helpContexts: ['rsvp'],
+    label: 'Previous word',
+    strokes: [{ key: 'h' }, { key: 'ArrowLeft' }],
+  },
+  {
+    id: 'rsvp-word-next',
+    group: 'Speed reader',
+    helpContexts: ['rsvp'],
+    label: 'Next word',
+    strokes: [{ key: 'l' }, { key: 'ArrowRight' }],
+  },
+  {
     id: 'rsvp-pace-editor',
     group: 'Speed reader',
     helpContexts: ['rsvp'],
@@ -646,14 +844,14 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     group: 'Speed reader',
     helpContexts: ['rsvp'],
     label: 'Reduce pace',
-    strokes: [{ key: 'h' }, { key: 'ArrowLeft' }],
+    strokes: [{ key: 'j' }, { key: 'ArrowDown' }],
   },
   {
     id: 'rsvp-pace-up',
     group: 'Speed reader',
     helpContexts: ['rsvp'],
     label: 'Increase pace',
-    strokes: [{ key: 'l' }, { key: 'ArrowRight' }],
+    strokes: [{ key: 'k' }, { key: 'ArrowUp' }],
   },
 ]);
 
@@ -774,6 +972,20 @@ export function interactionShortcutAllowed(
     );
 }
 
+/** Gate for app-owned Ctrl chords that intentionally shadow a browser action. */
+export function chordShortcutAllowed(
+  event: ShortcutEventLike & { readonly defaultPrevented: boolean; readonly target: EventTarget | null },
+): boolean {
+  const target = event.target as (EventTarget & { closest?: (selector: string) => unknown }) | null;
+  return !event.defaultPrevented
+    && event.ctrlKey
+    && !event.metaKey
+    && !event.altKey
+    && !event.isComposing
+    && !isShortcutTypingTarget(event.target)
+    && !(target?.closest?.('[role="dialog"], [role="menu"]'));
+}
+
 const DISPLAY_KEY: Readonly<Record<string, string>> = Object.freeze({
   ArrowLeft: '←',
   ArrowRight: '→',
@@ -837,18 +1049,40 @@ const GO_PLACE: Readonly<Partial<Record<ShortcutId, Place>>> = Object.freeze({
 /** Build help from the commands that are usable in the active surface. The
  * registry still owns every binding; this projection only removes no-op or
  * unavailable sections from the menu. */
+const ATLAS_READER_SHORTCUTS = new Set<ShortcutId>([
+  'reader-atlas-text-previous',
+  'reader-atlas-text-next',
+  'reader-atlas-position-previous',
+  'reader-atlas-position-next',
+  'reader-atlas-page-previous',
+  'reader-atlas-page-next',
+  'reader-atlas-descend',
+]);
+
+const READ_READER_SHORTCUTS = new Set<ShortcutId>([
+  'reader-page-previous',
+  'reader-page-next',
+  'reader-rsvp-toggle',
+]);
+
 export function shortcutHelpSections(scope: ShortcutHelpScope): readonly ShortcutHelpSection[] {
   const order: readonly ShortcutDefinition['group'][] = scope.context === 'reader'
-    ? ['Global', 'Find', 'Reader']
+    ? ['Global', 'Find', 'Reading position history', 'Reader', 'Speed reader']
     : scope.context === 'rsvp'
       ? ['Global', 'Speed reader']
       : [
         'Global',
         'Find',
+        'Reading position history',
         'Navigation',
         'Terms',
         ...(scope.activeTextCount > 0 && ROW_PLACES.has(scope.place) ? ['Rows' as const] : []),
         ...(scope.place === 'trends' ? ['Trends' as const] : []),
+        ...(scope.place === 'trends'
+          && scope.activeTextCount > 1
+          && scope.trendView !== 'series'
+          ? ['Trend rows' as const]
+          : []),
         ...(scope.footerAvailable ? ['Reading footer' as const] : []),
         ...(scope.footerAvailable ? ['Footer size' as const] : []),
       ];
@@ -859,6 +1093,10 @@ export function shortcutHelpSections(scope: ShortcutHelpScope): readonly Shortcu
           shortcut.group !== group
           || !shortcut.helpContexts.includes(scope.context)
         ) return false;
+        if (scope.context === 'reader') {
+          if (scope.scale === 'read' && ATLAS_READER_SHORTCUTS.has(shortcut.id)) return false;
+          if (scope.scale === 'atlas' && READ_READER_SHORTCUTS.has(shortcut.id)) return false;
+        }
         if (scope.context !== 'workbench') return true;
         if (GO_PLACE[shortcut.id] === scope.place) return false;
         if (shortcut.id === 'go-compare' && scope.activeTextCount < 1) return false;

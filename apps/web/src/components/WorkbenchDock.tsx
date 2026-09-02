@@ -22,6 +22,7 @@ import { shortcutAria } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { useDisplayPreference, usePresentation } from './PresentationProvider.tsx';
 import { FindBar } from './FindBar.tsx';
+import { guideAnchorProps } from '../lib/guide/anchors.ts';
 
 const QuerySurface = lazy(() =>
   import('./QuerySurface.tsx').then(({ QuerySurface: surface }) => ({ default: surface })),
@@ -32,7 +33,11 @@ const WorkbenchFooter = lazy(() =>
 
 function TermsRailFallback() {
   return (
-    <aside className="query-region term-bar" aria-label="Terms">
+    <aside
+      {...guideAnchorProps('terms-rail')}
+      className="query-region term-bar"
+      aria-label="Terms"
+    >
       <strong className="term-bar-label">Terms</strong>
       <p className="region-placeholder">loading Terms…</p>
     </aside>
@@ -42,9 +47,12 @@ function TermsRailFallback() {
 /** Fixed layout host for the authored query state and transient reading
  * instrument. The two named asides remain independent accessibility regions;
  * this wrapper owns only viewport placement and the pre-mount reservation. */
-export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, mode = 'workbench' }: {
+export function WorkbenchDock({
+  globalShortcuts,
+  onCloseFind,
+  mode = 'workbench',
+}: {
   readonly globalShortcuts: boolean;
-  readonly inactive?: boolean;
   readonly onCloseFind: () => void;
   readonly mode?: 'workbench' | 'reader';
 }) {
@@ -273,10 +281,8 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
       id="workbench-dock"
       ref={dockRef}
       className="workbench-dock"
-      inert={inactive || undefined}
       data-mode={mode}
       data-density={displayPreference.density}
-      data-inactive={inactive || undefined}
       data-terms-compressed={mode === 'reader'
         || sizing.blockSize < sizing.baseBlockSize
         || undefined}

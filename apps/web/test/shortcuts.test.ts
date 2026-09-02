@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceShortcutSequence,
+  chordShortcutAllowed,
   interactionShortcutAllowed,
   rootShortcutAllowed,
   shortcutAria,
@@ -49,8 +50,12 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('W', { shiftKey: true }), 'rsvp-pace-editor')).toBe(true);
     expect(shortcutMatches(key('W'), 'rsvp-pace-editor')).toBe(false);
     expect(shortcutMatches(key('w'), 'rsvp-pace-editor')).toBe(false);
-    expect(shortcutMatches(key('h'), 'rsvp-pace-down')).toBe(true);
-    expect(shortcutMatches(key('ArrowRight'), 'rsvp-pace-up')).toBe(true);
+    expect(shortcutMatches(key('h'), 'rsvp-word-previous')).toBe(true);
+    expect(shortcutMatches(key('ArrowRight'), 'rsvp-word-next')).toBe(true);
+    expect(shortcutMatches(key('j'), 'rsvp-pace-down')).toBe(true);
+    expect(shortcutMatches(key('ArrowDown'), 'rsvp-pace-down')).toBe(true);
+    expect(shortcutMatches(key('k'), 'rsvp-pace-up')).toBe(true);
+    expect(shortcutMatches(key('ArrowUp'), 'rsvp-pace-up')).toBe(true);
     expect(shortcutMatches(key(' '), 'term-toggle')).toBe(true);
     expect(shortcutMatches(key('x'), 'term-delete')).toBe(true);
     expect(shortcutMatches(key('Enter'), 'term-open-menu')).toBe(true);
@@ -67,10 +72,15 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('w', { ctrlKey: true }), 'reader-occurrence-next')).toBe(false);
     expect(shortcutMatches(key('u', { ctrlKey: true }), 'row-half-page-previous')).toBe(true);
     expect(shortcutMatches(key('d', { ctrlKey: true }), 'row-half-page-next')).toBe(true);
+    expect(shortcutMatches(key('o', { ctrlKey: true }), 'position-previous')).toBe(true);
+    expect(shortcutMatches(key('i', { ctrlKey: true }), 'position-next')).toBe(true);
+    expect(shortcutMatches(key('o', { metaKey: true }), 'position-previous')).toBe(false);
     expect(shortcutMatches(key('u'), 'row-half-page-previous')).toBe(false);
     expect(shortcutMatches(key('?', { shiftKey: true, metaKey: true }), 'show-help')).toBe(false);
     expect(shortcutMatches(key('w', { metaKey: true }), 'reader-occurrence-next')).toBe(false);
     expect(shortcutMatches(key('l', { isComposing: true }), 'reader-page-next')).toBe(false);
+    expect(shortcutMatches(key('['), 'reader-text-previous')).toBe(true);
+    expect(shortcutMatches(key(']'), 'reader-text-next')).toBe(true);
   });
 
   it('lets focused typing controls and locally handled events win at the root', () => {
@@ -138,6 +148,24 @@ describe('shortcut registry', () => {
     }))).toBe(false);
     expect(interactionShortcutAllowed(interactionEvent(plain, { altKey: true }))).toBe(false);
     expect(interactionShortcutAllowed(interactionEvent(plain, { isComposing: true }))).toBe(false);
+
+    const chordEvent = (
+      target: EventTarget,
+      overrides: Partial<ShortcutEventLike & { defaultPrevented: boolean }> = {},
+    ) => ({
+      ...key('o', { ctrlKey: true }),
+      target,
+      defaultPrevented: false,
+      ...overrides,
+    });
+    expect(chordShortcutAllowed(chordEvent(plain))).toBe(true);
+    expect(chordShortcutAllowed(chordEvent(input))).toBe(false);
+    expect(chordShortcutAllowed(chordEvent(dialog))).toBe(false);
+    expect(chordShortcutAllowed(chordEvent(menu))).toBe(false);
+    expect(chordShortcutAllowed(chordEvent(plain, { metaKey: true }))).toBe(false);
+    expect(chordShortcutAllowed(chordEvent(plain, { altKey: true }))).toBe(false);
+    expect(chordShortcutAllowed(chordEvent(plain, { isComposing: true }))).toBe(false);
+    expect(chordShortcutAllowed(chordEvent(plain, { defaultPrevented: true }))).toBe(false);
   });
 
   it('derives accessibility metadata and contextual help from the same definitions', () => {
@@ -157,13 +185,16 @@ describe('shortcut registry', () => {
       place: 'trends',
       activeTextCount: 2,
       footerAvailable: true,
+      trendView: 'by-book',
     });
     expect(trends.map((section) => section.title)).toEqual([
       'Global',
       'Find',
+      'Reading position history',
       'Navigation',
       'Terms',
       'Trends',
+      'Trend rows',
       'Reading footer',
       'Footer size',
     ]);
@@ -183,6 +214,45 @@ describe('shortcut registry', () => {
       entry.id === 'show-help')?.keys).toEqual(['?']);
     expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'show-debug')?.keys).toEqual(['Shift + D']);
+    expect(trends.flatMap((section) => section.entries).find((entry) =>
+      entry.id === 'trend-title-select')).toEqual({
+        id: 'trend-title-select',
+        label: 'Select the whole focused text',
+        keys: ['Enter', 'Space'],
+      });
+    expect(shortcutAria([
+      'trend-title-previous',
+      'trend-title-next',
+      'trend-title-first',
+      'trend-title-last',
+      'trend-title-select',
+      'trend-title-extend',
+    ])).toBe(
+      'ArrowLeft ArrowUp ArrowRight ArrowDown Home End Enter Space Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown',
+    );
+    expect(shortcutAria([
+      'trend-rows-step',
+      'trend-rows-fine',
+      'trend-rows-page',
+      'trend-rows-limits',
+      'trend-rows-reset',
+    ])).toBe('ArrowUp ArrowDown Shift+ArrowUp Shift+ArrowDown PageUp PageDown Home End Enter');
+    expect(trends.find((section) => section.title === 'Trend rows')?.entries
+      .map((entry) => entry.id)).toEqual([
+        'trend-rows-step',
+        'trend-rows-fine',
+        'trend-rows-page',
+        'trend-rows-limits',
+        'trend-rows-reset',
+      ]);
+    const combined = shortcutHelpSections({
+      context: 'workbench',
+      place: 'trends',
+      activeTextCount: 2,
+      footerAvailable: true,
+      trendView: 'series',
+    });
+    expect(combined.map((section) => section.title)).not.toContain('Trend rows');
     expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'find-previous')?.keys).toEqual([
         'p',
@@ -219,10 +289,12 @@ describe('shortcut registry', () => {
       place: 'inputs',
       activeTextCount: 1,
       footerAvailable: true,
+      trendView: 'series',
     });
     expect(inputs.map((section) => section.title)).toEqual([
       'Global',
       'Find',
+      'Reading position history',
       'Navigation',
       'Terms',
       'Rows',
@@ -239,22 +311,40 @@ describe('shortcut registry', () => {
       place: 'inputs',
       activeTextCount: 0,
       footerAvailable: false,
+      trendView: 'series',
     });
     expect(empty.map((section) => section.title)).toEqual([
       'Global',
       'Find',
+      'Reading position history',
       'Navigation',
       'Terms',
     ]);
     expect(empty.flatMap((section) => section.entries.map((entry) => entry.id)))
       .not.toContain('go-footer');
 
-    const readerIds = shortcutHelpSections({ context: 'reader' })
+    const readerIds = shortcutHelpSections({ context: 'reader', scale: 'read' })
       .flatMap((section) => section.entries.map((entry) => entry.id));
     expect(readerIds).toContain('reader-page-next');
+    expect(readerIds).toContain('reader-text-previous');
+    expect(readerIds).toContain('reader-text-next');
+    expect(readerIds).toContain('position-previous');
+    expect(readerIds).toContain('position-next');
     expect(readerIds).toContain('find-open');
+    expect(readerIds).toContain('reader-rsvp-toggle');
     expect(readerIds).not.toContain('footer-page-next');
-    expect(readerIds).not.toContain('reader-rsvp-toggle');
+    expect(readerIds).not.toContain('reader-atlas-descend');
+
+    const atlasIds = shortcutHelpSections({ context: 'reader', scale: 'atlas' })
+      .flatMap((section) => section.entries.map((entry) => entry.id));
+    expect(atlasIds).toContain('reader-atlas-text-previous');
+    expect(atlasIds).toContain('reader-atlas-position-next');
+    expect(atlasIds).toContain('reader-atlas-page-next');
+    expect(atlasIds).toContain('reader-atlas-descend');
+    expect(atlasIds).toContain('reader-occurrence-next');
+    expect(atlasIds).toContain('reader-text-next');
+    expect(atlasIds).not.toContain('reader-page-next');
+    expect(atlasIds).not.toContain('reader-rsvp-toggle');
 
     const rsvp = shortcutHelpSections({ context: 'rsvp' });
     expect(rsvp.map((section) => section.title)).toEqual(['Global', 'Speed reader']);
@@ -265,6 +355,8 @@ describe('shortcut registry', () => {
       'reader-rsvp-toggle',
       'rsvp-exit',
       'rsvp-toggle-play',
+      'rsvp-word-previous',
+      'rsvp-word-next',
       'rsvp-pace-editor',
       'rsvp-pace-down',
       'rsvp-pace-up',

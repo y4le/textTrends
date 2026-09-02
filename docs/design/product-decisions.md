@@ -4,6 +4,293 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-09-01 — Read and Speed carry one reading bar and one progress rail
+
+Ordinary Read will treat authenticated prose as the primary surface. Compact
+and regular Read will replace the resident header, contextual ruler,
+four-control page/reference block, and analytical dock with one fitted 44px
+reading bar. It will keep Back, labelled page movement where it fits, one
+title/token/percentage button, a visible Speed entry, and a three-pixel
+active-text progress rail. The position button will open an overlay
+Reader-controls sheet for exact page range, references, text movement,
+endpoints, scale, highlights, Settings, and Help. The sheet will not resize or
+refit prose. At genuinely spacious widths, the same facts may move to lateral
+rails only when the prose measure and both rails actually fit. Atlas will
+retain its analytical ruler and dock.
+
+Speed will keep more resident control because playback is its content, but its
+surface will be reduced to identity, transport, pace, frame shape, and the same
+active-text progress rail. Advanced frame and rhythm tuning will move to an
+overlay sheet that pauses playback, never shrinks the stage, and never
+auto-resumes. Read and Speed will stop rendering `WorkbenchDock`; the dedicated
+rail will replace the old progress-only collapsed-dock residue with one stable
+meaning.
+
+Progress will span the active text, not the concatenated corpus. It will follow
+the selected/fitted token in Read and the displayed frame token in Speed,
+remain visible at both endpoints, and reset on text changes. It will be
+non-interactive, have exactly one non-live `progressbar` semantic, and update
+without easing. Ready-page token count will be authoritative; corpus counts
+will be fallback data.
+
+Chrome and sheet visibility will remain local presentation state. The controls
+sheet will reuse the existing utility-pane inert/focus/Escape boundary; no new
+Reader state will enter persistence, history, URL state, or the primary-interaction
+union. Find must be re-homed atomically with Read dock removal and must not
+refit prose. Prose pointer handling will move to one owner with painted-token
+hit testing so a real word wins over edge paging while blank edge space can
+still turn the page.
+
+Once implemented, this decision supersedes the 2026-08-21 minimal analytical
+footer for Read and Speed only, plus the persistent Read ruler clauses in
+[spatial-reader.md](spatial-reader.md) and the retained-footer, progress-only
+dock, and inline disclosure layout clauses in
+[rsvp-reader.md](rsvp-reader.md). Atlas's footer contract and every existing
+source, cursor, timing, pacing, suspension, exit, safe-area, keyboard, and
+320px-floor guarantee will remain. The earlier 2026-09-01 mobile decision also
+remains: its three-pixel progress floor will become the dedicated reading rail.
+
+The product direction and measurements are recorded in
+[reader-chrome-spike.md](reader-chrome-spike.md). Pinned Opus consultations
+`req_consult_86ac172427f1f02a` and `req_consult_afb03055ab855c51` established
+the product and implementation contracts respectively.
+
+## 2026-09-01 — Reader selects a word and exposes Speed on mobile
+
+Read now has an exact, ephemeral reading cursor that can be moved by tapping
+authenticated prose without issuing a query, changing page geometry, or
+interfering with native selection. It publishes through the canonical scrub
+position but remains Reader presentation state: Atlas retains it only while
+the resident Read page remains valid, and ordinary corpus, snapshot, or
+navigation resets clear it. Query marks select their source token before
+opening their existing KWIC action.
+
+The Read ruler now exists for one-text as well as multi-text corpora and ends
+in a visible **Speed** control. Visible entry is paused; its accessible name
+identifies the selected word when one has been chosen. Shift+S retains its
+immediate-play behavior unless reduced motion is requested. Both paths resolve
+the same precedence: explicit reading cursor, authenticated source anchor,
+then fitted-page start.
+
+Inside Speed, a stable primary tap on the focal stage toggles playback. Drags,
+holds, nested controls, and background taps do not. Return to Reader, Escape,
+and Shift+S are the explicit exits and restore the displayed token as the
+visible prose cursor after reload. Compact portrait collapses the analytical
+dock to its three-pixel progress floor; viewports at most 520 CSS pixels tall
+suppress it while retaining the component's remembered size. The compact
+transport uses two rows and every visible entrance or control target remains
+at least 44 CSS pixels.
+
+The direction came from pinned Opus architecture consultation
+`req_consult_fcfee050efafba2e`. Exact staged Opus reviews approved the cursor
+(`req_review_diff_aa7a47684b3e2584`), entry
+(`req_review_diff_c46af77b7a1bc1dd`), stage
+(`req_review_diff_f04b6d4ebcabb02f`), and mobile
+(`req_review_diff_00055d6146589793`) slices. The full interaction, layout,
+review receipts, and acceptance contract are recorded in
+[rsvp-reader.md](rsvp-reader.md).
+
+## 2026-08-30 — Guided learning follows one source-honest round trip
+
+The first-run tour teaches one relationship: a mark is a place, and a place
+opens. It follows Terms through the ordered trend axis, opens one resident mark
+in Reader, and returns to the chart cursor at that passage. It does not survey
+all five places, create a tutorial corpus, stage research settings, or perform
+analysis of its own. Its closed staging surface contains only place replacement,
+Reader open, and Reader close. The session is absent from the workspace and URL,
+owns no global key, creates no history beyond the equivalent product action, and
+sends no telemetry.
+
+Deeper learning is pull-only through short Guides for this view in contextual
+Help. Statistical method notes and self-explaining empty states remain ordinary
+product obligations rather than tutorial machinery. The optional tour
+invitation is local, non-modal, once per version, and ships only after the
+complete tour is demonstrable. The detailed product, copy, architecture,
+accessibility, and verification contract is recorded in
+[guided-learning.md](guided-learning.md).
+
+The direction was developed through independent Codex and pinned Claude Opus
+passes and a joint working-tree synthesis (Parley requests
+`req_texttrends_tutorial_ideation_opus` and
+`req_texttrends_tutorial_synthesis_opus_final`). Its first staged review
+(`req_review_diff_b36d391ee5cfe4d8`) caught the need to attribute Reader-closing
+`popstate` separately from external Back and to branch native mark guidance on
+live row interactivity rather than pointer class alone.
+
+## 2026-08-30 — Reader has a fitted Read scale and a document-comparison Atlas
+
+Reader now separates two jobs without pretending they are one continuous
+camera. **Read** remains the browser-fitted prose surface for close reading.
+**Atlas** is a whole-corpus spatial overview: every ready text keeps its
+declared-order column and complete token extent, term evidence is painted on a
+shared vertical position axis, and the columns pan horizontally for immediate
+visual comparison. Horizontal movement is deliberate because the x-axis is a
+categorical sequence of texts; Atlas does not introduce arbitrary two-axis
+camera state or intercept browser pinch zoom.
+
+Equal normalization gives every text its full column height and therefore
+compares relative position. To scale uses one token domain across the corpus,
+so text height remains proportional and the empty tail below a shorter text is
+visibly inert. Changing scale, normalization, or pan does not issue analysis
+queries. The current text and authored token survive scale changes. Exact
+occurrence evidence descends to an exact highlighted Read position; an
+ambiguous exact pixel and density evidence descend honestly to position or
+approximate bucket evidence instead of inventing a hit. External evidence
+continues to open Read, while Atlas-local movement preserves the overview
+until the person explicitly descends.
+
+The text ruler is contextual rather than a second corpus navigator. In Read it
+shows the previous/current/next declared texts, ordinal, token progress, and
+relative-position switching. In Atlas it becomes a roving categorical ruler;
+short viewports retain named previous/next controls instead of hiding the only
+text switcher. The Atlas plane is one Tab stop. Registry-owned keys move
+between texts or by relative vertical steps, a settled live region announces
+the committed position once, touch distinguishes taps from horizontal pans,
+and a non-passive vertical-wheel path owns only dominant vertical movement.
+Horizontal wheels, Shift-wheel, and Ctrl/Meta-wheel remain native. Compact
+short-height ruler buttons retain 44×44 targets for coarse pointers.
+
+Atlas adds no worker operation and no chart or pan/zoom dependency. It projects
+the resident, snapshot-matched dispersion result and authoritative ready-text
+token counts into declared order. One term track keeps one exact-or-density
+representation across every column. All document shells stay semantic, while
+only an overscanned visible window plus independently pinned active/focused
+columns owns canvases; paint rows are also device-bounded. Theme changes,
+resize, normalization, and horizontal pan repaint resident data without
+querying; the current DPR is re-read whenever one of those reactive paths
+repaints.
+
+The checked-in performance gate exercises the shipped 66-book World English
+Bible with five exact tracks through the real UI and worker path. At a 1440px
+viewport the derived structural ceiling is 15 resident canvases; repeated
+runs hold 10 at first paint and 14 after a real horizontal fling. The retained
+startup records prove the Long Tasks observer is active, while Atlas first
+paint and fling produce no attributed task at or above 50ms and therefore no
+failure at the repository's 100ms threshold. The pure windowing test follows
+the current 256-document ingest cap.
+
+This decision does **not** ship continuous prose, arbitrary zoom, microscopic
+text texture, synthetic pages, a combined overview, or side-by-side prose.
+Continuous Read remains a separate source-window and anchoring programme. A
+future asymmetric reference-prose view may place two readable texts beside one
+another only after that work and a residency benchmark; it will not turn Atlas
+into a miniature document reader. The complete contract and rationale live in
+[spatial-reader.md](spatial-reader.md).
+
+The architecture and execution plan were developed with an explicitly pinned
+Claude Opus planner through Parley (request `req_consult_e80609919b55dfd9`,
+artifact
+`art_sha256_2a3b060638e624f2d23eed5dba6c5662208858d230c11987f5402859a0a71494`).
+Implementation landed in focused commits `4101508`, `0065f3e`, `711b09a`,
+`1538511`, `8cad645`, `2d0f843`, `83a7270`, and `8434c2e`. Their final Opus
+review receipts are, respectively,
+`rev_sha256_9eb79790beea0dd090e135b57eaf128a1b348e1f84d9212d02d4a4812677e163`,
+`rev_sha256_8b9eee48346041fc4b389722107071482f7f8d62f9aadc616bf5b1095d4a9b07`,
+`rev_sha256_8ab143544c59f7e3f120885601dbbb99e59d104fd2411b37c68dadf2b5ff5a4b`,
+`rev_sha256_432b2157143fd29a79bab6cad384ac657014942f907919d3ace6a47a2a4f4e4b`,
+`rev_sha256_8393950389898d48340e325218c4079df2f90b113a901d2426e1951171b26d40`,
+`rev_sha256_04960d7dc9337555ded35c4f59a6478838a34bafdcad3716a136053441bef1ff`,
+`rev_sha256_2bfadb60c52b86b6fd853116ce3b9d971b3c94c4da5b54a866d58ac69a33ec5b`,
+and
+`rev_sha256_ec902399fef788635d386a5163da22086135710c381e1fd1e0ebe5e82389bfb4`.
+The branch also contains the incidental pre-existing e2e selector repair
+`25d6085`, reviewed under
+`rev_sha256_88f01e9a12111ba821ce9d247e0a4484d06621cefcca9ae21169c10114fca82c`;
+it is not a spatial Reader implementation slice.
+
+## 2026-08-29 — Separate trend rows have a durable vertical-size target
+
+Equal and To scale trends with more than one text expose one full-width
+separator immediately above the chart. It remains pinned below the sticky app
+header while the chart section is in view, so a long stack does not put its
+resize control at the stack's far edge. Dragging down makes every row taller.
+The separator also supports Arrow keys in 8px steps, Shift+Arrow in 1px steps,
+Page Up/Down in 32px steps, Home/End, and Enter or double-click to reset.
+Combined trends retain their authored height and do not show this control.
+
+The saved value is a requested per-row pitch plus the track, width-class, and
+pointer-class context that gave it meaning. It is shared by Equal and To scale
+and kept in device-local storage rather than the workspace. When that context
+changes, the renderer preserves the compression phase and its relative position
+instead of reusing a pixel value that might silently hide titles or barcodes.
+Legacy values and zero-track transitions clamp without reprojection. Find
+reprojects the committed treatment into its reserved-row context for display,
+but never persists that transient context; its explicit reset still restores
+automatic sizing. Resizing is a resident redraw and never reissues the trend
+query.
+
+Compression spends whitespace before data ink. At regular and wide widths, the
+title lane first shrinks from its authored height to 8px; compact starts at that
+threshold. Barcode band and inter-track whitespace then shrink while titles
+remain visible. Next the titles withdraw and their lane falls to a 2px row
+separator. Only then do plot and barcode ink contract together, to a 12px
+fine-pointer or 24px coarse-pointer plot and distinct 2px or 3px barcode tracks.
+One further collapse removes the complete barcode band and snaps directly to a
+14px fine-pointer or 26px coarse-pointer row. The non-contiguous step is
+deliberate: keeping every intervening pitch would make the plot grow while the
+row shrank, with an inversion proportional to the number of tracks.
+
+When titles are hidden, their controls stop taking pointer hits but remain
+keyboard and assistive-technology selectors with a whole-row focus outline.
+Barcode data projection also remains resident after its band disappears; only
+rendered geometry changes. The chart's arbitrary range gesture therefore
+remains available, and reset restores the authored title and barcode treatment.
+
+The interaction and compression policy was planned with pinned Claude Opus
+through Parley (request `req_consult_04dc74f0209b46be`, artifact
+`art_sha256_8817c29fd5aa44f4b11b9facb3e95a1fe4b0e09f958bfeb98295b3f141616ba7`).
+Its focused staged reviews approved the sizing authority
+(`req_review_diff_3a89359bb7740fff`), title/focus geometry
+(`req_review_diff_51bf75e68a41198c`), device-local persistence
+(`req_review_diff_2be418c9e31bcfab`), and wired interaction plus acceptance
+coverage (`req_review_diff_910547cf8712cd0c`).
+
+The late-stage barcode policy was subsequently planned with the same pinned
+Claude Opus workflow (request `req_consult_5d1c11e5216042f8`, artifact
+`art_sha256_81ac9ccd5b860aa712b9774bde0b5fe21fb4fe9c5067837272fd3e135b107af0`).
+After staged review measured an unacceptable plot-height inversion, Opus
+reassessed and replaced the continuous final phase with the discrete collapse
+recorded above (request `req_consult_66f0476fc7ae1d6b`, artifact
+`art_sha256_667d5e62d919bf052f68eea9e4a7c4b1bbd916009bd7ae44c4e27f57d2014c59`).
+Pinned Opus staged reviews then approved the corrected sizing authority
+(`req_review_diff_b292d6be11326b07`), detented interaction
+(`req_review_diff_49313484d869af80`), phase-stable persistence
+(`req_review_diff_d4c7371569fac923`), and device-pixel miniature painter
+(`req_review_diff_63090e5442ded955`). The painter reviews verified the Trends
+ladder at six device-pixel ratios without finding an off-grid track edge,
+hidden-band mark, or overlapping Trends track.
+
+## 2026-08-28 — Reading positions use a transient jump list
+
+The shared corpus cursor now feeds one session-only reading-position history,
+separate from URL and governed layer history. Discrete evidence navigation
+(Find and occurrence steps, Matches/barcode activation, Reader entry, and RSVP
+exit) records immediately. Continuous scrubbing, Matches scrolling, footer
+panning, and Reader page fitting update the live cursor without delay while a
+400ms history-only quiet timer coalesces the reading run. The list holds 32
+entries, keeps a conventional back/forward index, and reconciles surviving
+document identities across corpus snapshots; it is never persisted.
+
+`Ctrl+O` goes to the previous reading position and `Ctrl+I` to the next in the
+workbench and ordinary Reader. There are deliberately no Cmd aliases: Cmd+O
+and Cmd+I retain their platform meanings. The Ctrl chords are excluded from
+text editing, dialogs, menus, composition, and RSVP, but when otherwise owned
+they prevent the browser default even at a history edge. This explicitly
+shadows the browser's Ctrl+O Open File command; Inputs remains the visible file
+acquisition path.
+
+From 1200 CSS pixels up, the workbench header exposes a mounted, labelled pair
+of curved-arrow controls before Find. Narrower widths hide that pair to preserve
+the one-row publisher, Scope, Lens, and pinned-tool contract; the Ctrl commands
+remain available. Their accessible names always say “reading position” so they
+cannot be confused with browser Back, Reader Back, fitted-page turns, or
+occurrence navigation. Reader supports the shortcuts and Help entries but does
+not duplicate the buttons in its already crowded, fit-sensitive header.
+
+The interaction contract was resolved with an explicitly pinned Claude Opus
+planner through Parley (request `req_consult_03f56c4295f6e900`, artifact
+`art_sha256_3d19c922b0a7eab814c119290082be3d93e3a130cb0410ed172f83ce321b8b2d`).
+
 ## 2026-08-27 — Find and new-term composers always use two reserved rows
 
 Find and inline new-term entry use one shared two-row dock takeover at every
@@ -160,6 +447,12 @@ interaction, pacing, architecture, evidence, and test contract is recorded in
 [rsvp-reader.md](rsvp-reader.md).
 
 ## 2026-08-21 — Reader keeps a minimal analytical footer
+
+**Superseded by the accepted 2026-09-01 implementation contract for Read and
+Speed; retained for Atlas.** Until that work lands, this entry still describes
+shipped chrome. The authenticated fitted-page publication contract in the
+final paragraph remains current and will drive the dedicated active-text
+progress rail.
 
 Reader now retains the shared Terms, all-book graph, progress cursor, and
 dispersion barcode in a footer that opens with its Terms row already

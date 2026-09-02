@@ -47,7 +47,7 @@ describe('reconcileResume', () => {
       loadingPhase: null,
     })).toEqual({
       kind: 'partial',
-      message: 'Resumed · 4 books are ready and 2 books are unavailable.',
+      message: 'Resumed · 4 texts are ready and 2 texts are unavailable.',
     });
     expect(reconcileResume({
       readyDocuments: 6,

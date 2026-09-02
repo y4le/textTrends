@@ -30,7 +30,7 @@ describe('footer range gesture', () => {
     expect(down()).toMatchObject({ state: { phase: 'armed' }, effect: { kind: 'clear' } });
     expect(down(undefined, { at: 601 }).state.phase).toBe('idle');
     expect(down(undefined, { clientX: 27 }).state.phase).toBe('idle');
-    expect(down(undefined, { zone: 'barcode' }).state.phase).toBe('idle');
+    expect(down(undefined, { zone: 'outside' }).state.phase).toBe('idle');
     expect(down(undefined, { recentDirectPointer: true }).state.phase).toBe('idle');
     expect(down(idleFooterRangeGesture()).state.phase).toBe('idle');
   });
@@ -55,11 +55,41 @@ describe('footer range gesture', () => {
     });
     expect(preview).toMatchObject({
       state: { phase: 'brushing', head: point(8) },
-      effect: { kind: 'preview', head: point(8) },
+      effect: { kind: 'preview', head: point(8), clearsCommitted: false },
     });
     expect(footerRangeUp(preview.state, 2)).toMatchObject({
       state: { phase: 'idle' },
       effect: { kind: 'commit', origin: point(2), head: point(8) },
+    });
+  });
+
+  it('arms a barcode silently and clears the committed range only when brushing starts', () => {
+    const armed = down(undefined, { zone: 'barcode' });
+    expect(armed).toMatchObject({
+      state: { phase: 'armed', zone: 'barcode', pendingClear: true },
+      effect: { kind: 'none' },
+    });
+    expect(footerRangeUp(armed.state, 2)).toEqual({
+      state: { phase: 'idle' },
+      effect: { kind: 'none' },
+    });
+    const firstMove = footerRangeMove(armed.state, {
+      pointerId: 2,
+      point: point(8),
+      clientX: 30,
+      clientY: 6,
+    });
+    expect(firstMove).toMatchObject({
+      state: { phase: 'brushing', head: point(8) },
+      effect: { kind: 'preview', head: point(8), clearsCommitted: true },
+    });
+    expect(footerRangeMove(firstMove.state, {
+      pointerId: 2,
+      point: point(10),
+      clientX: 34,
+      clientY: 6,
+    })).toMatchObject({
+      effect: { kind: 'preview', head: point(10), clearsCommitted: false },
     });
   });
 

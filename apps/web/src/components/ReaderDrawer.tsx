@@ -9,8 +9,10 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
+import type { ReaderVisibleRangeV1 } from '../lib/store.ts';
 import { findScope } from '../lib/interaction.ts';
 import { groupIdentity, groupTitle } from '../lib/notebook.ts';
 import { trackLegend, type TrackLegendEntry } from '../lib/track-legend.ts';
@@ -26,8 +28,49 @@ import {
 import { sameReaderPlace } from '../lib/reader-intent.ts';
 import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
-import { shortcutAria } from '../lib/shortcuts.ts';
 import { RsvpReader, type RsvpReaderSource } from './RsvpReader.tsx';
+import { ReaderAtlas } from './reader/ReaderAtlas.tsx';
+import { guideAnchorProps } from '../lib/guide/anchors.ts';
+import { readerCursorChars, readerTokenAtChar } from '../lib/reader-cursor.ts';
+import { readerTapIntent } from '../lib/reader-tap.ts';
+import { hitsSourceToken, proseCharOffsetAtPoint } from './reader/prose-cursor.ts';
+import { ReaderControlBar } from './reader/ReaderControlBar.tsx';
+import { ReaderFindBar } from './reader/ReaderFindBar.tsx';
+import { ReaderWideRails } from './reader/ReaderWideRails.tsx';
+import { readerRailsFit } from '../lib/reader-rail-fit.ts';
+
+interface ReaderProsePointer {
+  readonly id: number;
+  readonly pointerType: string;
+  readonly x: number;
+  readonly y: number;
+  readonly time: number;
+  readonly target: EventTarget | null;
+  readonly selectionOpen: boolean;
+  readonly sourceToken: boolean;
+  readonly geometry: string;
+}
+
+function isReaderMarkTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('[data-reader-mark]') !== null;
+}
+
+function isInteractiveReaderTarget(target: EventTarget | null): boolean {
+  return target instanceof Element
+    && target.closest('button, a, input, select, textarea, [role="button"]') !== null;
+}
+
+function settledReaderGeometry(
+  pane: HTMLElement,
+  visible: ReaderVisibleRangeV1 | null,
+): string | null {
+  if (
+    pane.hasAttribute('data-reader-fitting')
+    || visible === null
+    || !visible.geometry.startsWith(`${pane.clientWidth}x${pane.clientHeight}:`)
+  ) return null;
+  return visible.geometry;
+}
 
 function ReaderProse({
   page,
@@ -39,13 +82,19 @@ function ReaderProse({
   legend: readonly TrackLegendEntry[];
 }) {
   const selection = useApp((state) => state.linkedSelection);
+  const scrub = useApp((state) => state.scrub);
+  const setReadingCursor = useApp((state) => state.setReadingCursor);
   const centerKwicAt = useApp((state) => state.centerKwicAt);
   const selected = readerSelectionChars(page, selection, snapshot);
+  const cursor = readerCursorChars(
+    page,
+    scrub?.doc === page.doc ? scrub.token : page.anchor?.token ?? null,
+  );
   const styleOf = new Map(legend.map((entry) => [entry.seriesId, entry.style]));
   const labelOf = new Map(legend.map((entry) => [entry.seriesId, entry.label]));
   const boundaries = [
     ...(selected ? [selected.start, selected.end] : []),
-    ...(page.anchor ? [page.anchor.charsUtf16.start, page.anchor.charsUtf16.end] : []),
+    ...(cursor ? [cursor.start, cursor.end] : []),
   ];
   const segments = segmentMarks(
     page.text.length,
@@ -83,10 +132,9 @@ function ReaderProse({
           selected !== null
           && segment.start >= selected.start
           && segment.end <= selected.end;
-        const inAnchor =
-          page.anchor !== null
-          && segment.start >= page.anchor.charsUtf16.start
-          && segment.end <= page.anchor.charsUtf16.end;
+        const inCursor = cursor !== null
+          && segment.start >= cursor.start
+          && segment.end <= cursor.end;
         const color = mark
           ? seriesColor(styleOf.get(mark.seriesId) ?? DEFAULT_SERIES_STYLE)
           : undefined;
@@ -95,14 +143,14 @@ function ReaderProse({
           return (
             <span
               key={index}
+              data-reader-offset={segment.start}
+              data-reader-cursor={inCursor || undefined}
+              data-reader-cursor-start={inCursor && segment.start === cursor?.start || undefined}
               data-reader-selection={inSelection || undefined}
               style={{
-                background: inAnchor
-                  ? 'color-mix(in srgb, var(--accent) 30%, transparent)'
-                  : inSelection
-                    ? 'color-mix(in srgb, var(--accent) 16%, transparent)'
-                    : undefined,
-                textDecorationLine: inAnchor ? 'underline' : undefined,
+                background: inSelection
+                  ? 'color-mix(in srgb, var(--accent) 16%, transparent)'
+                  : undefined,
               }}
             >
               {text}
@@ -122,14 +170,18 @@ function ReaderProse({
               clippedStart ? 'continues from previous page' : '',
               clippedEnd ? 'continues on next page' : '',
             ].filter(Boolean).join(' · ')}
-            onClick={() => centerKwicAt(mark.seriesId, page.doc, mark.tokens.start, {
-              kind: 'occurrence',
-              groupId: mark.groupId,
-              members: mark.members,
-            })}
+            onClick={() => {
+              setReadingCursor(mark.tokens.start);
+              centerKwicAt(mark.seriesId, page.doc, mark.tokens.start, {
+                kind: 'occurrence',
+                groupId: mark.groupId,
+                members: mark.members,
+              });
+            }}
             onKeyDown={(event) => {
               if (event.key !== 'Enter' && event.key !== ' ') return;
               event.preventDefault();
+              setReadingCursor(mark.tokens.start);
               centerKwicAt(mark.seriesId, page.doc, mark.tokens.start, {
                 kind: 'occurrence',
                 groupId: mark.groupId,
@@ -137,18 +189,18 @@ function ReaderProse({
               });
             }}
             data-reader-mark={mark.seriesId}
+            data-reader-offset={segment.start}
+            data-reader-cursor={inCursor || undefined}
+            data-reader-cursor-start={inCursor && segment.start === cursor?.start || undefined}
             data-reader-selection={inSelection || undefined}
             style={{
-              background: inAnchor
-                ? 'color-mix(in srgb, var(--accent) 30%, transparent)'
-                : inSelection
-                  ? `color-mix(in srgb, ${color} 30%, var(--accent) 16%)`
-                  : `color-mix(in srgb, ${color} 20%, transparent)`,
+              background: inSelection
+                ? `color-mix(in srgb, ${color} 30%, var(--accent) 16%)`
+                : `color-mix(in srgb, ${color} 20%, transparent)`,
               borderBottom: `2px solid ${color}`,
               borderLeft: clippedStart ? `2px dashed ${color}` : undefined,
               borderRight: clippedEnd ? `2px dashed ${color}` : undefined,
               cursor: 'pointer',
-              textDecorationLine: inAnchor ? 'underline' : undefined,
             }}
           >
             {text}
@@ -174,26 +226,32 @@ function readerSourceKey(page: ReaderPageResultV1): string {
 }
 
 function ReaderProseDrawer({
+  onOpenControls,
+  onOpenFind,
   onOpenHelp,
   onOpenSettings,
+  onCloseFind,
+  onAnnounce,
 }: {
+  readonly onOpenControls: (returnFocus: HTMLElement) => void;
+  readonly onOpenFind: () => void;
   readonly onOpenHelp: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement) => void;
+  readonly onCloseFind: () => void;
+  readonly onAnnounce: (message: string) => void;
 }) {
   const place = useApp((state) => state.readerPlace);
   const result = useApp((state) => state.readerPage);
   const navigation = useApp((state) => state.readerNavigation);
+  const publishedVisibleRange = useApp((state) => state.readerVisibleRange);
   const notebook = useApp((state) => state.notebook);
   const styles = useApp((state) => state.styles);
   const project = useApp((state) => state.projectSession?.project ?? null);
-  const closeReader = useApp((state) => state.closeReader);
   const navigateReader = useApp((state) => state.navigateReader);
   const setReaderVisibleRange = useApp((state) => state.setReaderVisibleRange);
   const refitReaderAt = useApp((state) => state.refitReaderAt);
   const retryReader = useApp((state) => state.retryReader);
-  const occurrenceNavigation = useApp((state) => state.occurrenceNavigation);
-  const stepOccurrence = useApp((state) => state.stepOccurrence);
-  const series = useApp((state) => state.series);
+  const setReadingCursor = useApp((state) => state.setReadingCursor);
   const interaction = useApp((state) => state.interaction);
   const scopedFind = findScope(interaction);
   const findMode = scopedFind !== null;
@@ -215,6 +273,9 @@ function ReaderProseDrawer({
     return group ? groupIdentity(group) : null;
   };
   const paneRef = useRef<HTMLDivElement | null>(null);
+  const layoutRef = useRef<HTMLElement | null>(null);
+  const wideFitProbeRef = useRef<HTMLSpanElement | null>(null);
+  const prosePointer = useRef<ReaderProsePointer | null>(null);
   const sourceRef = useRef<{ readonly key: string; readonly page: ReaderPageResultV1 } | null>(null);
   const visibleRef = useRef<{ readonly start: number; readonly end: number } | null>(null);
   const lastPaneSize = useRef<string | null>(null);
@@ -222,6 +283,7 @@ function ReaderProseDrawer({
   const publishedFit = useRef<string | null>(null);
   const refitAttempt = useRef<string | null>(null);
   const [layoutEpoch, setLayoutEpoch] = useState(0);
+  const [wideRails, setWideRails] = useState(false);
   const [reflow, setReflow] = useState<{
     readonly sourceKey: string;
     readonly token: number;
@@ -276,6 +338,38 @@ function ReaderProseDrawer({
   const fitSettled = activeFit?.settledCount !== null
     && activeFit?.settledCount !== undefined
     && activeFit.settledCount === probeCount;
+
+  useLayoutEffect(() => {
+    const layout = layoutRef.current;
+    const probe = wideFitProbeRef.current;
+    if (!layout || !probe) return undefined;
+    let frame = 0;
+    let live = true;
+    const measure = () => {
+      if (!live) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!live) return;
+        const next = readerRailsFit(
+          layout.clientWidth,
+          probe.getBoundingClientRect().width,
+        );
+        setWideRails((current) => current === next ? current : next);
+      });
+    };
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(measure);
+    observer?.observe(layout);
+    observer?.observe(probe);
+    measure();
+    void document.fonts?.ready.then(measure);
+    return () => {
+      live = false;
+      observer?.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (!ready || !current || !fitKey || !activeFit || !probeRange || !visualPage) return;
@@ -408,63 +502,97 @@ function ReaderProseDrawer({
     presentedSeries,
   );
   const hasStaleMarks = legend.some((entry) => entry.stale);
-  const hasPresentedTerms = findMode ? find !== null : series.length > 0;
-  const occurrencePending = findMode
-    ? find?.state.status === 'pending'
-    : occurrenceNavigation?.state.status === 'pending';
-  const occurrenceTitle = (direction: 'Previous' | 'Next') => {
-    if (!hasPresentedTerms) return findMode ? 'No active Find query' : 'No active terms';
-    return findMode
-      ? `${direction} exact Find match`
-      : `${direction} exact reference from any term`;
-  };
   const turnPage = (direction: -1 | 1) => {
     const cursor = direction === -1 ? navigation?.previous : navigation?.next;
-    if (cursor) navigateReader(cursor);
+    if (cursor) {
+      onAnnounce('');
+      navigateReader(cursor);
+    }
+  };
+  const onProsePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    prosePointer.current = null;
+    const primary = event.isPrimary
+      && (event.pointerType !== 'mouse' || event.button === 0);
+    if (!primary) return;
+    const geometry = settledReaderGeometry(event.currentTarget, publishedVisibleRange);
+    const source = event.currentTarget.querySelector<HTMLElement>('[data-reader-page]');
+    if (geometry === null || source === null) return;
+    prosePointer.current = {
+      id: event.pointerId,
+      pointerType: event.pointerType,
+      x: event.clientX,
+      y: event.clientY,
+      time: event.timeStamp,
+      target: event.target,
+      selectionOpen: window.getSelection()?.isCollapsed === false,
+      sourceToken: hitsSourceToken(source, event.clientX, event.clientY),
+      geometry,
+    };
+  };
+  const onProsePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const down = prosePointer.current;
+    prosePointer.current = null;
+    if (down === null) return;
+    const pane = event.currentTarget;
+    const source = pane.querySelector<HTMLElement>('[data-reader-page]');
+    const rect = pane.getBoundingClientRect();
+    const intent = readerTapIntent({
+      primary: down.id === event.pointerId
+        && down.pointerType === event.pointerType
+        && event.isPrimary
+        && (event.pointerType !== 'mouse' || event.button === 0),
+      movedPx: Math.hypot(event.clientX - down.x, event.clientY - down.y),
+      elapsedMs: event.timeStamp - down.time,
+      selectionOpen: down.selectionOpen || window.getSelection()?.isCollapsed === false,
+      onInteractiveTarget: isInteractiveReaderTarget(down.target)
+        || isInteractiveReaderTarget(event.target),
+      onMarkTarget: isReaderMarkTarget(down.target) || isReaderMarkTarget(event.target),
+      onSourceToken: down.sourceToken
+        || (source !== null && hitsSourceToken(source, event.clientX, event.clientY)),
+      edgePaging: event.pointerType === 'touch',
+      xWithinPane: event.clientX - rect.left,
+      paneWidth: rect.width,
+      canPagePrevious: navigation?.previous != null,
+      canPageNext: navigation?.next != null,
+      geometrySettled: down.geometry === settledReaderGeometry(pane, publishedVisibleRange),
+    });
+    if (intent === 'page-previous' || intent === 'page-next') {
+      event.preventDefault();
+      turnPage(intent === 'page-previous' ? -1 : 1);
+      return;
+    }
+    if (intent !== 'cursor' || source === null || visualPage === null) return;
+    const char = proseCharOffsetAtPoint(source, event.clientX, event.clientY);
+    const token = char === null ? null : readerTokenAtChar(visualPage, char);
+    if (token === null) return;
+    setReadingCursor(token);
+    const chars = readerCursorChars(visualPage, token);
+    const word = chars === null ? '' : visualPage.text.slice(chars.start, chars.end);
+    onAnnounce(
+      `Reading position: ${word === '' ? '' : `“${word}”, `}token ${(token + 1).toLocaleString()}`,
+    );
   };
 
   return (
-    <>
-      <header className="reader-header">
-        <div>
-          <h2 id="reader-title" style={{ margin: 0, fontSize: 'var(--text-lg)' }}>
-            <span className="visually-hidden">Reader: </span>{title}
-          </h2>
-          <p
-            className="reader-position"
-            role="status"
-            aria-atomic="true"
-            aria-busy={!fitSettled || undefined}
-          >
-            {fitSettled && visualPage
-              ? readerRangeLabel(visualPage)
-              : ready
-                ? 'fitting page…'
-                : 'loading source text…'}
-          </p>
-        </div>
-        <div className="reader-header-actions">
-          <button
-            id="reader-settings-open"
-            type="button"
-            onClick={(event) => onOpenSettings(event.currentTarget)}
-            style={SMALL_BUTTON_STYLE}
-          >
-            settings
-          </button>
-          <button
-            type="button"
-            aria-keyshortcuts={shortcutAria(['show-help'])}
-            onClick={onOpenHelp}
-            style={SMALL_BUTTON_STYLE}
-          >
-            help
-          </button>
-          <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>
-            back
-          </button>
-        </div>
-      </header>
+    <section
+      ref={layoutRef}
+      className="reader-read-layout"
+      data-reader-layout={wideRails ? 'rails' : 'bar'}
+    >
+      <span ref={wideFitProbeRef} className="reader-wide-fit-probe" aria-hidden="true" />
+      <h2 id="reader-title" className="visually-hidden">Reader: {title}</h2>
+      <p
+        className="reader-position visually-hidden"
+        role="status"
+        aria-atomic="true"
+        aria-busy={!fitSettled || undefined}
+      >
+        {fitSettled && visualPage
+          ? readerRangeLabel(visualPage)
+          : ready
+            ? 'fitting page…'
+            : 'loading source text…'}
+      </p>
       {(hasStaleMarks || ready?.marksTruncated) && (
         <div className="reader-feedback" role="status" aria-label="Reader mark notices">
           {hasStaleMarks && (
@@ -476,10 +604,14 @@ function ReaderProseDrawer({
         </div>
       )}
       <div
+        {...guideAnchorProps('reader-prose')}
         ref={paneRef}
         className="reader-prose-pane"
         data-reader-fitting={!fitSettled || undefined}
         data-reader-saturated={activeFit?.saturated || undefined}
+        onPointerDown={onProsePointerDown}
+        onPointerUp={onProsePointerUp}
+        onPointerCancel={() => { prosePointer.current = null; }}
       >
         <div
           aria-busy={current?.state.status === 'pending' || !fitSettled || undefined}
@@ -504,70 +636,55 @@ function ReaderProseDrawer({
               <button type="button" onClick={retryReader} style={SMALL_BUTTON_STYLE}>retry</button>
             </p>
           ) : visualPage ? (
-            <ReaderProse page={visualPage} snapshot={current.snapshot} legend={legend} />
+            <ReaderProse
+              page={visualPage}
+              snapshot={current.snapshot}
+              legend={legend}
+            />
           ) : (
             <div aria-label="Fitting reader page" style={{ minHeight: '12em' }} />
           )}
         </div>
       </div>
 
-      <nav
-        className="reader-pages"
-        aria-label="Reader navigation"
-      >
-        <button
-          className="reader-occurrence-previous"
-          type="button"
-          aria-keyshortcuts={shortcutAria(['reader-occurrence-previous'])}
-          disabled={!hasPresentedTerms || occurrencePending}
-          onClick={() => stepOccurrence(-1)}
-          title={occurrenceTitle('Previous')}
-          style={{ ...SMALL_BUTTON_STYLE, opacity: hasPresentedTerms && !occurrencePending ? 1 : 0.45 }}
-        >
-          {findMode ? 'previous find match' : 'previous reference'}
-        </button>
-        <button
-          className="reader-page-previous"
-          type="button"
-          aria-keyshortcuts={shortcutAria(['reader-page-previous'])}
-          disabled={!navigation?.previous}
-          onClick={() => turnPage(-1)}
-          style={{ ...SMALL_BUTTON_STYLE, cursor: navigation?.previous ? 'pointer' : 'default', opacity: navigation?.previous ? 1 : 0.45 }}
-        >
-          ← previous
-        </button>
-        <button
-          className="reader-page-next"
-          type="button"
-          aria-keyshortcuts={shortcutAria(['reader-page-next'])}
-          disabled={!navigation?.next}
-          onClick={() => turnPage(1)}
-          style={{ ...SMALL_BUTTON_STYLE, cursor: navigation?.next ? 'pointer' : 'default', opacity: navigation?.next ? 1 : 0.45 }}
-        >
-          next →
-        </button>
-        <button
-          className="reader-occurrence-next"
-          type="button"
-          aria-keyshortcuts={shortcutAria(['reader-occurrence-next'])}
-          disabled={!hasPresentedTerms || occurrencePending}
-          onClick={() => stepOccurrence(1)}
-          title={occurrenceTitle('Next')}
-          style={{ ...SMALL_BUTTON_STYLE, opacity: hasPresentedTerms && !occurrencePending ? 1 : 0.45 }}
-        >
-          {findMode ? 'next find match' : 'next reference'}
-        </button>
-      </nav>
-    </>
+      {wideRails && (
+        <ReaderWideRails
+          legend={findMode ? [] : legend}
+          showProgress={!findMode}
+          showReference={!findMode}
+          onOpenFind={onOpenFind}
+          onOpenSettings={onOpenSettings}
+          onOpenHelp={onOpenHelp}
+          onAnnounce={onAnnounce}
+        />
+      )}
+      {findMode ? <ReaderFindBar onClose={onCloseFind} /> : !wideRails && (
+        <ReaderControlBar
+          title={title}
+          onOpenControls={onOpenControls}
+          onAnnounce={onAnnounce}
+        />
+      )}
+    </section>
   );
 }
 
 export function ReaderDrawer({
   onOpenHelp,
   onOpenSettings,
+  onOpenSpeedSettings,
+  onOpenControls,
+  onOpenFind,
+  onCloseFind,
+  onAnnounce,
 }: {
   readonly onOpenHelp: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement) => void;
+  readonly onOpenSpeedSettings: (returnFocus: HTMLElement, restSummary: string) => void;
+  readonly onOpenControls: (returnFocus: HTMLElement) => void;
+  readonly onOpenFind: () => void;
+  readonly onCloseFind: () => void;
+  readonly onAnnounce: (message: string) => void;
 }) {
   const interaction = useApp((state) => state.interaction);
   const place = useApp((state) => state.readerPlace);
@@ -579,16 +696,27 @@ export function ReaderDrawer({
   const seek = useApp((state) => state.rsvpSeek);
   const exit = useApp((state) => state.exitRsvp);
   const retry = useApp((state) => state.retryReader);
+  const readerScale = useApp((state) => state.readerScale);
 
   if (
     interaction.kind !== 'rsvp'
     || place === null
     || place.snapshot !== interaction.rsvp.snapshot
     || place.doc !== interaction.rsvp.doc
-  ) return (
-    <ReaderProseDrawer
+  ) return readerScale === 'atlas' ? (
+    <ReaderAtlas
       onOpenHelp={onOpenHelp}
       onOpenSettings={onOpenSettings}
+      onAnnounce={onAnnounce}
+    />
+  ) : (
+    <ReaderProseDrawer
+      onOpenControls={onOpenControls}
+      onOpenFind={onOpenFind}
+      onOpenHelp={onOpenHelp}
+      onOpenSettings={onOpenSettings}
+      onCloseFind={onCloseFind}
+      onAnnounce={onAnnounce}
     />
   );
 
@@ -613,7 +741,7 @@ export function ReaderDrawer({
       onSeek={seek}
       onExit={exit}
       onRetry={retry}
-      onOpenHelp={onOpenHelp}
+      onOpenSettings={onOpenSpeedSettings}
     />
   );
 }

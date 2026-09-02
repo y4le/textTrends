@@ -14,6 +14,8 @@ import {
   seriesXFromTokenEdge,
   stepAlongSequence,
   trendStageHit,
+  trendLabelBands,
+  trendStageDocument,
   type SequenceLayout,
 } from '../src/lib/trend-geometry.ts';
 import type { NumericTrend } from '@texttrends/core';
@@ -210,6 +212,7 @@ describe('pointer plot containment', () => {
       barcodeBandGap: 0,
       barcodeHeight: 0,
       band: { trackCount: 0, trackHeight: 7, trackGap: 2 },
+      barcodeZone: 'tracks' as const,
       tokenCounts,
       rowDomain: tokenCounts,
     };
@@ -230,6 +233,7 @@ describe('pointer plot containment', () => {
       barcodeBandGap: 0,
       barcodeHeight: 0,
       band: { trackCount: 0, trackHeight: 7, trackGap: 2 },
+      barcodeZone: 'tracks',
       tokenCounts: [0, 50],
       rowDomain: [0, 50],
     }, 'locate')).toBeNull();
@@ -244,6 +248,7 @@ describe('pointer plot containment', () => {
       barcodeBandGap: 0,
       barcodeHeight: 0,
       band: { trackCount: 0, trackHeight: 7, trackGap: 2 },
+      barcodeZone: 'tracks' as const,
       tokenCounts: [100, 50, 0],
       rowDomain: [100, 100, 100],
     };
@@ -295,6 +300,7 @@ describe('integrated barcode stage geometry', () => {
       barcodeBandGap: 3,
       barcodeHeight: bandHeight,
       band: { trackCount: 2, trackHeight: 7, trackGap: 2 },
+      barcodeZone: 'tracks' as const,
       tokenCounts: [100, 50],
       rowDomain: [100, 50],
     };
@@ -306,5 +312,78 @@ describe('integrated barcode stage geometry', () => {
     expect(hit(70)).toBeNull(); // title below row 0
     expect(hit(pitch + 20)).toMatchObject({ d: 1, token: 25, zone: 'plot' });
     expect(hit(pitch + 48)).toMatchObject({ d: 1, zone: 'barcode', trackRow: 0 });
+  });
+});
+
+describe('document label geometry', () => {
+  it('places combined labels after the barcode and preserves token-proportional widths', () => {
+    const bandHeight = barcodeBandHeight(2, 7, 2);
+    const stage = {
+      view: 'series' as const,
+      plotWidth: 600,
+      plotHeight: 180,
+      barcodeBandGap: 3,
+      barcodeHeight: bandHeight,
+      band: { trackCount: 2, trackHeight: 7, trackGap: 2 },
+      layout: LAYOUT,
+    };
+    expect(trendLabelBands(stage)).toEqual([
+      { d: 0, left: 0, right: 400, top: 201, height: 34, focusTop: 201, focusHeight: 34, titlePainted: true },
+      { d: 1, left: 400, right: 400, top: 201, height: 34, focusTop: 201, focusHeight: 34, titlePainted: true },
+      { d: 2, left: 400, right: 600, top: 201, height: 34, focusTop: 201, focusHeight: 34, titlePainted: true },
+    ]);
+    expect(trendStageDocument(-20, 0, stage)).toBe(0);
+    expect(trendStageDocument(700, 0, stage)).toBe(2);
+    expect(trendStageDocument(Number.NaN, 0, stage)).toBeNull();
+  });
+
+  it('uses each by-book row gap as its full-width label band and clamps drag heads', () => {
+    const bandHeight = barcodeBandHeight(2, 7, 2);
+    const stage = {
+      view: 'by-book-scaled' as const,
+      plotWidth: 600,
+      rowHeight: 44,
+      rowGap: 22,
+      barcodeBandGap: 3,
+      barcodeHeight: bandHeight,
+      band: { trackCount: 2, trackHeight: 7, trackGap: 2 },
+      barcodeZone: 'tracks' as const,
+      tokenCounts: [100, 50],
+      rowDomain: [100, 100],
+    };
+    expect(trendLabelBands(stage)).toEqual([
+      { d: 0, left: 0, right: 600, top: 65, height: 22, focusTop: 65, focusHeight: 22, titlePainted: true },
+      { d: 1, left: 0, right: 600, top: 152, height: 22, focusTop: 152, focusHeight: 22, titlePainted: true },
+    ]);
+    expect(trendStageDocument(300, -30, stage)).toBe(0);
+    expect(trendStageDocument(300, 500, stage)).toBe(1);
+    expect(trendStageDocument(300, Number.NaN, stage)).toBeNull();
+  });
+
+  it('keeps hidden titles as whole-row keyboard focus rectangles', () => {
+    const bandHeight = barcodeBandHeight(2, 7, 2);
+    const stage = {
+      view: 'by-book-scaled' as const,
+      plotWidth: 600,
+      rowHeight: 44,
+      rowGap: 2,
+      barcodeBandGap: 3,
+      barcodeHeight: bandHeight,
+      band: { trackCount: 2, trackHeight: 7, trackGap: 2 },
+      barcodeZone: 'tracks' as const,
+      tokenCounts: [100, 50],
+      rowDomain: [100, 100],
+    };
+    const pitch = byBookRowPitch(44, 2, 3, bandHeight);
+    expect(trendLabelBands(stage, false)).toEqual([
+      {
+        d: 0, left: 0, right: 600, top: 65, height: 2,
+        focusTop: 0, focusHeight: pitch, titlePainted: false,
+      },
+      {
+        d: 1, left: 0, right: 600, top: pitch + 65, height: 2,
+        focusTop: pitch, focusHeight: pitch, titlePainted: false,
+      },
+    ]);
   });
 });

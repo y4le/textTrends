@@ -16,6 +16,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
+import type { ScrubIntent } from '../lib/store.ts';
 import { findScope } from '../lib/interaction.ts';
 import { fullTokenCountsForDocs } from '../lib/doc-tokens.ts';
 import {
@@ -68,6 +69,7 @@ import {
   DataGridHeader,
   type DataGridColumn,
 } from './data-grid/DataGridHeader.tsx';
+import { GuideLink } from './guide/GuideLink.tsx';
 
 const SCROLL_TOLERANCE_PX = 0.75;
 const ANNOUNCEMENT_INTERVAL_MS = 250;
@@ -284,8 +286,12 @@ export function KwicPanel({
     if (!port) return;
     const top = matchesScrollTop(bounded, total, rowHeight);
     if (Math.abs(port.scrollTop - top) <= SCROLL_TOLERANCE_PX) return;
-    programmaticScrollRef.current = top;
     port.scrollTop = top;
+    // Browsers may clamp or round a requested edge coordinate. Fence the
+    // value the port actually accepted so that its ensuing scroll event is
+    // not mistaken for user input and allowed to rewrite an external cursor.
+    programmaticScrollRef.current = port.scrollTop;
+    lastScrollTopRef.current = port.scrollTop;
   }, [rowHeight, total]);
 
   const requestRank = useCallback((rank: number, direction: -1 | 0 | 1) => {
@@ -326,23 +332,28 @@ export function KwicPanel({
     viewport.height,
   ]);
 
-  const publishLogicalCursor = useCallback((nextLogical: number) => {
+  const publishLogicalCursor = useCallback((
+    nextLogical: number,
+    intent: ScrubIntent = { kind: 'drift', origin: 'matches' },
+  ) => {
     const target = matchesTargetAtLogical(nextLogical, resident);
     if (!target) return null;
     const cursor = { doc: target.doc, token: target.token };
     selfPublishedRef.current = { ...cursor, logical: nextLogical };
-    if (scrub?.doc !== cursor.doc || scrub.token !== cursor.token) setScrub(cursor);
+    if (scrub?.doc !== cursor.doc || scrub.token !== cursor.token) {
+      setScrub(cursor, intent);
+    }
     return cursor;
   }, [resident, scrub, setScrub]);
 
-  const moveToRank = useCallback((rank: number) => {
+  const moveToRank = useCallback((rank: number, intent?: ScrubIntent) => {
     if (total <= 0) return;
     const bounded = Math.max(0, Math.min(total - 1, rank));
     const nextLogical = bounded + 0.5;
     const direction = Math.sign(nextLogical - logicalRef.current) as -1 | 0 | 1;
     pendingRankRef.current = rowAtRank(bounded) ? null : bounded;
     setLogicalPosition(nextLogical, true);
-    const target = publishLogicalCursor(nextLogical);
+    const target = publishLogicalCursor(nextLogical, intent);
     if (target) announceRank(bounded, target);
     requestRank(bounded, direction);
   }, [announceRank, publishLogicalCursor, requestRank, rowAtRank, setLogicalPosition, total]);
@@ -383,9 +394,9 @@ export function KwicPanel({
     const port = portRef.current;
     if (port === null || total <= 0) return;
     const top = matchesScrollTop(logicalRef.current, total, rowHeight);
-    programmaticScrollRef.current = top;
-    lastScrollTopRef.current = top;
     port.scrollTop = top;
+    programmaticScrollRef.current = port.scrollTop;
+    lastScrollTopRef.current = port.scrollTop;
   }, [rowHeight, total]);
 
   useEffect(() => {
@@ -408,7 +419,9 @@ export function KwicPanel({
         const target = { doc: row.doc, token: row.pos };
         pendingRankRef.current = null;
         selfPublishedRef.current = { ...target, logical: pendingRank + 0.5 };
-        if (scrub?.doc !== target.doc || scrub.token !== target.token) setScrub(target);
+        if (scrub?.doc !== target.doc || scrub.token !== target.token) {
+          setScrub(target, { kind: 'drift', origin: 'matches' });
+        }
         setLogicalPosition(pendingRank + 0.5, true);
         announceRank(pendingRank, target);
         return;
@@ -550,9 +563,15 @@ export function KwicPanel({
   const rowId = (rank: number) => `matches-row-${rank}`;
   const openRowReader = (row: MatchesRowVM, rank: number) => {
     if (!kwic) return;
-    moveToRank(rank);
+    moveToRank(rank, { kind: 'jump', origin: 'matches' });
     openReader(
-      { snapshot: kwic.snapshot, doc: row.doc, token: row.pos, from: 'kwic' },
+      {
+        snapshot: kwic.snapshot,
+        doc: row.doc,
+        token: row.pos,
+        from: 'kwic',
+        anchor: 'occurrence',
+      },
       'matches-grid',
     );
   };
@@ -935,7 +954,7 @@ export function KwicPanel({
       headingRef: rightHeadingRef,
     },
     ...(multipleBooks
-      ? [{ key: 'book' as const, label: 'book', className: 'kwic-book-heading' }]
+      ? [{ key: 'book' as const, label: 'text', className: 'kwic-book-heading' }]
       : []),
     {
       key: 'token',
@@ -974,7 +993,16 @@ export function KwicPanel({
   const status = kwic?.state.status ?? 'pending';
   let body: React.ReactNode;
   if (displayedSeries.length === 0) {
-    body = <p className="kwic-message">{findMode ? 'Type a Find query.' : 'No terms shown in analysis.'}</p>;
+    body = findMode
+      ? <p className="kwic-message">Type a Find query.</p>
+      : (
+          <div className="kwic-message kwic-empty-guide">
+            <p>No terms shown in analysis.</p>
+            <GuideLink guideId="terms-and-notebook" place="matches">
+              Guide: Terms and the notebook
+            </GuideLink>
+          </div>
+        );
   } else if (status === 'error' && resident === null) {
     const message = kwic?.state.status === 'error' ? kwic.state.message : 'unknown error';
     body = <p className="kwic-message kwic-error">matches failed: {message}</p>;
@@ -1082,7 +1110,7 @@ export function KwicPanel({
                   onPointerDown={(event) => {
                     if ((event.target as Element).closest('button, .source-text')) return;
                     portRef.current?.focus({ preventScroll: true });
-                    moveToRank(rank);
+                    moveToRank(rank, { kind: 'jump', origin: 'matches' });
                   }}
                 >
                   <div

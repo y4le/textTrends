@@ -80,6 +80,7 @@ import {
 import {
   detailSelection,
   isValidSelection,
+  sameSelection,
   selectionComplement,
   type TokenRangeSelectionV1,
 } from './selection.ts';
@@ -92,12 +93,42 @@ import {
 } from './footer-view.ts';
 import {
   liveReaderPlace,
+  readerCursorToken,
   readerPlaceFor,
   sameReaderCursor,
   sameReaderPlace,
   type ReaderOpenIntent,
+  type ReaderAnchorKind,
   type ReaderPlace,
 } from './reader-intent.ts';
+import {
+  adjacentReadableDocumentAtRelativePosition,
+  adjacentReadableDocument,
+  readyReaderDocumentOrder,
+} from './reader-order.ts';
+import {
+  atlasAvailable,
+  DEFAULT_ATLAS_NORMALIZATION,
+  DEFAULT_READER_SCALE,
+  type AtlasNormalization,
+  type ReaderScale,
+} from './reader-view.ts';
+import {
+  preservedReadingCursor,
+  publishedReadingToken,
+} from './reader-cursor.ts';
+import {
+  clampPositionHistoryExtents,
+  EMPTY_POSITION_HISTORY,
+  POSITION_HISTORY_SETTLE_MS,
+  reconcilePositionHistory,
+  recordPositionJump,
+  recordPositionSettle,
+  traversePositionHistory,
+  type PositionHistory,
+  type PositionHistoryEntry,
+  type PositionHistoryOrigin,
+} from './position-history.ts';
 import {
   coreGroupOf,
   firstFreeStyle,
@@ -391,6 +422,23 @@ export interface ReaderNavigationTarget {
   readonly cursor: ReaderPlace['cursor'];
 }
 
+/** Query residency follows the complete effective matching set. Order,
+ * labels, and styles are presentation-only; membership and matching identity
+ * are not. */
+function sameReaderTrackSet(
+  captured: readonly CapturedTrack[],
+  effective: readonly CapturedTrack[],
+): boolean {
+  if (captured.length !== effective.length) return false;
+  const capturedById = new Map(captured.map((track) => [track.seriesId, track.identity]));
+  const effectiveById = new Map(effective.map((track) => [track.seriesId, track.identity]));
+  if (capturedById.size !== captured.length || effectiveById.size !== effective.length) return false;
+  for (const [seriesId, identity] of capturedById) {
+    if (effectiveById.get(seriesId) !== identity) return false;
+  }
+  return true;
+}
+
 /** The reading footer's authenticated source slice. It deliberately has its own
  * lane: Reader paging must never move or blank the workbench footer. */
 export interface FooterPassageState {
@@ -661,6 +709,10 @@ export interface ScrubTarget {
   readonly token: number;
 }
 
+export type ScrubIntent =
+  | { readonly kind: 'drift'; readonly origin: PositionHistoryOrigin }
+  | { readonly kind: 'jump'; readonly origin: PositionHistoryOrigin };
+
 /** One exact any-active-term navigation intent. The worker returns one bounded
  * distinct-start hit; raw overlap counts never become a misleading progress
  * readout. */
@@ -875,14 +927,25 @@ export interface AppState {
    * that cannot satisfy the bounded trend protocol. */
   trendSettingsNotice: string | null;
   scrub: ScrubTarget | null;
+  /** Session-only reading jump list, independent of URL/layer history. */
+  positionHistory: PositionHistory;
   /** Transient, snapshot-bound source text for the global reading footer. */
   footerPassage: FooterPassageState | null;
   /** Latest exact w/b navigation request and its accessible outcome. */
   occurrenceNavigation: OccurrenceNavigationState | null;
   /** F owns only the fenced place/placeholder; H attaches reader-page state. */
   readerPlace: ReaderPlace | null;
+  /** Presentation scale is transient: it never enters the Reader layer or
+   * workspace. External evidence resets it to Read; internal movement keeps it. */
+  readerScale: ReaderScale;
+  /** Device-local Atlas legibility preference, persisted outside workspace. */
+  atlasNormalization: AtlasNormalization;
   readerPage: ReaderPageState | null;
   readerVisibleRange: ReaderVisibleRangeV1 | null;
+  /** Page-local presentation state that distinguishes a deliberate prose pick
+   * from Reader's automatically published page start. `scrub` remains the one
+   * canonical reading position. */
+  readerCursorToken: number | null;
   /** Navigation derived from browser-fitted boundaries, never from the larger
    * worker source slice. A remembered previous boundary is re-requested from
    * its exact start so immediate backtracking reproduces the page. At a text
@@ -970,12 +1033,28 @@ export interface AppState {
   setKeynessSelection(side: 'a' | 'b', doc: string | null): void;
   swapKeynessSides(): void;
   applyKeynessSettings(input: KeynessSettingsInputV1): void;
-  setScrub(target: ScrubTarget): void;
+  setScrub(target: ScrubTarget, intent?: ScrubIntent): void;
   clearScrub(): void;
+  /** Move through reading positions without recording the traversal itself. */
+  stepPositionHistory(direction: -1 | 1): ScrubTarget | null;
   stepOccurrence(direction: 1 | -1): void;
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
+  /** Move to the adjacent nonempty text at the same relative position. */
+  stepReaderDocument(direction: -1 | 1): ScrubTarget | null;
+  /** Commit one Atlas location. Body positions stay in Atlas; an explicit
+   * descent returns to authenticated Read with the evidence claim preserved. */
+  selectAtlasPosition(
+    target: ScrubTarget,
+    anchor: ReaderAnchorKind,
+    descend?: boolean,
+  ): void;
+  setReaderScale(scale: ReaderScale): void;
+  setAtlasNormalization(normalization: AtlasNormalization): void;
   setReaderVisibleRange(range: ReaderVisibleRangeV1): void;
+  setReadingCursor(token: number): void;
   refitReaderAt(token: number): void;
+  /** Seek to one validated token. Drag phases coalesce into one history jump. */
+  seekReader(token: number, phase?: 'start' | 'preview' | 'commit'): void;
   navigateReader(target: ReaderNavigationTarget | ReaderPlace['cursor']): void;
   retryReader(): void;
   closeReader(): void;
@@ -1068,7 +1147,7 @@ function trendGeometryNotice(
   after: TrendBinsSpecV1,
 ): string {
   const description = after.mode === 'per-doc'
-    ? `${after.count.toLocaleString()} bins per book`
+    ? `${after.count.toLocaleString()} bins per text`
     : `${after.count.toLocaleString()} tokens per bin`;
   const switched = before.mode !== after.mode ? ' and changed bin mode' : '';
   return `Adjusted trend geometry${switched} to ${description} for this corpus. The adjusted value is now the saved preference.`;
@@ -1147,39 +1226,15 @@ function adjacentReaderDocument(
 ): ReaderNavigationTarget | null {
   const readyDocs = state.snapshot?.readyDocs;
   if (!readyDocs) return null;
-  const ready = new Set(readyDocs);
-  const order: string[] = [];
-  const seen = new Set<string>();
-  const appendReady = (candidate: string) => {
-    if (ready.has(candidate) && !seen.has(candidate)) {
-      seen.add(candidate);
-      order.push(candidate);
-    }
-  };
-  for (const candidate of state.projectSession?.project.data.order ?? []) appendReady(candidate);
-  // A restored or partially published session may briefly lack declared-order
-  // metadata. Keep every ready document reachable without letting arrival order
-  // override a declared position when that metadata is present.
-  for (const candidate of readyDocs) appendReady(candidate);
-
-  const current = order.indexOf(doc);
-  if (current < 0) return null;
-  for (
-    let index = current + direction;
-    index >= 0 && index < order.length;
-    index += direction
-  ) {
-    const candidate = order[index]!;
-    const tokenCount = state.corpusTokenCounts.get(candidate);
-    if (tokenCount === undefined || tokenCount <= 0) continue;
-    return {
-      doc: candidate,
-      cursor: direction === 1
-        ? { kind: 'from', token: 0 }
-        : { kind: 'before', token: tokenCount },
-    };
-  }
-  return null;
+  return adjacentReadableDocument(
+    readyReaderDocumentOrder(
+      state.projectSession?.project.data.order,
+      readyDocs,
+    ),
+    doc,
+    direction,
+    (candidate) => state.corpusTokenCounts.get(candidate),
+  );
 }
 
 function regexForLegacyFrequencyPrefix(prefix: string): string {
@@ -1288,6 +1343,37 @@ export function emptyLibraryWorkspace(): WorkspaceV1 {
   };
 }
 
+/** Exact referential inputs to `workspaceFromApp`. The persistence subscriber
+ * sees every transient Zustand write (Find, Reader, Matches, cursor, …), so it
+ * must reject states that cannot possibly change the durable projection before
+ * paying for a full canonical serialization of the library metadata. Keep this
+ * tuple adjacent to and in lockstep with `workspaceFromApp`. */
+export const WORKSPACE_SEMANTIC_SOURCE_KEYS = [
+  'projectSession',
+  'notebook',
+  'activeGroupIds',
+  'trendViewPreference',
+  'trendBins',
+  'trendMeasure',
+  'frequencyView',
+  'keynessView',
+] as const satisfies readonly (keyof AppState)[];
+
+function workspaceSemanticSources(state: AppState): readonly unknown[] {
+  return WORKSPACE_SEMANTIC_SOURCE_KEYS.map((key) =>
+    key === 'projectSession'
+      ? state.projectSession?.project ?? null
+      : state[key]);
+}
+
+function sameWorkspaceSemanticSources(
+  left: readonly unknown[],
+  right: readonly unknown[],
+): boolean {
+  return left.length === right.length
+    && left.every((value, index) => Object.is(value, right[index]));
+}
+
 export function workspaceSemanticKey(state: AppState): string | null {
   const workspace = workspaceFromApp(state);
   return workspace === null ? null : canonicalJson(workspace);
@@ -1356,6 +1442,12 @@ function defaultPlaceFor(project: ProjectView | null | undefined): Place {
   return (project?.data.order.length ?? 0) === 0 ? 'inputs' : 'trends';
 }
 
+function placeReturnFocusTo(place: Place): string {
+  return place === 'vocabulary'
+    ? 'vocabulary-grid-port'
+    : `place-${place}-heading`;
+}
+
 function restoreFocusTo(id: string): void {
   if (typeof document === 'undefined') return;
   const focus = () => document.getElementById(id)?.focus({ preventScroll: true });
@@ -1378,6 +1470,8 @@ export function createAppRuntime(
     matchesColumns?: MatchesColumnSettings;
     /** Device-local RSVP rhythm, separate from workspace semantics. */
     rsvpPacing?: RsvpPacing;
+    /** Device-local Atlas geometry, separate from workspace semantics. */
+    atlasNormalization?: AtlasNormalization;
   },
 ): AppRuntime {
   const newId = opts?.newId ?? (() => crypto.randomUUID());
@@ -1446,6 +1540,13 @@ export function createAppRuntime(
   let workspaceSaveToken = 0;
   let workspaceScheduling = false;
   let saveWorkspaceNow = (): void => undefined;
+  let positionHistoryTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingPositionSettle: PositionHistoryEntry | null = null;
+  let pendingPositionReconciliation: {
+    readonly projectId: string;
+    readonly history: PositionHistory;
+    readonly tokenCounts: ReadonlyMap<string, number>;
+  } | null = null;
   // A demo acquisition knows its declared first document before concurrent
   // extraction has made that document ready. Keep that one-shot intent outside
   // the durable workspace so async completion order cannot choose Book 2.
@@ -1459,6 +1560,70 @@ export function createAppRuntime(
     boundaries: number[];
     index: number;
   } | null = null;
+  let readerSeekSession: {
+    readonly doc: string;
+    readonly origin: ScrubTarget | null;
+    readonly tokenCount: number;
+  } | null = null;
+
+  const clearPositionHistoryTimer = (): void => {
+    if (positionHistoryTimer !== null) {
+      clearTimeout(positionHistoryTimer);
+      positionHistoryTimer = null;
+    }
+  };
+
+  const settlePositionHistory = (): void => {
+    clearPositionHistoryTimer();
+    const entry = pendingPositionSettle;
+    pendingPositionSettle = null;
+    if (
+      entry === null
+      || entry.snapshot !== store.getState().snapshot?.snapshot
+    ) return;
+    store.setState((state) => ({
+      positionHistory: recordPositionSettle(state.positionHistory, entry),
+    }));
+  };
+
+  const schedulePositionSettle = (
+    target: ScrubTarget,
+    origin: PositionHistoryOrigin,
+  ): void => {
+    const snapshot = store.getState().snapshot?.snapshot;
+    if (snapshot === undefined) return;
+    pendingPositionSettle = { snapshot, ...target, origin };
+    clearPositionHistoryTimer();
+    positionHistoryTimer = setTimeout(() => {
+      positionHistoryTimer = null;
+      settlePositionHistory();
+    }, POSITION_HISTORY_SETTLE_MS);
+  };
+
+  const recordPositionJumpNow = (
+    from: ScrubTarget | null,
+    to: ScrubTarget,
+    origin: PositionHistoryOrigin,
+  ): void => {
+    const snapshot = store.getState().snapshot?.snapshot;
+    if (snapshot === undefined) return;
+    const pending = pendingPositionSettle?.snapshot === snapshot
+      ? pendingPositionSettle
+      : null;
+    clearPositionHistoryTimer();
+    pendingPositionSettle = null;
+    const departure = pending ?? (from === null
+      ? null
+      : { snapshot, ...from, origin });
+    const destination: PositionHistoryEntry = { snapshot, ...to, origin };
+    store.setState((state) => ({
+      positionHistory: recordPositionJump(
+        state.positionHistory,
+        departure,
+        destination,
+      ),
+    }));
+  };
 
   // Route and layer state is initialized before the store so the first React
   // snapshot and the current history entry cannot disagree.
@@ -1514,9 +1679,10 @@ export function createAppRuntime(
       options: {
         readonly preserveReaderNavigation?: boolean;
         readonly resolveRoute?: boolean;
+        readonly writeHistory?: boolean;
       } = {},
     ): void => {
-      if (historyPort !== null) {
+      if (historyPort !== null && options.writeHistory !== false) {
         const routePlace = options.resolveRoute === true || get().routeStatus === 'resolved'
           ? place
           : null;
@@ -1545,6 +1711,7 @@ export function createAppRuntime(
         readerPlace,
         readerPage: readerChanged ? null : state.readerPage,
         readerVisibleRange: readerChanged ? null : state.readerVisibleRange,
+        readerCursorToken: readerChanged ? null : state.readerCursorToken,
         readerNavigation:
           readerChanged && !options.preserveReaderNavigation
             ? null
@@ -1555,17 +1722,30 @@ export function createAppRuntime(
       }
     };
 
-    const replaceReaderTarget = (target: ReaderNavigationTarget): void => {
+    const replaceReaderTarget = (
+      target: ReaderNavigationTarget,
+      anchor: ReaderAnchorKind = 'position',
+      from?: ReaderOpenIntent['from'],
+      options: {
+        readonly preview?: boolean;
+      } = {},
+    ): void => {
       const place = get().readerPlace;
       const cursor = target.cursor;
+      const origin = from ?? place?.from;
+      const sameTarget = place !== null
+        && target.doc === place.doc
+        && anchor === place.anchor
+        && origin === place.from
+        && sameReaderCursor(cursor, place.cursor);
       if (
         place === null
-        || (target.doc === place.doc && sameReaderCursor(cursor, place.cursor))
         || !get().snapshot?.readyDocs.includes(target.doc)
         || !Number.isSafeInteger(cursor.token)
         || cursor.token < 0
         || (cursor.kind === 'before' && cursor.token < 1)
       ) return;
+      if (sameTarget) return;
       const readerIndex = get().layers.findLastIndex((layer) => layer.kind === 'reader');
       const readerLayer = get().layers[readerIndex];
       if (readerIndex < 0 || readerLayer?.kind !== 'reader') return;
@@ -1574,6 +1754,8 @@ export function createAppRuntime(
         ...place,
         doc: target.doc,
         cursor: { ...cursor },
+        anchor,
+        from: origin ?? place.from,
       };
       const nextLayer: Layer = {
         ...readerLayer,
@@ -1586,7 +1768,10 @@ export function createAppRuntime(
         'replace',
         get().place,
         layers,
-        { preserveReaderNavigation: sameDocument },
+        {
+          preserveReaderNavigation: sameDocument,
+          writeHistory: options.preview !== true,
+        },
       );
       if (!sameDocument) readerWalk = null;
       get().runReader();
@@ -2986,7 +3171,7 @@ export function createAppRuntime(
           kind: 'place',
           id: newLayerId(),
           target: Object.freeze({ place }),
-          returnFocusTo: `place-${get().place}-heading`,
+          returnFocusTo: placeReturnFocusTo(get().place),
         };
         const layers = pushLayerStack(get().layers, next);
         rememberLayer(next, layers);
@@ -3001,7 +3186,7 @@ export function createAppRuntime(
           kind: 'place',
           id: newLayerId(),
           target: Object.freeze({ place }),
-          returnFocusTo: `place-${get().place}-heading`,
+          returnFocusTo: placeReturnFocusTo(get().place),
         };
         const layers = replaceTopLayer(get().layers, next);
         rememberLayer(next, layers);
@@ -3067,11 +3252,15 @@ export function createAppRuntime(
       trendMeasure: DEFAULT_TREND_MEASURE,
       trendSettingsNotice: null,
       scrub: null,
+      positionHistory: EMPTY_POSITION_HISTORY,
       footerPassage: null,
       occurrenceNavigation: null,
       readerPlace: null,
+      readerScale: DEFAULT_READER_SCALE,
+      atlasNormalization: opts?.atlasNormalization ?? DEFAULT_ATLAS_NORMALIZATION,
       readerPage: null,
       readerVisibleRange: null,
+      readerCursorToken: null,
       readerNavigation: null,
 
       quickAdd(input) {
@@ -3490,7 +3679,7 @@ export function createAppRuntime(
         return 'applied';
       },
 
-      setScrub(target) {
+      setScrub(target, intent = { kind: 'drift', origin: 'scrub' }) {
         if (get().interaction.kind === 'rsvp') return;
         const { snapshot, corpusTokenCounts } = get();
         const tokenCount = corpusTokenCounts.get(target.doc);
@@ -3504,6 +3693,11 @@ export function createAppRuntime(
         const previous = get().scrub;
         const changed =
           previous?.doc !== target.doc || previous.token !== target.token;
+        if (intent.kind === 'jump') {
+          recordPositionJumpNow(previous, target, intent.origin);
+        } else if (changed) {
+          schedulePositionSettle(target, intent.origin);
+        }
         if (changed) {
           occurrenceLane.supersede();
           set({ scrub: target, occurrenceNavigation: null, matchesReveal: null });
@@ -3513,10 +3707,49 @@ export function createAppRuntime(
 
       clearScrub() {
         if (get().interaction.kind === 'rsvp') return;
+        settlePositionHistory();
         occurrenceLane.supersede();
         set({ scrub: null, occurrenceNavigation: null, matchesReveal: null });
         resetFooterPassage();
         runMatchesWindow({ kind: 'rank', rank: 0 });
+      },
+
+      stepPositionHistory(direction) {
+        if (get().interaction.kind === 'rsvp' || (direction !== -1 && direction !== 1)) {
+          return null;
+        }
+        settlePositionHistory();
+        const state = get();
+        const snapshot = state.snapshot;
+        if (snapshot === null) return null;
+        const transition = traversePositionHistory(state.positionHistory, direction);
+        if (transition === null) return null;
+        const tokenCount = state.corpusTokenCounts.get(transition.target.doc);
+        if (
+          transition.target.snapshot !== snapshot.snapshot
+          || !snapshot.readyDocs.includes(transition.target.doc)
+          || !Number.isSafeInteger(transition.target.token)
+          || transition.target.token < 0
+          || (tokenCount !== undefined && transition.target.token >= tokenCount)
+        ) return null;
+        const target = { doc: transition.target.doc, token: transition.target.token };
+        occurrenceLane.supersede();
+        set({
+          positionHistory: transition.history,
+          scrub: target,
+          occurrenceNavigation: null,
+          matchesReveal: null,
+        });
+        scheduleFooterPassage(target);
+        if (get().readerPlace !== null) {
+          replaceReaderTarget({
+            doc: target.doc,
+            cursor: { kind: 'around', token: target.token },
+          }, 'position');
+        } else {
+          runMatchesWindow({ kind: 'position', doc: target.doc, token: target.token });
+        }
+        return target;
       },
 
       enterFind() {
@@ -3729,17 +3962,17 @@ export function createAppRuntime(
               return;
             }
 
-            get().setScrub({ doc: hit.doc, token: hit.token });
+            get().setScrub(
+              { doc: hit.doc, token: hit.token },
+              { kind: 'jump', origin: 'find' },
+            );
             get().requestMatchesWindow({ kind: 'position', doc: hit.doc, token: hit.token });
             const liveReader = get().readerPlace;
             if (liveReader?.snapshot === snapshot.snapshot) {
-              const readerLayer = get().layers.findLast((layer) => layer.kind === 'reader');
-              get().openReader({
-                snapshot: snapshot.snapshot,
+              replaceReaderTarget({
                 doc: hit.doc,
-                token: hit.token,
-                from: 'occurrence',
-              }, readerLayer?.returnFocusTo);
+                cursor: { kind: 'around', token: hit.token },
+              }, 'occurrence', 'occurrence');
             }
             writeFindState({
               status: 'ready',
@@ -3773,7 +4006,7 @@ export function createAppRuntime(
 
       enterRsvp(playing) {
         const state = get();
-        if (state.interaction.kind === 'rsvp') return;
+        if (state.interaction.kind === 'rsvp' || state.readerScale !== 'read') return;
         const place = state.readerPlace;
         const pageState = state.readerPage;
         const source = pageState
@@ -3799,7 +4032,12 @@ export function createAppRuntime(
           && visible.tokens.start < source.tokens.end
           ? visible.tokens.start
           : null;
-        const startToken = source.anchor?.token ?? published;
+        const explicit = state.readerCursorToken !== null
+          && state.readerCursorToken >= source.tokens.start
+          && state.readerCursorToken < source.tokens.end
+          ? state.readerCursorToken
+          : null;
+        const startToken = explicit ?? source.anchor?.token ?? published;
         if (
           startToken === null
           || startToken < source.tokens.start
@@ -3815,6 +4053,11 @@ export function createAppRuntime(
             find: { ...suspended.find, state: { status: 'idle' } },
           };
         }
+        recordPositionJumpNow(
+          state.scrub,
+          { doc: source.doc, token: startToken },
+          'reader',
+        );
         set({
           interaction: {
             kind: 'rsvp',
@@ -3909,6 +4152,7 @@ export function createAppRuntime(
         ) return;
         const { doc } = state.interaction.rsvp;
         const suspended = state.interaction.suspended;
+        recordPositionJumpNow(state.scrub, { doc, token }, 'reader');
         occurrenceLane.supersede();
         set({
           interaction: suspended,
@@ -3918,6 +4162,10 @@ export function createAppRuntime(
           interactionError: null,
         });
         replaceReaderTarget({ doc, cursor: { kind: 'from', token } });
+        // runReader clears presentation state while the exact return page is
+        // loading; publish the cursor after navigation so the fitted page can
+        // preserve and render the Speed exit position.
+        set({ readerCursorToken: token });
       },
 
       stepOccurrence(direction) {
@@ -3989,10 +4237,6 @@ export function createAppRuntime(
           identity: termGroupIdentity(track.group),
         }));
         const issuedReader = currentReader;
-        const readerLayer = issuedReader
-          ? state.layers.findLast((layer) => layer.kind === 'reader')
-          : undefined;
-        const returnFocusTo = readerLayer?.returnFocusTo;
         const lease = occurrenceLane.ops.begin(
           () => snapKey(get().snapshot) === issuedKey,
           () => issuedIdentities.every((entry) =>
@@ -4095,7 +4339,10 @@ export function createAppRuntime(
               });
               return;
             }
-            get().setScrub({ doc: hit.doc, token: hit.token });
+            get().setScrub(
+              { doc: hit.doc, token: hit.token },
+              { kind: 'jump', origin: 'occurrence' },
+            );
             // Occurrence stepping deliberately collapses a same-start cluster
             // into one stop; its members are cluster-level provenance, so the
             // Matches applies the documented first-row rule.
@@ -4104,12 +4351,10 @@ export function createAppRuntime(
               groupId: chosen.group.id,
             });
             if (issuedReader !== null) {
-              get().openReader({
-                snapshot: snapshot.snapshot,
+              replaceReaderTarget({
                 doc: hit.doc,
-                token: hit.token,
-                from: 'occurrence',
-              }, returnFocusTo);
+                cursor: { kind: 'around', token: hit.token },
+              }, 'occurrence', 'occurrence');
             }
             set({
               occurrenceNavigation: {
@@ -4140,6 +4385,22 @@ export function createAppRuntime(
           snapshot?.readyDocs ?? [],
         );
         if (place) {
+          // Entrances from analytical evidence always begin in readable prose.
+          // Subsequent movement inside Reader uses replaceReaderTarget and
+          // deliberately leaves this transient scale untouched.
+          set({ readerScale: 'read' });
+          const origin: PositionHistoryOrigin = intent.from === 'kwic'
+            ? 'matches'
+            : intent.from === 'footer'
+              ? 'seek'
+              : intent.from;
+          const target = { doc: intent.doc, token: intent.token };
+          const previous = get().scrub;
+          recordPositionJumpNow(previous, target, origin);
+          if (previous?.doc !== target.doc || previous.token !== target.token) {
+            occurrenceLane.supersede();
+            set({ scrub: target, occurrenceNavigation: null, matchesReveal: null });
+          }
           const next = freshLayer(
             'reader',
             Object.freeze(place),
@@ -4155,9 +4416,115 @@ export function createAppRuntime(
         }
       },
 
+      stepReaderDocument(direction) {
+        const state = get();
+        const snapshot = state.snapshot;
+        const place = state.readerPlace;
+        if (
+          state.interaction.kind === 'rsvp'
+          || snapshot === null
+          || place === null
+          || (direction !== -1 && direction !== 1)
+        ) return null;
+        const order = readyReaderDocumentOrder(
+          state.projectSession?.project.data.order ?? [],
+          snapshot.readyDocs,
+        );
+        const token = state.scrub?.doc === place.doc
+          ? state.scrub.token
+          : readerCursorToken(place.cursor);
+        const target = adjacentReadableDocumentAtRelativePosition(
+          order,
+          place.doc,
+          direction,
+          token,
+          (doc) => state.corpusTokenCounts.get(doc),
+        );
+        if (target === null) return null;
+        get().setScrub(target, { kind: 'jump', origin: 'reader' });
+        replaceReaderTarget({
+          doc: target.doc,
+          cursor: { kind: 'around', token: target.token },
+        }, 'position');
+        return target;
+      },
+
+      selectAtlasPosition(target, anchor, descend = false) {
+        const state = get();
+        const snapshot = state.snapshot;
+        const tokenCount = state.corpusTokenCounts.get(target.doc);
+        if (
+          state.interaction.kind === 'rsvp'
+          || state.readerScale !== 'atlas'
+          || state.readerPlace === null
+          || snapshot === null
+          || state.readerPlace.snapshot !== snapshot.snapshot
+          || !snapshot.readyDocs.includes(target.doc)
+          || !Number.isSafeInteger(target.token)
+          || target.token < 0
+          || tokenCount === undefined
+          || target.token >= tokenCount
+          || (anchor !== 'occurrence' && anchor !== 'position')
+        ) return;
+        if (state.scrub?.doc !== target.doc || state.scrub.token !== target.token) {
+          get().setScrub(
+            target,
+            descend
+              ? { kind: 'jump', origin: 'reader' }
+              : { kind: 'drift', origin: 'reader' },
+          );
+        }
+        replaceReaderTarget({
+          doc: target.doc,
+          cursor: { kind: 'around', token: target.token },
+        }, anchor);
+        if (descend) get().setReaderScale('read');
+      },
+
+      setReaderScale(scale) {
+        const state = get();
+        if (
+          state.interaction.kind === 'rsvp'
+          || state.readerPlace === null
+          || scale === state.readerScale
+          || (scale === 'atlas' && !atlasAvailable(state.snapshot?.readyDocs ?? []))
+        ) return;
+        if (scale === 'atlas') {
+          // The Atlas consumes resident dispersion. Cancel an unfinished prose
+          // request, but retain a settled page for a query-free return to Read.
+          readerLane.supersede();
+          set({
+            readerScale: scale,
+            readerPage: state.readerPage?.state.status === 'ready' ? state.readerPage : null,
+            readerVisibleRange:
+              state.readerPage?.state.status === 'ready' ? state.readerVisibleRange : null,
+            readerCursorToken:
+              state.readerPage?.state.status === 'ready' ? state.readerCursorToken : null,
+            readerNavigation:
+              state.readerPage?.state.status === 'ready' ? state.readerNavigation : null,
+          });
+          return;
+        }
+        set({ readerScale: scale });
+        const current = get();
+        const effectiveTracks = effectiveTrackSpecs(current.series);
+        const pageIsResident = current.readerPage !== null
+          && sameReaderPlace(current.readerPage.place, current.readerPlace)
+          && current.readerPage.state.status === 'ready'
+          && effectiveTracks !== null
+          && sameReaderTrackSet(current.readerPage.tracks, effectiveTracks.captured);
+        if (!pageIsResident) current.runReader();
+      },
+
+      setAtlasNormalization(normalization) {
+        set((state) => state.atlasNormalization === normalization
+          ? state
+          : { atlasNormalization: normalization });
+      },
+
       setReaderVisibleRange(range) {
         const state = get();
-        if (state.interaction.kind === 'rsvp') return;
+        if (state.interaction.kind === 'rsvp' || state.readerScale !== 'read') return;
         const place = state.readerPlace;
         const source = state.readerPage
           && place
@@ -4221,16 +4588,27 @@ export function createAppRuntime(
         const previousStart = readerWalk.index > 0
           ? readerWalk.boundaries[readerWalk.index - 1]
           : null;
-        const selectionToken = place.cursor.kind === 'around'
-          && place.cursor.token >= range.tokens.start
-          && place.cursor.token < range.tokens.end
-          ? place.cursor.token
-          : range.tokens.start;
+        const preservedCursor = preservedReadingCursor(
+          state.readerCursorToken,
+          range.tokens,
+        );
+        const selectionToken = publishedReadingToken(
+          preservedCursor,
+          place.cursor,
+          range.tokens,
+        );
         const selectionChanged = state.scrub?.doc !== source.doc
           || state.scrub.token !== selectionToken;
         if (selectionChanged) occurrenceLane.supersede();
+        if (selectionChanged) {
+          schedulePositionSettle(
+            { doc: source.doc, token: selectionToken },
+            'reader',
+          );
+        }
         set({
           readerVisibleRange: range,
+          readerCursorToken: preservedCursor,
           readerNavigation: {
             previous: previousStart !== null && previousStart !== undefined
               ? { doc: source.doc, cursor: { kind: 'from', token: previousStart } }
@@ -4251,9 +4629,46 @@ export function createAppRuntime(
         });
       },
 
+      setReadingCursor(token) {
+        const state = get();
+        const place = state.readerPlace;
+        const page = state.readerPage;
+        const visible = state.readerVisibleRange;
+        if (
+          state.interaction.kind === 'rsvp'
+          || state.readerScale !== 'read'
+          || place === null
+          || page === null
+          || page.state.status !== 'ready'
+          || visible === null
+          || page.snapshot !== visible.snapshot
+          || page.snapshot !== place.snapshot
+          || page.state.page.doc !== place.doc
+          || visible.doc !== place.doc
+          || !Number.isSafeInteger(token)
+          || token < visible.tokens.start
+          || token >= visible.tokens.end
+        ) return;
+        const changed = state.scrub?.doc !== place.doc || state.scrub.token !== token;
+        if (changed) {
+          occurrenceLane.supersede();
+          schedulePositionSettle({ doc: place.doc, token }, 'reader');
+        }
+        set({
+          readerCursorToken: token,
+          ...(changed
+            ? {
+                scrub: { doc: place.doc, token },
+                occurrenceNavigation: null,
+                matchesReveal: null,
+              }
+            : {}),
+        });
+      },
+
       refitReaderAt(token) {
         const state = get();
-        if (state.interaction.kind === 'rsvp') return;
+        if (state.interaction.kind === 'rsvp' || state.readerScale !== 'read') return;
         const visible = state.readerVisibleRange;
         const source = state.readerPage?.state.status === 'ready'
           ? state.readerPage.state.page
@@ -4270,8 +4685,89 @@ export function createAppRuntime(
         replaceReaderTarget({ doc: source.doc, cursor: { kind: 'from', token } });
       },
 
+      seekReader(token, phase = 'commit') {
+        const state = get();
+        const place = state.readerPlace;
+        const session = readerSeekSession;
+        // A rejected commit must still end the prior gesture. Otherwise a
+        // later seek could record history from an abandoned, stale origin.
+        if (phase === 'commit') readerSeekSession = null;
+        const readyPage = state.readerPage
+          && place
+          && sameReaderPlace(state.readerPage.place, place)
+          && state.readerPage.state.status === 'ready'
+          ? state.readerPage.state.page
+          : null;
+        const tokenCount = session !== null && session.doc === place?.doc
+          ? session.tokenCount
+          : readyPage?.docTokenCount
+          ?? (place === null ? undefined : state.corpusTokenCounts.get(place.doc));
+        if (
+          state.interaction.kind === 'rsvp'
+          || state.readerScale !== 'read'
+          || place === null
+          || tokenCount === undefined
+          || !Number.isSafeInteger(token)
+          || token < 0
+          || token >= tokenCount
+        ) return;
+        const target = { doc: place.doc, token };
+        let activeSession = session !== null && session.doc === place.doc
+          ? session
+          : null;
+        if (phase === 'start' || (phase === 'preview' && activeSession === null)) {
+          activeSession = {
+            doc: place.doc,
+            origin: state.scrub,
+            tokenCount,
+          };
+          readerSeekSession = activeSession;
+        }
+        if (phase === 'commit') {
+          const origin = activeSession?.origin ?? state.scrub;
+          if (origin?.doc !== target.doc || origin.token !== target.token) {
+            recordPositionJumpNow(origin, target, 'seek');
+          }
+        }
+        const changed = state.scrub?.doc !== place.doc || state.scrub.token !== token;
+        if (changed) occurrenceLane.supersede();
+        const visible = state.readerVisibleRange;
+        if (
+          visible !== null
+          && visible.snapshot === place.snapshot
+          && visible.doc === place.doc
+          && token >= visible.tokens.start
+          && token < visible.tokens.end
+        ) {
+          set({
+            readerCursorToken: token,
+            ...(changed
+              ? {
+                  scrub: target,
+                  occurrenceNavigation: null,
+                  matchesReveal: null,
+                }
+              : {}),
+          });
+          return;
+        }
+        if (changed) {
+          set({
+            scrub: target,
+            occurrenceNavigation: null,
+            matchesReveal: null,
+          });
+        }
+        replaceReaderTarget(
+          { doc: place.doc, cursor: { kind: 'from', token } },
+          'position',
+          undefined,
+          activeSession === null ? {} : { preview: true },
+        );
+      },
+
       navigateReader(target) {
-        if (get().interaction.kind === 'rsvp') return;
+        if (get().interaction.kind === 'rsvp' || get().readerScale !== 'read') return;
         const { readerPlace: place, readerNavigation: navigation, readerPage } = get();
         const destination: ReaderNavigationTarget | null = place === null
           ? null
@@ -4315,24 +4811,36 @@ export function createAppRuntime(
       },
 
       closeReader() {
+        readerSeekSession = null;
         requestBack();
       },
 
       runReader() {
         readerLane.supersede();
-        const { snapshot, readerPlace: place, series } = get();
+        const { snapshot, readerPlace: place, readerScale, series } = get();
         if (
           !snapshot
           || !place
           || place.snapshot !== snapshot.snapshot
           || !snapshot.readyDocs.includes(place.doc)
         ) {
-          set({ readerPage: null, readerVisibleRange: null, readerNavigation: null });
+          set({
+            readerPage: null,
+            readerVisibleRange: null,
+            readerCursorToken: null,
+            readerNavigation: null,
+          });
           return;
         }
+        if (readerScale === 'atlas') return;
         const tracks = effectiveTrackSpecs(series);
         if (tracks === null) {
-          set({ readerPage: null, readerVisibleRange: null, readerNavigation: null });
+          set({
+            readerPage: null,
+            readerVisibleRange: null,
+            readerCursorToken: null,
+            readerNavigation: null,
+          });
           return;
         }
         const issuedKey = snapKey(snapshot);
@@ -4350,6 +4858,7 @@ export function createAppRuntime(
             state: { status: 'pending' },
           },
           readerVisibleRange: null,
+          readerCursorToken: null,
         });
         issueOn(
           readerLane,
@@ -4448,6 +4957,7 @@ export function createAppRuntime(
           selectedDispersionLane.supersede();
           companyLane.supersede();
           destinationsLane.supersede();
+          settlePositionHistory();
           set({
             trends: new Map(),
             scrub: null,
@@ -4629,6 +5139,10 @@ export function createAppRuntime(
                   corpusInventory: ready,
                   inventory: state.linkedSelection === null ? ready : state.inventory,
                   corpusTokenCounts,
+                  positionHistory: clampPositionHistoryExtents(
+                    state.positionHistory,
+                    corpusTokenCounts,
+                  ),
                 };
               });
               const current = get();
@@ -4703,6 +5217,10 @@ export function createAppRuntime(
                   state: { status: 'ready', result: data.inventory },
                 },
                 corpusTokenCounts,
+                positionHistory: clampPositionHistoryExtents(
+                  state.positionHistory,
+                  corpusTokenCounts,
+                ),
               };
             });
           },
@@ -5492,7 +6010,7 @@ export function createAppRuntime(
           && (!snapshot || !isValidSelection(selection, snapshot.snapshot, snapshot.readyDocs))) {
           return; // a stale gesture (superseded snapshot / departed doc) commits nothing
         }
-        if (get().linkedSelection === selection) return;
+        if (sameSelection(get().linkedSelection, selection)) return;
         set({ linkedSelection: selection });
         if (selection === null) {
           // Exact ready residents survive a temporary range and are reused;
@@ -5534,7 +6052,13 @@ export function createAppRuntime(
         if (!state.snapshot?.readyDocs.includes(doc)) return;
         // All navigation publishes the ONE shared cursor. Exact evidence also
         // carries a one-shot row disambiguator; density midpoints never do.
-        get().setScrub({ doc, token });
+        get().setScrub(
+          { doc, token },
+          {
+            kind: 'jump',
+            origin: origin?.kind === 'bucket' ? 'barcode' : 'occurrence',
+          },
+        );
         const live = get();
         const tracks = effectiveTrackSpecs(live.series);
         const trackKey = tracks === null ? '' : JSON.stringify(tracks.identities);
@@ -5718,6 +6242,7 @@ export function createAppRuntime(
 
   const reconcileHistory = (): void => {
     if (historyPort === null || disposed) return;
+    readerSeekSession = null;
     const requestedFocusTo = pendingBackFocusTo;
     pendingBackFocusTo = null;
     historyTraversalPending = false;
@@ -5849,7 +6374,11 @@ export function createAppRuntime(
     });
   };
 
+  let workspaceSources = workspaceSemanticSources(store.getState());
   const unsubscribeWorkspace = store.subscribe((state) => {
+    const nextSources = workspaceSemanticSources(state);
+    if (sameWorkspaceSemanticSources(workspaceSources, nextSources)) return;
+    workspaceSources = nextSources;
     if (!workspaceHydrated) return;
     const key = workspaceSemanticKey(state);
     if (key === workspacePausedKey) return;
@@ -5919,6 +6448,37 @@ export function createAppRuntime(
     } else {
       keynessView = reconcileKeynessView(currentKeynessView, readyDocs);
     }
+    let current = store.getState();
+    if (prevKey !== nextKey) {
+      settlePositionHistory();
+      current = store.getState();
+    }
+    let positionHistory = current.positionHistory;
+    if (prevKey !== nextKey && next.snapshot === null) {
+      if (current.snapshot !== null && current.positionHistory.entries.length > 0) {
+        pendingPositionReconciliation = {
+          projectId: current.projectSession?.project.id ?? next.project.id,
+          history: current.positionHistory,
+          tokenCounts: current.corpusTokenCounts,
+        };
+      }
+      positionHistory = EMPTY_POSITION_HISTORY;
+    } else if (prevKey !== nextKey) {
+      const pending = pendingPositionReconciliation?.projectId === next.project.id
+        ? pendingPositionReconciliation
+        : null;
+      positionHistory = reconcilePositionHistory(
+        pending?.history ?? current.positionHistory,
+        next.snapshot!.snapshot,
+        readyDocs,
+        pending?.tokenCounts ?? current.corpusTokenCounts,
+      );
+      pendingPositionReconciliation = null;
+    }
+    const readerScale = current.readerScale === 'atlas'
+      && !atlasAvailable(next.snapshot?.readyDocs ?? [])
+      ? 'read'
+      : current.readerScale;
     store.setState({
       bootstrap: { phase: 'attached' },
       projectSession: next,
@@ -5926,6 +6486,8 @@ export function createAppRuntime(
       loadingPhase: describeAnalysis(next.analysis),
       loadError: next.analysis.phase === 'error' ? next.analysis.message : null,
       keynessView,
+      readerScale,
+      positionHistory,
       corpusTokenCounts: prevKey !== nextKey
         ? new Map()
         : store.getState().corpusTokenCounts,
@@ -5976,6 +6538,7 @@ export function createAppRuntime(
           readerPlace: null,
           readerPage: null,
           readerVisibleRange: null,
+          readerCursorToken: null,
           readerNavigation: null,
         });
       }
@@ -5983,6 +6546,8 @@ export function createAppRuntime(
       store.getState().runInventory();
       store.getState().runFrequency();
       store.getState().runKeyness();
+    } else if (readerScale !== current.readerScale && store.getState().readerPlace !== null) {
+      store.getState().runReader();
     }
   };
 
@@ -6103,9 +6668,13 @@ export function createAppRuntime(
           readerPlace: null,
           readerPage: null,
           readerVisibleRange: null,
+          readerCursorToken: null,
           readerNavigation: null,
         });
       }
+      clearPositionHistoryTimer();
+      pendingPositionSettle = null;
+      pendingPositionReconciliation = null;
       clearWorkspaceTimer();
       workspaceSaveToken += 1;
       unsubscribeHistory();

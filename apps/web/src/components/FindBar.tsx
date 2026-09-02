@@ -14,13 +14,22 @@ import { DockTakeover } from './DockTakeover.tsx';
 
 const FIND_RESULT_ID = 'corpus-find-result';
 
-export function FindBar({
-  onClose,
-  placement = 'floating',
-}: {
-  readonly onClose: () => void;
-  readonly placement?: 'rail' | 'floating';
-}) {
+type FindBarProps =
+  | {
+      readonly onClose: () => void;
+      readonly onExitReader: () => void;
+      readonly placement: 'reader';
+    }
+  | {
+      readonly onClose: () => void;
+      readonly onExitReader?: never;
+      readonly placement?: 'rail' | 'floating';
+    };
+
+export function FindBar(props: FindBarProps) {
+  const { onClose } = props;
+  const placement = props.placement ?? 'floating';
+  const onExitReader = props.placement === 'reader' ? props.onExitReader : undefined;
   const interaction = useApp((state) => state.interaction);
   const interactionError = useApp((state) => state.interactionError);
   const matches = useApp((state) => state.kwic);
@@ -43,6 +52,8 @@ export function FindBar({
   const model = findBarModel(interaction);
   const progress = findMatchProgress(find, matches);
   const rail = placement === 'rail';
+  const reader = placement === 'reader';
+  const takeover = rail || reader;
   const submittedDraft = find !== null && draft === submittedRaw;
   const notebookAtCapacity = notebookTermCount >= NOTEBOOK_LIMITS_V1.maxGroups;
   const analysisAtCapacity = activeTermCount >= MAX_KWIC_TRACKS;
@@ -93,6 +104,7 @@ export function FindBar({
         doc: find.state.hit.doc,
         token: find.state.hit.token,
         from: 'occurrence',
+        anchor: 'occurrence',
       },
       FIND_RESULT_ID,
     );
@@ -133,10 +145,141 @@ export function FindBar({
       role="search"
       aria-label="Find in corpus"
       aria-busy={model.busy}
-      data-takeover={rail ? 'find' : undefined}
+      data-takeover={takeover ? 'find' : undefined}
       onKeyDown={handleKeyDown}
     >
-      {rail ? (
+      {reader ? (
+        <>
+          <form className="reader-find-form" onSubmit={submit}>
+            <button
+              type="button"
+              className="reader-find-exit"
+              aria-label="Return to workbench"
+              aria-keyshortcuts={shortcutAria(['reader-close'])}
+              onClick={onExitReader}
+            >
+              <span aria-hidden="true">←</span>{' '}
+              <span className="reader-find-exit-label" aria-hidden="true">back</span>
+            </button>
+            <label className="reader-find-label" htmlFor={FIND_INPUT_ID}>Find</label>
+            <div className="reader-find-field">
+              <input
+                id={FIND_INPUT_ID}
+                type="search"
+                value={draft}
+                aria-label="Find term or aliases"
+                placeholder="word, phrase, alias*"
+                aria-describedby="corpus-find-status corpus-find-error"
+                enterKeyHint="search"
+                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(event) => {
+                  setDraft(event.currentTarget.value);
+                  setSaveStatus('');
+                  setSaveError('');
+                  if (interactionError !== null) clearInteractionError();
+                }}
+              />
+              {submittedDraft && progress !== null && (
+                <span
+                  className="reader-find-progress"
+                  title={status}
+                  aria-hidden="true"
+                >
+                  {progress.current.toLocaleString()}/{progress.total.toLocaleString()}
+                </span>
+              )}
+            </div>
+            <div className="reader-find-actions">
+              {!submittedDraft ? (
+                <button
+                  type="submit"
+                  aria-label="Submit find"
+                  disabled={draft.trim() === ''}
+                >
+                  Find
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="find-bar-icon-action"
+                    aria-label="Previous match"
+                    aria-keyshortcuts={shortcutAria(['find-previous'])}
+                    onClick={() => {
+                      setSaveStatus('');
+                      setSaveError('');
+                      stepFind(-1);
+                    }}
+                  >
+                    <span className="find-bar-action-glyph" aria-hidden="true">←</span>
+                  </button>
+                  <button
+                    ref={nextRef}
+                    type="button"
+                    className="find-bar-icon-action"
+                    aria-label="Next match"
+                    aria-keyshortcuts={shortcutAria(['find-next'])}
+                    onClick={() => {
+                      setSaveStatus('');
+                      setSaveError('');
+                      stepFind(1);
+                    }}
+                  >
+                    <span className="find-bar-action-glyph" aria-hidden="true">→</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={saveStatus === '' ? 'Save Find as term' : 'Saved Find as term'}
+                    title={saveStatus === '' ? saveTitle : `${find.query.label} saved to Terms`}
+                    disabled={saveDisabled || saveStatus !== ''}
+                    onClick={saveCurrentFind}
+                  >
+                    <span className="reader-find-save-wide" aria-hidden="true">
+                      {saveStatus === '' ? 'save' : 'saved'}
+                    </span>
+                    <span className="reader-find-save-compact" aria-hidden="true">
+                      {saveStatus === '' ? '+' : '✓'}
+                    </span>
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                className="find-bar-icon-action"
+                aria-label="Clear and close find"
+                aria-keyshortcuts={shortcutAria(['find-close'])}
+                onClick={onClose}
+              >
+                <span className="find-bar-action-glyph" aria-hidden="true">×</span>
+              </button>
+            </div>
+          </form>
+          <p
+            id="corpus-find-status"
+            className="visually-hidden"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {saveStatus || status}
+            {progress !== null
+              ? ` Find match ${progress.current.toLocaleString()} of ${progress.total.toLocaleString()}.`
+              : ''}
+          </p>
+          <p
+            id="corpus-find-error"
+            className="visually-hidden"
+            role="alert"
+            aria-live="assertive"
+            aria-atomic="true"
+          >
+            {interactionError ?? saveError}
+          </p>
+        </>
+      ) : rail ? (
         <>
           <DockTakeover
             mode="find"

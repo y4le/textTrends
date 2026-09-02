@@ -136,9 +136,9 @@ describe('Compare view law', () => {
     expect(compareSideLabel('b', view, title)).toBe('Beta');
     const rest = { ...view, mode: 'document-rest' as const, restOn: 'b' as const };
     expect(compareSideLabel('a', rest, title)).toBe('Alpha');
-    expect(compareSideLabel('b', rest, title)).toBe('all books except Alpha');
+    expect(compareSideLabel('b', rest, title)).toBe('all texts except Alpha');
     const inverted = { ...rest, restOn: 'a' as const };
-    expect(compareSideLabel('a', inverted, title)).toBe('all books except Beta');
+    expect(compareSideLabel('a', inverted, title)).toBe('all texts except Beta');
     expect(compareSideLabel('b', inverted, title)).toBe('Beta');
     const selection = { ...view, mode: 'selection-rest' as const };
     expect(compareSideLabel('a', selection, title)).toBe('selected range');

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DispersionResultV1, NumericTrend } from '@texttrends/core';
 import { trendGeometryFor } from '../src/lib/trend-compact.ts';
 import { barcodeBandHeight, trendStageHit } from '../src/lib/trend-geometry.ts';
+import { trendRowSizing } from '../src/lib/trend-row-size.ts';
 import {
   projectedBarcodeSnapIndexes,
   projectedBarcodeTracks,
@@ -76,6 +77,8 @@ describe('trend stage projection and geometry', () => {
     expect(projected.tracks[0]?.segmentsByDocOrdinal.map((bucket) => bucket.length)).toEqual([1, 1]);
     expect(narrow.edgeX(1, 0)).toBe(100);
     expect(wide.edgeX(1, 0)).toBe(200);
+    expect(narrow.labelBands).toHaveLength(2);
+    expect(narrow.labelBands[1]).toMatchObject({ left: 100, right: 300 });
     expect(snapIndexes[0]?.[0]?.entries[0]).toMatchObject({ t0: 2, t1: 3 });
     expect(narrow.hitSpec).toMatchObject({ view: 'series', plotWidth: 300, layout: projected.layout });
   });
@@ -95,6 +98,90 @@ describe('trend stage projection and geometry', () => {
       tokenCounts: projected.tokenCounts,
       rowDomain: projected.tokenCounts,
     });
+  });
+
+  it('withdraws only separate-row title paint while retaining focus geometry', () => {
+    const projected = projection();
+    const hidden = trendStageGeometry(projected, {
+      plotWidth: 240,
+      view: 'by-book',
+      titlesPainted: false,
+    });
+    expect(hidden.labelBands).toHaveLength(2);
+    expect(hidden.labelBands.every((band) => !band.titlePainted)).toBe(true);
+    expect(hidden.labelBands[0]).toMatchObject({
+      focusTop: 0,
+      focusHeight: projected.rowPitch,
+    });
+
+    const series = trendStageGeometry(projected, {
+      plotWidth: 240,
+      view: 'series',
+      titlesPainted: false,
+    });
+    expect(series.labelBands.every((band) => band.titlePainted)).toBe(true);
+  });
+
+  it('converts a miniature barcode and its leading gap to ordinary plot interaction', () => {
+    const geometry = trendRowSizing({
+      width: 'regular', coarse: false, trackCount: 1, targetPitch: 18,
+    }).geometry;
+    const projected = trendStageProjection({
+      trend,
+      seriesOrder: ['s'],
+      dispersion,
+      selectedDispersion: null,
+      selectedDocs: [],
+      geometry,
+    });
+    const stage = trendStageGeometry(projected, {
+      plotWidth: 240,
+      view: 'by-book',
+      barcodeInteractive: false,
+      titlesPainted: false,
+    });
+    expect(stage.hitSpec).toMatchObject({ barcodeZone: 'plot' });
+    for (const y of [geometry.rowHeight + 0.5, geometry.rowHeight + 2.5]) {
+      expect(trendStageHit(120, y, stage.hitSpec, 'locate'))
+        .toMatchObject({ d: 0, zone: 'plot' });
+    }
+
+    const interactive = trendStageGeometry(projected, {
+      plotWidth: 240,
+      view: 'by-book',
+      barcodeInteractive: true,
+    });
+    expect(trendStageHit(
+      120,
+      geometry.rowHeight + geometry.barcodeBandGap + 0.5,
+      interactive.hitSpec,
+      'locate',
+    )).toMatchObject({ d: 0, zone: 'barcode', trackRow: 0 });
+  });
+
+  it('removes hidden barcode geometry without leaving a ghost zone', () => {
+    const sizing = trendRowSizing({
+      width: 'regular', coarse: false, trackCount: 1, targetPitch: 14,
+    });
+    const projected = trendStageProjection({
+      trend,
+      seriesOrder: ['s'],
+      dispersion,
+      selectedDispersion: null,
+      selectedDocs: [],
+      geometry: sizing.geometry,
+    });
+    const stage = trendStageGeometry(projected, {
+      plotWidth: 240,
+      view: 'by-book',
+      barcodeInteractive: false,
+      titlesPainted: false,
+    });
+    expect(projected).toMatchObject({ barcodeHeight: 0, rowPitch: 14 });
+    expect(stage.hitSpec).toMatchObject({ barcodeHeight: 0, barcodeZone: 'plot' });
+    expect(trendStageHit(120, sizing.geometry.rowHeight + 0.5, stage.hitSpec, 'locate'))
+      .toBeNull();
+    expect(stage.labelBands[0]).toMatchObject({ focusTop: 0, focusHeight: 14 });
   });
 
   it('gives to-scale rows one shared token domain without changing their extents', () => {

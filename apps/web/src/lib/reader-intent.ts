@@ -1,10 +1,15 @@
 /** Snapshot-fenced intent shared by views that can open the full Reader. */
 
+export type ReaderAnchorKind = 'occurrence' | 'position';
+
 export interface ReaderOpenIntent {
   readonly snapshot: string;
   readonly doc: string;
   readonly token: number;
   readonly from: 'kwic' | 'barcode' | 'footer' | 'occurrence';
+  /** The evidence claim at this location. A density midpoint is a position,
+   * even though its numeric token is exact. */
+  readonly anchor: ReaderAnchorKind;
 }
 
 export interface ReaderPlace {
@@ -15,6 +20,7 @@ export interface ReaderPlace {
     | { readonly kind: 'from'; readonly token: number }
     | { readonly kind: 'before'; readonly token: number };
   readonly from: ReaderOpenIntent['from'];
+  readonly anchor: ReaderAnchorKind;
 }
 
 const READER_ORIGINS = new Set<ReaderOpenIntent['from']>([
@@ -27,6 +33,10 @@ const READER_CURSOR_KINDS = new Set<ReaderPlace['cursor']['kind']>([
   'around',
   'from',
   'before',
+]);
+const READER_ANCHOR_KINDS = new Set<ReaderAnchorKind>([
+  'occurrence',
+  'position',
 ]);
 
 /**
@@ -49,6 +59,8 @@ export function liveReaderPlace(
     || !readyDocs.includes(candidate.doc)
     || typeof candidate.from !== 'string'
     || !READER_ORIGINS.has(candidate.from as ReaderOpenIntent['from'])
+    || typeof candidate.anchor !== 'string'
+    || !READER_ANCHOR_KINDS.has(candidate.anchor as ReaderAnchorKind)
     || typeof cursor !== 'object'
     || cursor === null
   ) {
@@ -77,6 +89,7 @@ export function readerPlaceFor(
     || !readyDocs.includes(intent.doc)
     || !Number.isSafeInteger(intent.token)
     || intent.token < 0
+    || !READER_ANCHOR_KINDS.has(intent.anchor)
   ) {
     return null;
   }
@@ -85,6 +98,7 @@ export function readerPlaceFor(
     doc: intent.doc,
     cursor: { kind: 'around', token: intent.token },
     from: intent.from,
+    anchor: intent.anchor,
   };
 }
 
@@ -99,6 +113,7 @@ export function sameReaderPlace(
       && left.snapshot === right.snapshot
       && left.doc === right.doc
       && left.from === right.from
+      && left.anchor === right.anchor
       && left.cursor.kind === right.cursor.kind
       && left.cursor.token === right.cursor.token
   );
@@ -114,5 +129,11 @@ export function sameReaderCursor(
       && right !== null
       && left.kind === right.kind
       && left.token === right.token
-    );
+  );
+}
+
+/** Resolve a cursor to the real token it names. `before` is a boundary cursor
+ * and therefore names the token immediately before that boundary. */
+export function readerCursorToken(cursor: ReaderPlace['cursor']): number {
+  return cursor.kind === 'before' ? Math.max(0, cursor.token - 1) : cursor.token;
 }

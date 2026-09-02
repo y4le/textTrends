@@ -25,8 +25,38 @@ test('the footer graph double-press clears or brushes without stealing shuttle a
   await chart.press('Enter');
   await expect(page.getByTestId('linked-selection')).toBeVisible();
 
-  // The main chart no longer owns this double-click gesture.
-  await chart.dblclick({ position: { x: 100, y: 8 } });
+  // The Trends graph and footer graph share the clear gesture. Use the chart's
+  // interior rather than its top edge, which can sit beneath the sticky row
+  // resize handle after Playwright scrolls the slider into view.
+  const initialChartBox = await chart.boundingBox();
+  if (!initialChartBox) throw new Error('Trends graph geometry is unavailable');
+  const chartGestureY = Math.min(initialChartBox.height - 8, 32);
+  await chart.dblclick({ position: { x: 100, y: chartGestureY } });
+  await expect(page.getByTestId('linked-selection')).toHaveCount(0);
+  await expect(chart.locator('..').getByRole('status')).toHaveText('Range cleared.');
+  await chart.press('s');
+  await chart.press('ArrowRight');
+  await chart.press('Enter');
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
+
+  // A drag commit suppresses its trailing native double-click so the newly
+  // authored range cannot immediately erase itself.
+  await page.waitForTimeout(600);
+  const chartBox = await chart.boundingBox();
+  if (!chartBox) throw new Error('Trends graph geometry is unavailable');
+  const chartDragY = chartBox.y + Math.min(chartBox.height - 8, 32);
+  const chartDragStart = chartBox.x + chartBox.width * 0.2;
+  const chartDragEnd = chartDragStart + 12;
+  await page.mouse.move(chartDragStart, chartDragY);
+  await page.mouse.down();
+  await page.mouse.move(chartDragEnd, chartDragY, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
+  await chart.dispatchEvent('dblclick', {
+    clientX: chartDragEnd,
+    clientY: chartDragY,
+    detail: 2,
+  });
   await expect(page.getByTestId('linked-selection')).toBeVisible();
 
   const footer = page.getByRole('complementary', { name: 'Reading position' });
@@ -39,7 +69,7 @@ test('the footer graph double-press clears or brushes without stealing shuttle a
   );
   let reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
-  await reader.getByRole('button', { name: 'back' }).click();
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(page.getByTestId('linked-selection')).toBeVisible();
 
   const barcode = footer.locator('canvas[data-barcode-band="series"]').first();
@@ -48,7 +78,7 @@ test('the footer graph double-press clears or brushes without stealing shuttle a
   await barcode.dblclick({ position: { x: barcodeBox.width / 2, y: 3 } });
   reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
-  await reader.getByRole('button', { name: 'back' }).click();
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(page.getByTestId('linked-selection')).toBeVisible();
 
   const [sliderBox, sparklineBox] = await Promise.all([
@@ -84,6 +114,24 @@ test('the footer graph double-press clears or brushes without stealing shuttle a
   // A third constituent click cannot erase the range just drawn.
   await page.mouse.click(x(0.65), graphY, { clickCount: 3 });
   await expect(page.getByTestId('linked-selection')).toBeVisible();
+
+  // The barcode keeps stationary double-click → Reader, but takes ownership
+  // once its second press moves far enough to become a range brush.
+  await page.waitForTimeout(600);
+  const barcodeY = barcodeBox.y + 3;
+  const barcodeX = (fraction: number) => barcodeBox.x + barcodeBox.width * fraction;
+  await page.mouse.click(barcodeX(0.25), barcodeY, { clickCount: 1 });
+  await page.mouse.move(barcodeX(0.25), barcodeY);
+  await page.mouse.down();
+  await page.mouse.move(barcodeX(0.65), barcodeY, { steps: 8 });
+  await expect(page.getByTestId('footer-selection-preview')).toBeVisible();
+  await expect(page.getByTestId('linked-selection')).toHaveCount(0);
+  await expect(slider).toHaveAttribute('data-range-brushing', 'true');
+  await expect(slider).not.toHaveAttribute('data-shuttling', 'true');
+  await page.mouse.up();
+  await expect(page.getByTestId('footer-selection-preview')).toHaveCount(0);
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
+  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 
   // Keyboard users get the same footer-owned range and clear operations.
   await slider.focus();

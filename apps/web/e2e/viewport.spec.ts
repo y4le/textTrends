@@ -90,9 +90,16 @@ test('compact header reflows the publisher mark without starving single-line Sco
     const scope = node.querySelector<HTMLElement>('.scope-organ')!.getBoundingClientRect();
     const content = node.querySelector<HTMLElement>('.scope-organ-content')!;
     const actions = [...node.querySelectorAll<HTMLElement>('.header-action')]
+      .filter((action) => action.getClientRects().length > 0)
       .map((action) => {
         const rect = action.getBoundingClientRect();
-        return { left: rect.left, right: rect.right, width: rect.width, height: rect.height };
+        return {
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          height: rect.height,
+          positionHistory: action.classList.contains('position-history-action'),
+        };
       });
     return {
       height: box.height,
@@ -116,6 +123,7 @@ test('compact header reflows the publisher mark without starving single-line Sco
   }
   expect(geometry.actions).toHaveLength(3);
   for (const action of geometry.actions) {
+    expect(action.positionHistory).toBe(false);
     expect(action.width).toBeGreaterThanOrEqual(44);
     expect(action.height).toBeGreaterThanOrEqual(44);
     expect(action.left).toBeGreaterThanOrEqual(geometry.left);
