@@ -8,13 +8,14 @@
  * - functional: semantic gates; may retry once in CI (traces on retry);
  * - WebKit compact: bounded viewport/keyboard and compact-place contract
  *   specs, not the full suite;
- * - benchmark:  timing specs — never retried, so a failed timing sample is
+ * - benchmark: timing and long-task specs — never retried, so a failed sample is
  *   a visible failure, not noise a retry can hide. ISOLATION is enforced
  *   by the config, not by convention: the benchmark project DEPENDS on the
  *   functional and WebKit projects (Playwright completes dependencies first
  *   and skips dependents on failure) and pins its own workers to 1 — so one
  *   invocation, one webServer build, and timing samples that never share
- *   the machine with functional load.
+ *   the machine with functional load. CI runs this project on a separate
+ *   runner while sharding the other projects across one-worker runners.
  *   `pnpm --filter @texttrends/web e2e:bench` passes --no-deps for a
  *   deliberate timing-only run.
  */
@@ -29,6 +30,7 @@ if (!Number.isSafeInteger(e2ePort) || e2ePort < 1 || e2ePort > 65_535) {
   throw new RangeError('TT_E2E_PORT must be an integer from 1 through 65535');
 }
 const e2eOrigin = `http://127.0.0.1:${e2ePort}`;
+const benchmarkTestMatch = /(?:.*\.bench|long-tasks)\.spec\.ts/;
 
 export default defineConfig({
   testDir: './e2e',
@@ -41,18 +43,20 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium-functional',
-      testIgnore: /.*\.bench\.spec\.ts/,
+      testIgnore: benchmarkTestMatch,
+      ...(process.env.CI ? { workers: 1 } : {}),
       retries: process.env.CI ? 1 : 0,
     },
     {
       name: 'webkit-compact',
       testMatch: /(viewport|reader-modes|rsvp|shortcuts|find|position-history|keyboard-navigation|dock|footer-touch|scope|compact-trends|compact-barcode|compact-matches|compact-corpus|compact-vocabulary|compact-compare|guide|learning-states)\.spec\.ts/,
       use: { ...devices['iPhone 14'] },
+      ...(process.env.CI ? { workers: 1 } : {}),
       retries: process.env.CI ? 1 : 0,
     },
     {
       name: 'chromium-benchmark',
-      testMatch: /.*\.bench\.spec\.ts/,
+      testMatch: benchmarkTestMatch,
       dependencies: ['chromium-functional', 'webkit-compact'],
       workers: 1,
       retries: 0,

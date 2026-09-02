@@ -188,13 +188,13 @@ frozen (Codex M6 consult: unmeasured numbers must not become CI policy).
 | Trend query post → result (bundled corpus, single terms) | 3–15 ms |
 | Cancel acknowledgement p95 (20 real acknowledgements) | 0.3 ms |
 
-(The benchmark project runs AFTER the functional and compact WebKit projects
-complete and with one worker — enforced in playwright.config.ts itself:
-`chromium-benchmark` declares dependencies on `chromium-functional` and
-`webkit-compact` and pins `workers: 1`, so one `pnpm e2e` invocation preserves
-the sequence and timing samples never share the machine with functional load.
-`pnpm --filter @texttrends/web e2e:bench` passes `--no-deps` for a deliberate
-timing-only run.)
+(For a local full-suite run, the benchmark project runs AFTER the functional
+and compact WebKit projects complete and with one worker — enforced in
+playwright.config.ts itself: `chromium-benchmark` declares dependencies on
+`chromium-functional` and `webkit-compact` and pins `workers: 1`. CI runs the
+benchmark project as a separate job, while the semantic projects are sharded
+across isolated one-worker runners. `pnpm --filter @texttrends/web e2e:bench`
+passes `--no-deps` for that deliberate timing-only run.)
 
 Gates now enforced in CI (semantic, deterministic): warm reload performs zero
 corpus fetches and zero decode/segment/index phases and publishes exactly one

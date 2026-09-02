@@ -43,9 +43,8 @@ jobs:
       - name: Enforce the production bundle contract (budget, lazy chunks, no facade)
         run: pnpm check:bundle
 
-      # Playwright's web server builds e2e mode into the same dist directory,
-      # so capture the verified production bytes before browser tests run.
-      # The deploy job still waits for this entire checks job to pass.
+      # Publish the exact production bytes that passed the bundle contract.
+      # Browser jobs build their own e2e-mode artifacts on isolated runners.
       - name: Configure GitHub Pages
         if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
         uses: actions/configure-pages@v6
@@ -56,9 +55,26 @@ jobs:
           path: apps/web/dist
 
   browser:
+    name: browser / ${{ matrix.name }}
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: chromium-functional-1-of-2
+            project: chromium-functional
+            shard: "1/2"
+          - name: chromium-functional-2-of-2
+            project: chromium-functional
+            shard: "2/2"
+          - name: webkit-compact-1-of-2
+            project: webkit-compact
+            shard: "1/2"
+          - name: webkit-compact-2-of-2
+            project: webkit-compact
+            shard: "2/2"
     # Keep browser binaries and native libraries out of the runner's mutable
     # apt state. This image is pinned to the lockfile's Playwright version.
     container:
@@ -76,14 +92,53 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
 
-      - name: Real-browser suites (functional, compact WebKit, then serial benchmarks)
-        run: pnpm e2e
+      - name: Real-browser suite (${{ matrix.name }})
+        run: >-
+          pnpm --filter @texttrends/web exec playwright test
+          --project="${{ matrix.project }}"
+          --shard="${{ matrix.shard }}"
+          --workers=1
+
+      - name: Upload Playwright report and test artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-${{ matrix.name }}
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          if-no-files-found: ignore
+          retention-days: 14
+
+  browser-benchmark:
+    name: browser / chromium-benchmark
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # A separate runner keeps timing gates isolated from functional load.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      options: --user 1001
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+
+      - name: Real-browser timing gates
+        run: pnpm --filter @texttrends/web e2e:bench
 
       - name: Upload Playwright report and benchmark artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-artifacts
+          name: playwright-chromium-benchmark
           path: |
             apps/web/playwright-report
             apps/web/test-results
@@ -92,7 +147,7 @@ jobs:
 
   deploy:
     if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
-    needs: [checks, browser]
+    needs: [checks, browser, browser-benchmark]
     runs-on: ubuntu-latest
     permissions:
       contents: read
