@@ -50,8 +50,12 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('W', { shiftKey: true }), 'rsvp-pace-editor')).toBe(true);
     expect(shortcutMatches(key('W'), 'rsvp-pace-editor')).toBe(false);
     expect(shortcutMatches(key('w'), 'rsvp-pace-editor')).toBe(false);
-    expect(shortcutMatches(key('h'), 'rsvp-pace-down')).toBe(true);
-    expect(shortcutMatches(key('ArrowRight'), 'rsvp-pace-up')).toBe(true);
+    expect(shortcutMatches(key('h'), 'rsvp-word-previous')).toBe(true);
+    expect(shortcutMatches(key('ArrowRight'), 'rsvp-word-next')).toBe(true);
+    expect(shortcutMatches(key('j'), 'rsvp-pace-down')).toBe(true);
+    expect(shortcutMatches(key('ArrowDown'), 'rsvp-pace-down')).toBe(true);
+    expect(shortcutMatches(key('k'), 'rsvp-pace-up')).toBe(true);
+    expect(shortcutMatches(key('ArrowUp'), 'rsvp-pace-up')).toBe(true);
     expect(shortcutMatches(key(' '), 'term-toggle')).toBe(true);
     expect(shortcutMatches(key('x'), 'term-delete')).toBe(true);
     expect(shortcutMatches(key('Enter'), 'term-open-menu')).toBe(true);
@@ -351,6 +355,8 @@ describe('shortcut registry', () => {
       'reader-rsvp-toggle',
       'rsvp-exit',
       'rsvp-toggle-play',
+      'rsvp-word-previous',
+      'rsvp-word-next',
       'rsvp-pace-editor',
       'rsvp-pace-down',
       'rsvp-pace-up',

@@ -100,7 +100,7 @@ test('a visible Reader control starts paused Speed reading at the selected word'
   await expect(reader.locator('.reader-rsvp-shell [role="status"]')).toContainText('paused');
   await expect(reader.getByRole('region', { name: 'Speed reading word' })
     .locator('.reader-rsvp-word')).toHaveText(selectedWord);
-  const speedProgress = reader.getByRole('progressbar');
+  const speedProgress = reader.getByRole('slider', { name: /Position in/ });
   await expect(speedProgress).toHaveCount(1);
   await expect(speedProgress).toHaveAttribute('data-reader-progress', selectedProgress ?? '');
   await expect(speedProgress).not.toHaveAttribute('aria-live');
@@ -115,7 +115,7 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
 
   const stage = reader.getByRole('region', { name: 'Speed reading word' });
   const controls = reader.locator('.reader-rsvp-controls-region');
-  const progress = reader.getByRole('progressbar');
+  const progress = reader.getByRole('slider', { name: /Position in/ });
   await expect(reader.locator('.workbench-dock')).toHaveCount(0);
   await expect(progress).toHaveCount(1);
   await expect(progress).toBeVisible();
@@ -130,13 +130,24 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
   await expect.poll(() => controls.evaluate((element) =>
     element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   const portraitTargets = await reader.locator(
-    '.reader-rsvp-topbar > button, .reader-rsvp-transport > button, '
+    '.reader-rsvp-topbar > button, .reader-rsvp-movement > button, '
+      + '.reader-rsvp-pace-stepper > button, '
       + '.reader-rsvp-pace input, .reader-rsvp-words-option, .reader-rsvp-preset select',
   ).evaluateAll((elements) => elements
     .filter((element) => (element as HTMLElement).offsetParent !== null)
     .map((element) => element.getBoundingClientRect().height));
   expect(portraitTargets.length).toBeGreaterThan(5);
   expect(Math.min(...portraitTargets)).toBeGreaterThanOrEqual(44);
+  const [slowerBox, paceBox, fasterBox] = await Promise.all([
+    reader.getByRole('button', { name: /Slower/ }).boundingBox(),
+    reader.getByRole('spinbutton', { name: 'Pace in words per minute' }).boundingBox(),
+    reader.getByRole('button', { name: /Faster/ }).boundingBox(),
+  ]);
+  if (!slowerBox || !paceBox || !fasterBox) throw new Error('Speed pace controls have no layout');
+  expect(Math.abs(slowerBox.x + slowerBox.width - paceBox.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(paceBox.x + paceBox.width - fasterBox.x)).toBeLessThanOrEqual(1);
+  await expect(reader.getByRole('spinbutton', { name: 'Pace in words per minute' }))
+    .toHaveCSS('appearance', 'textfield');
   expect((await stage.boundingBox())?.height).toBeGreaterThan(200);
 
   await page.setViewportSize({ width: 844, height: 390 });
@@ -145,7 +156,8 @@ test('mobile Speed reading gives the word stage the portrait and landscape viewp
   await expect.poll(() => controls.evaluate((element) =>
     element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   const landscapeTargets = await reader.locator(
-    '.reader-rsvp-topbar > button, .reader-rsvp-transport > button, '
+    '.reader-rsvp-topbar > button, .reader-rsvp-movement > button, '
+      + '.reader-rsvp-pace-stepper > button, '
       + '.reader-rsvp-pace input, .reader-rsvp-words-option, .reader-rsvp-preset select',
   ).evaluateAll((elements) => elements
     .filter((element) => (element as HTMLElement).offsetParent !== null)
@@ -243,9 +255,16 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
   await expect(context).toBeFocused();
   const position = reader.locator('.reader-position');
   await expect(position).toContainText('300 WPM');
+  const tokenBeforeWordKeys = displayedToken(await position.textContent());
   await reader.press('h');
-  await expect(position).toContainText('275 WPM');
+  await expect.poll(async () => displayedToken(await position.textContent()))
+    .toBe(tokenBeforeWordKeys - 1);
   await reader.press('ArrowRight');
+  await expect.poll(async () => displayedToken(await position.textContent()))
+    .toBe(tokenBeforeWordKeys);
+  await reader.press('j');
+  await expect(position).toContainText('275 WPM');
+  await reader.press('ArrowUp');
   await expect(position).toContainText('300 WPM');
   const protectedPosition = await position.textContent();
   for (const key of ['PageDown', 'Home', 'w', 'Control+f']) {
@@ -309,6 +328,133 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
     'data-reader-page',
     new RegExp(`^${token}:`),
   );
+});
+
+test('Speed word/frame controls, frame taps, and progress dragging seek exactly', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const reader = await openReader(page);
+  await enterRsvp(reader);
+  const stage = reader.getByRole('region', { name: 'Speed reading word' });
+  const position = reader.locator('.reader-position');
+  const words = reader.getByRole('group', { name: /^Words at once/ });
+  await chooseWordsAtOnce(words, 3);
+
+  const previousFrame = reader.getByRole('button', { name: 'Previous frame', exact: true });
+  const previousWord = reader.getByRole('button', { name: 'Previous word', exact: true });
+  const play = reader.getByRole('button', { name: 'play', exact: true });
+  const nextWord = reader.getByRole('button', { name: 'Next word', exact: true });
+  const nextFrame = reader.getByRole('button', { name: 'Next frame', exact: true });
+  await expect(reader.locator('.reader-rsvp-movement > button')).toHaveCount(5);
+  await expect(previousFrame).toBeVisible();
+  await expect(previousWord).toBeVisible();
+  await expect(play).toBeVisible();
+  await expect(nextWord).toBeVisible();
+  await expect(nextFrame).toBeVisible();
+
+  const wordStart = displayedToken(await position.textContent());
+  await nextWord.click();
+  await expect.poll(async () => displayedToken(await position.textContent())).toBe(wordStart + 1);
+  await previousWord.click();
+  await expect.poll(async () => displayedToken(await position.textContent())).toBe(wordStart);
+
+  let frameTokens: number[] = [];
+  for (let attempt = 0; attempt < 6; attempt++) {
+    frameTokens = await stage.locator('[data-rsvp-frame-token]').evaluateAll((elements) =>
+      [...new Set(elements.map((element) => Number(
+        (element as HTMLElement).dataset.rsvpFrameToken,
+      )))],
+    );
+    if (frameTokens.length > 1) break;
+    await nextWord.click();
+  }
+  expect(frameTokens.length).toBeGreaterThan(1);
+  const clickedToken = frameTokens[1]!;
+  const slipPointer = {
+    pointerType: 'mouse', pointerId: 19, isPrimary: true, button: 0,
+    clientX: 20, clientY: 20,
+  };
+  await stage.locator(`[data-rsvp-frame-token="${frameTokens[0]}"]`).last()
+    .dispatchEvent('pointerdown', slipPointer);
+  await stage.locator(`[data-rsvp-frame-token="${clickedToken}"]`).last()
+    .dispatchEvent('pointerup', slipPointer);
+  await expect.poll(async () => displayedToken(await position.textContent()))
+    .toBe(clickedToken);
+  await expect(stage.locator(`[data-rsvp-frame-token="${clickedToken}"]`)).not.toHaveCount(0);
+
+  frameTokens = await stage.locator('[data-rsvp-frame-token]').evaluateAll((elements) =>
+    [...new Set(elements.map((element) => Number(
+      (element as HTMLElement).dataset.rsvpFrameToken,
+    )))],
+  );
+  const frameStart = displayedToken(await position.textContent());
+  await nextFrame.click();
+  await expect.poll(async () => displayedToken(await position.textContent()))
+    .toBe(frameStart + frameTokens.length);
+  await previousFrame.click();
+  await expect.poll(async () => displayedToken(await position.textContent()))
+    .toBe(frameStart);
+
+  const progress = reader.getByRole('slider', { name: /Position in/ });
+  const progressBox = await progress.boundingBox();
+  if (!progressBox) throw new Error('Speed position slider has no layout box');
+  expect(await page.evaluate(({ x, y }) => (
+    document.elementFromPoint(x, y)?.closest('[role="slider"]')?.getAttribute('role') ?? ''
+  ), { x: progressBox.x + progressBox.width / 2, y: progressBox.y + 8.5 })).toBe('slider');
+
+  await progress.press('Home');
+  await expect.poll(async () => displayedToken(await position.textContent())).toBe(0);
+  await expect(progress).not.toHaveAttribute('data-seeking', 'true');
+  let canonicalStart = 0;
+  for (let step = 0; step < 2; step++) {
+    const visibleTokens = await stage.locator('[data-rsvp-frame-token]').evaluateAll((elements) =>
+      [...new Set(elements.map((element) => Number(
+        (element as HTMLElement).dataset.rsvpFrameToken,
+      )))],
+    );
+    await nextFrame.click();
+    canonicalStart += visibleTokens.length;
+    await expect.poll(async () => displayedToken(await position.textContent()))
+      .toBe(canonicalStart);
+  }
+  await nextWord.click();
+  await expect.poll(async () => displayedToken(await position.textContent()))
+    .toBe(canonicalStart + 1);
+  await previousFrame.click();
+  await expect.poll(async () => displayedToken(await position.textContent()))
+    .toBe(canonicalStart);
+
+  const tokenCount = Number(await progress.getAttribute('aria-valuemax'));
+  const targetToken = Math.round(0.7 * (tokenCount - 1));
+  const y = progressBox.y + progressBox.height / 2;
+  const pointer = {
+    pointerType: 'mouse', pointerId: 23, isPrimary: true, button: 0,
+  };
+  await progress.dispatchEvent('pointerdown', {
+    ...pointer,
+    clientX: progressBox.x + progressBox.width * 0.3,
+    clientY: y,
+  });
+  await progress.dispatchEvent('pointermove', {
+    ...pointer,
+    clientX: progressBox.x + progressBox.width * 0.7,
+    clientY: y,
+  });
+  await expect(progress).toHaveAttribute('data-seeking', 'true');
+  await expect.poll(async () => displayedToken(await position.textContent()))
+    .toBe(targetToken);
+  await expect(stage.locator(`[data-rsvp-frame-token="${targetToken}"]`)).not.toHaveCount(0);
+  await progress.dispatchEvent('pointerup', {
+    ...pointer,
+    clientX: progressBox.x + progressBox.width * 0.7,
+    clientY: y,
+  });
+  await expect(progress).not.toHaveAttribute('data-seeking', 'true');
+
+  const keyboardTarget = targetToken + Math.max(1, Math.round((tokenCount - 1) / 100));
+  await progress.focus();
+  await progress.press('ArrowRight');
+  await expect.poll(async () => displayedToken(await position.textContent()))
+    .toBe(keyboardTarget);
 });
 
 test('stage taps toggle playback while only explicit exits return to Reader', async ({ page }) => {

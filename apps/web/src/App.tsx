@@ -602,8 +602,6 @@ export function App() {
       }
       if (
         shortcutMatches(event, 'find-open')
-        || shortcutMatches(event, 'reader-page-previous')
-        || shortcutMatches(event, 'reader-page-next')
         || shortcutMatches(event, 'reader-occurrence-previous')
         || shortcutMatches(event, 'reader-occurrence-next')
         || shortcutMatches(event, 'reader-text-previous')
@@ -825,6 +823,10 @@ export function App() {
         tabIndex={-1}
         onKeyDown={(event) => {
           if (handleInteractionShortcut(event)) return;
+          if (interaction.kind === 'rsvp') {
+            handleRootShortcut(event, 'rsvp');
+            return;
+          }
           if (!rootShortcutAllowed(event)) return;
           if (shortcutMatches(event, 'reader-close')) {
             event.preventDefault();
@@ -878,7 +880,7 @@ export function App() {
             }
             return;
           }
-          handleRootShortcut(event, interaction.kind === 'rsvp' ? 'rsvp' : 'reader');
+          handleRootShortcut(event, 'reader');
         }}
       >
         <span

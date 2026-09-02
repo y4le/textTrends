@@ -44,16 +44,25 @@ describe('RSVP Reader presentation', () => {
       onOpenSettings: vi.fn(),
     }));
 
-    expect(html).toContain('class="reader-rsvp-before">S</span>');
-    expect(html).toContain('class="reader-rsvp-anchor">p</span>');
-    expect(html).toContain('class="reader-rsvp-after">eed,</span>');
+    expect(html).toContain('class="reader-rsvp-before reader-rsvp-frame-word"');
+    expect(html).toContain('class="reader-rsvp-anchor reader-rsvp-frame-word"');
+    expect(html).toContain('class="reader-rsvp-after"><span class="reader-rsvp-frame-word"');
+    expect(html).toContain('data-rsvp-frame-token="10">S</span>');
+    expect(html).toContain('data-rsvp-frame-token="10">p</span>');
+    expect(html).toContain('data-rsvp-frame-token="10">eed,</span>');
     expect(html).toContain('class="reader-rsvp-word" aria-hidden="true"');
     expect(html).not.toContain('role="note"');
     expect(html).toContain('aria-label="Return to Reader"');
-    expect(html).toMatch(/<button[^>]*aria-label="Previous frame" disabled=""/u);
+    expect(html).toContain('aria-label="Previous frame"');
+    expect(html).toContain('aria-label="Previous word" aria-keyshortcuts="h ArrowLeft"');
+    expect(html).toContain('aria-label="Next word" aria-keyshortcuts="l ArrowRight"');
+    expect(html).toContain('aria-label="Next frame"');
+    expect(html).toContain('role="slider"');
     expect(html).toContain('aria-label="Pace in words per minute"');
-    expect(html).toContain('including rests');
+    expect(html).toContain('>Including rests</span>');
     expect(html).toContain('min="100" max="2000" step="25"');
+    expect(html).toContain('aria-keyshortcuts="j ArrowDown"');
+    expect(html).toContain('aria-keyshortcuts="k ArrowUp"');
     expect(html).toContain('aria-label="Open Speed settings"');
     expect(html).toContain('Words at once (maximum)');
     expect(html).toContain('type="radio" aria-label="1 word at once"');

@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -29,11 +30,18 @@ import {
 } from '@texttrends/rsvp';
 import { RSVP_WPM_INPUT_ID } from '../lib/rsvp-ui.ts';
 import { readerProgress } from '../lib/reader-progress.ts';
-import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
+import {
+  interactionShortcutAllowed,
+  shortcutAria,
+  shortcutMatches,
+} from '../lib/shortcuts.ts';
 import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
-import { ReaderProgressRail } from './reader/ReaderProgressRail.tsx';
+import {
+  ReaderProgressRail,
+  type ReaderSeekPhase,
+} from './reader/ReaderProgressRail.tsx';
 
 export type RsvpReaderSource =
   | { readonly status: 'pending' }
@@ -82,6 +90,23 @@ function clockNow(): number {
   return typeof performance === 'undefined' ? 0 : performance.now();
 }
 
+function frameWordAt(target: EventTarget | null): number | null {
+  if (!(target instanceof Element)) return null;
+  const raw = target.closest<HTMLElement>('[data-rsvp-frame-token]')
+    ?.dataset.rsvpFrameToken;
+  if (raw === undefined) return null;
+  const token = Number(raw);
+  return Number.isSafeInteger(token) && token >= 0 ? token : null;
+}
+
+function collapsedFrameGap(
+  page: ReaderPageResultV1,
+  leftEnd: number,
+  rightStart: number,
+): string {
+  return page.text.slice(leftEnd, rightStart).replace(/\s+/gu, ' ');
+}
+
 export function RsvpReader({
   title,
   mode,
@@ -115,6 +140,7 @@ export function RsvpReader({
   const editingPaceRef = useRef(false);
   const requestedSource = useRef<string | null>(null);
   const nextFrameStart = useRef<number | null>(null);
+  const frameReturn = useRef<number | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playRef = useRef<HTMLButtonElement | null>(null);
   const exitRef = useRef<HTMLButtonElement | null>(null);
@@ -213,26 +239,16 @@ export function RsvpReader({
     () => frame && spanPlan ? rsvpFrameTiming(spanPlan, frame) : null,
     [frame, spanPlan],
   );
-  const previousRelative = useMemo(
-    () => resident
-      && relative >= 0
-      && relative < resident.tokens.end - resident.tokens.start
-      ? rsvpPreviousFrameStart(resident, relative, {
-          wordsPerFrame: effectiveWords,
-          charLimit: mode.frameCharLimit,
-        })
-      : relative,
-    [effectiveWords, mode.frameCharLimit, relative, resident],
-  );
   const pausedContext = useMemo(
     () => resident && frame && source.status !== 'error' && !mode.playing && !completed
       ? rsvpPausedContext(resident, frame)
       : null,
     [completed, frame, mode.playing, resident, source.status],
   );
-  const canGoBack = resident !== null
-    && previousRelative >= 0
-    && previousRelative < relative;
+  const canGoWordBack = cursor > 0;
+  const canGoWordForward = cursor < mode.docTokenCount - 1;
+  const nextFrameToken = frame === null ? null : cursor + frame.words.length;
+  const canGoFrameForward = nextFrameToken !== null && nextFrameToken < mode.docTokenCount;
   const frameKey = frame
     ? `${frame.startToken}:${frame.words.map((word) => word.token).join(',')}:${frame.text}`
     : '';
@@ -281,6 +297,7 @@ export function RsvpReader({
     const advance = (scheduledDeadline: number) => {
       const step = rsvpCursorStep(resident, cursor, frame.words.length);
       if (step.kind === 'next') {
+        frameReturn.current = null;
         nextFrameStart.current = scheduledDeadline;
         setCursor(step.token);
         onPublish(step.token);
@@ -334,6 +351,64 @@ export function RsvpReader({
     onPublish(cursor);
     onSetPlaying(!mode.playing);
   };
+  const moveToToken = useCallback((
+    token: number,
+    status: string,
+    retainFrameReturn = false,
+  ) => {
+    if (!Number.isSafeInteger(token) || token < 0 || token >= mode.docTokenCount) return;
+    if (!retainFrameReturn) frameReturn.current = null;
+    nextFrameStart.current = null;
+    onSetPlaying(false);
+    setCompleted(false);
+    setCursor(token);
+    onPublish(token);
+    if (resident === null || !contains(resident, token)) onSeek(token);
+    setSettingStatus(status);
+  }, [mode.docTokenCount, onPublish, onSeek, onSetPlaying, resident]);
+  const moveWord = useCallback((direction: -1 | 1) => {
+    const next = cursor + direction;
+    if (next < 0 || next >= mode.docTokenCount) return;
+    moveToToken(next, direction === -1 ? 'previous word' : 'next word');
+  }, [cursor, mode.docTokenCount, moveToToken]);
+  const moveFrame = (direction: -1 | 1) => {
+    if (direction === 1) {
+      if (nextFrameToken !== null) {
+        frameReturn.current = cursor;
+        moveToToken(nextFrameToken, 'next frame', true);
+      }
+      return;
+    }
+    const remembered = frameReturn.current;
+    frameReturn.current = null;
+    const canonical = resident !== null && contains(resident, cursor)
+      ? resident.tokens.start + rsvpPreviousFrameStart(resident, relative, {
+          wordsPerFrame: effectiveWords,
+          charLimit: mode.frameCharLimit,
+        })
+      : cursor;
+    const previous = canonical < cursor ? canonical : Math.max(0, cursor - 1);
+    moveToToken(remembered ?? previous, 'previous frame');
+  };
+  const seekFromProgress = (token: number, phase: ReaderSeekPhase) => {
+    moveToToken(token, phase === 'commit' ? 'position selected' : '');
+  };
+
+  useEffect(() => {
+    const handleWordShortcut = (event: globalThis.KeyboardEvent) => {
+      if (!interactionShortcutAllowed(event)) return;
+      if (shortcutMatches(event, 'rsvp-word-previous')) {
+        event.preventDefault();
+        moveWord(-1);
+      } else if (shortcutMatches(event, 'rsvp-word-next')) {
+        event.preventDefault();
+        moveWord(1);
+      }
+    };
+    document.addEventListener('keydown', handleWordShortcut);
+    return () => document.removeEventListener('keydown', handleWordShortcut);
+  }, [moveWord]);
+
   const stageControlAt = (target: EventTarget | null) =>
     target instanceof Element && target.closest('[data-rsvp-control]') !== null;
   const handleStagePointerDown = (event: ReactPointerEvent<HTMLElement>) => {
@@ -346,6 +421,10 @@ export function RsvpReader({
       time: event.timeStamp,
       target: event.target,
     };
+    if (frameWordAt(event.target) !== null && mode.playing) {
+      onPublish(cursor);
+      onSetPlaying(false);
+    }
   };
   const handleStagePointerUp = (event: ReactPointerEvent<HTMLElement>) => {
     const down = stagePointer.current;
@@ -360,16 +439,14 @@ export function RsvpReader({
       || stageControlAt(event.target)
     ) return;
     event.preventDefault();
+    const downToken = frameWordAt(down.target);
+    const upToken = frameWordAt(event.target);
+    if (upToken !== null) {
+      moveToToken(upToken, 'word selected');
+      return;
+    }
+    if (downToken !== null) return;
     togglePlaying();
-  };
-  const goBack = () => {
-    if (!resident || !canGoBack) return;
-    const next = resident.tokens.start + previousRelative;
-    onSetPlaying(false);
-    setCompleted(false);
-    setCursor(next);
-    onPublish(next);
-    setSettingStatus('previous frame');
   };
   const beginPaceEdit = () => {
     if (editingPaceRef.current) return;
@@ -419,7 +496,8 @@ export function RsvpReader({
     if (event.key !== 'Tab') return;
     const controls = Array.from(
       shellRef.current?.querySelectorAll<HTMLElement>(
-        '[data-rsvp-control]:is(button,input,select,summary,[tabindex]):not(:disabled)',
+        '[data-rsvp-control]:is(button,input,select,summary,[tabindex]):not(:disabled), '
+          + '.reader-rsvp-progress[role="slider"]',
       ) ?? [],
     ).filter((control) => {
       const details = control.closest('details');
@@ -516,9 +594,43 @@ export function RsvpReader({
         <div className="reader-rsvp-word" aria-hidden="true">
           {frame ? (
             <>
-              <span className="reader-rsvp-before">{frame.before}</span>
-              <span className="reader-rsvp-anchor">{frame.anchor}</span>
-              <span className="reader-rsvp-after">{frame.after}</span>
+              <span
+                className="reader-rsvp-before reader-rsvp-frame-word"
+                data-rsvp-frame-token={frame.startToken}
+              >
+                {frame.before}
+              </span>
+              <span
+                className="reader-rsvp-anchor reader-rsvp-frame-word"
+                data-rsvp-frame-token={frame.startToken}
+              >
+                {frame.anchor}
+              </span>
+              <span className="reader-rsvp-after">
+                <span
+                  className="reader-rsvp-frame-word"
+                  data-rsvp-frame-token={frame.startToken}
+                >
+                  {frame.words[0]?.after ?? ''}
+                </span>
+                {frame.words.slice(1).map((word, index) => {
+                  const previous = frame.words[index]!;
+                  return (
+                    <span
+                      className="reader-rsvp-frame-word"
+                      data-rsvp-frame-token={word.token}
+                      key={word.token}
+                    >
+                      {collapsedFrameGap(
+                        resident!,
+                        previous.displayEndUtf16,
+                        word.displayStartUtf16,
+                      )}
+                      {word.display}
+                    </span>
+                  );
+                })}
+              </span>
             </>
           ) : (
             <span className="reader-rsvp-loading">loading source text…</span>
@@ -563,82 +675,121 @@ export function RsvpReader({
           className="reader-rsvp-progress"
           progress={progress}
           accessibleName={`Position in ${title}`}
+          onSeek={seekFromProgress}
         />
         <nav className="reader-rsvp-transport" aria-label="Speed reading transport">
-          <button
-            className="reader-rsvp-previous"
-            type="button"
-            data-rsvp-control="true"
-            aria-label="Previous frame"
-            disabled={!canGoBack}
-            onClick={goBack}
-            onKeyDown={stopControlSpace}
-          >
-            <span aria-hidden="true">⟲</span>{' '}
-            <span className="reader-rsvp-previous-label">frame</span>
-          </button>
-          <button
-            className="reader-rsvp-toggle"
-            ref={playRef}
-            type="button"
-            data-rsvp-control="true"
-            disabled={completed}
-            aria-pressed={mode.playing}
-            aria-keyshortcuts={shortcutAria(['rsvp-toggle-play'])}
-            onClick={togglePlaying}
-            onKeyDown={stopControlSpace}
-          >
-            {completed ? 'completed' : mode.playing ? 'pause' : 'play'}
-          </button>
-          <button
-            className="reader-rsvp-slower"
-            type="button"
-            data-rsvp-control="true"
-            aria-label={`Slower, ${RSVP_WPM_STEP} words per minute`}
-            aria-keyshortcuts={shortcutAria(['rsvp-pace-down'])}
-            onClick={() => onSetPacing({ wpm: mode.wpm - RSVP_WPM_STEP })}
-            onKeyDown={stopControlSpace}
-          >
-            <span aria-hidden="true">−</span>
-          </button>
-          <label className="reader-rsvp-pace" data-rsvp-control="true" htmlFor={RSVP_WPM_INPUT_ID}>
-            <span className="reader-rsvp-pace-caption">
-              <span>pace</span>
-              <span id={RSVP_PACE_HELP_ID}>including rests</span>
-            </span>
-            <input
-              id={RSVP_WPM_INPUT_ID}
+          <div className="reader-rsvp-movement">
+            <button
+              className="reader-rsvp-frame-previous"
+              type="button"
               data-rsvp-control="true"
-              type="number"
-              inputMode="numeric"
-              min={RSVP_MIN_WPM}
-              max={RSVP_MAX_WPM}
-              step={RSVP_WPM_STEP}
-              value={paceDraft}
-              aria-label="Pace in words per minute"
-              aria-describedby={RSVP_PACE_HELP_ID}
-              aria-keyshortcuts={shortcutAria(['rsvp-pace-editor'])}
-              onFocus={(event) => {
-                beginPaceEdit();
-                event.currentTarget.select();
-              }}
-              onChange={(event) => setPaceDraft(event.currentTarget.value)}
-              onKeyDown={handlePaceKeyDown}
-              onBlur={() => finishPaceEdit(false)}
-            />
-            <span>WPM</span>
-          </label>
-          <button
-            className="reader-rsvp-faster"
-            type="button"
-            data-rsvp-control="true"
-            aria-label={`Faster, ${RSVP_WPM_STEP} words per minute`}
-            aria-keyshortcuts={shortcutAria(['rsvp-pace-up'])}
-            onClick={() => onSetPacing({ wpm: mode.wpm + RSVP_WPM_STEP })}
-            onKeyDown={stopControlSpace}
-          >
-            <span aria-hidden="true">+</span>
-          </button>
+              aria-label="Previous frame"
+              disabled={!canGoWordBack}
+              onClick={() => moveFrame(-1)}
+              onKeyDown={stopControlSpace}
+            >
+              <span aria-hidden="true">«</span>
+            </button>
+            <button
+              className="reader-rsvp-word-previous"
+              type="button"
+              data-rsvp-control="true"
+              aria-label="Previous word"
+              aria-keyshortcuts={shortcutAria(['rsvp-word-previous'])}
+              disabled={!canGoWordBack}
+              onClick={() => moveWord(-1)}
+              onKeyDown={stopControlSpace}
+            >
+              <span aria-hidden="true">‹</span>
+            </button>
+            <button
+              className="reader-rsvp-toggle"
+              ref={playRef}
+              type="button"
+              data-rsvp-control="true"
+              disabled={completed}
+              aria-pressed={mode.playing}
+              aria-keyshortcuts={shortcutAria(['rsvp-toggle-play'])}
+              onClick={togglePlaying}
+              onKeyDown={stopControlSpace}
+            >
+              {completed ? 'completed' : mode.playing ? 'pause' : 'play'}
+            </button>
+            <button
+              className="reader-rsvp-word-next"
+              type="button"
+              data-rsvp-control="true"
+              aria-label="Next word"
+              aria-keyshortcuts={shortcutAria(['rsvp-word-next'])}
+              disabled={!canGoWordForward}
+              onClick={() => moveWord(1)}
+              onKeyDown={stopControlSpace}
+            >
+              <span aria-hidden="true">›</span>
+            </button>
+            <button
+              className="reader-rsvp-frame-next"
+              type="button"
+              data-rsvp-control="true"
+              aria-label="Next frame"
+              disabled={!canGoFrameForward}
+              onClick={() => moveFrame(1)}
+              onKeyDown={stopControlSpace}
+            >
+              <span aria-hidden="true">»</span>
+            </button>
+          </div>
+          <div className="reader-rsvp-pace-stepper">
+            <button
+              className="reader-rsvp-slower"
+              type="button"
+              data-rsvp-control="true"
+              aria-label={`Slower, ${RSVP_WPM_STEP} words per minute`}
+              aria-keyshortcuts={shortcutAria(['rsvp-pace-down'])}
+              disabled={mode.wpm <= RSVP_MIN_WPM}
+              onClick={() => onSetPacing({ wpm: mode.wpm - RSVP_WPM_STEP })}
+              onKeyDown={stopControlSpace}
+            >
+              <span aria-hidden="true">−</span>
+            </button>
+            <label className="reader-rsvp-pace" data-rsvp-control="true" htmlFor={RSVP_WPM_INPUT_ID}>
+              <span id={RSVP_PACE_HELP_ID} className="visually-hidden">
+                Including rests
+              </span>
+              <input
+                id={RSVP_WPM_INPUT_ID}
+                data-rsvp-control="true"
+                type="number"
+                inputMode="numeric"
+                min={RSVP_MIN_WPM}
+                max={RSVP_MAX_WPM}
+                step={RSVP_WPM_STEP}
+                value={paceDraft}
+                aria-label="Pace in words per minute"
+                aria-describedby={RSVP_PACE_HELP_ID}
+                aria-keyshortcuts={shortcutAria(['rsvp-pace-editor'])}
+                onFocus={(event) => {
+                  beginPaceEdit();
+                  event.currentTarget.select();
+                }}
+                onChange={(event) => setPaceDraft(event.currentTarget.value)}
+                onKeyDown={handlePaceKeyDown}
+                onBlur={() => finishPaceEdit(false)}
+              />
+            </label>
+            <button
+              className="reader-rsvp-faster"
+              type="button"
+              data-rsvp-control="true"
+              aria-label={`Faster, ${RSVP_WPM_STEP} words per minute`}
+              aria-keyshortcuts={shortcutAria(['rsvp-pace-up'])}
+              disabled={mode.wpm >= RSVP_MAX_WPM}
+              onClick={() => onSetPacing({ wpm: mode.wpm + RSVP_WPM_STEP })}
+              onKeyDown={stopControlSpace}
+            >
+              <span aria-hidden="true">+</span>
+            </button>
+          </div>
         </nav>
         <div className="reader-rsvp-shape" aria-label="Speed frame shape">
           <fieldset className="reader-rsvp-words" data-rsvp-control="true">

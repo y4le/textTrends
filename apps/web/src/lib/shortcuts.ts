@@ -95,6 +95,8 @@ export type ShortcutId =
   | 'reader-rsvp-toggle'
   | 'rsvp-exit'
   | 'rsvp-toggle-play'
+  | 'rsvp-word-previous'
+  | 'rsvp-word-next'
   | 'rsvp-pace-editor'
   | 'rsvp-pace-down'
   | 'rsvp-pace-up';
@@ -817,6 +819,20 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     strokes: [{ key: ' ' }],
   },
   {
+    id: 'rsvp-word-previous',
+    group: 'Speed reader',
+    helpContexts: ['rsvp'],
+    label: 'Previous word',
+    strokes: [{ key: 'h' }, { key: 'ArrowLeft' }],
+  },
+  {
+    id: 'rsvp-word-next',
+    group: 'Speed reader',
+    helpContexts: ['rsvp'],
+    label: 'Next word',
+    strokes: [{ key: 'l' }, { key: 'ArrowRight' }],
+  },
+  {
     id: 'rsvp-pace-editor',
     group: 'Speed reader',
     helpContexts: ['rsvp'],
@@ -828,14 +844,14 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     group: 'Speed reader',
     helpContexts: ['rsvp'],
     label: 'Reduce pace',
-    strokes: [{ key: 'h' }, { key: 'ArrowLeft' }],
+    strokes: [{ key: 'j' }, { key: 'ArrowDown' }],
   },
   {
     id: 'rsvp-pace-up',
     group: 'Speed reader',
     helpContexts: ['rsvp'],
     label: 'Increase pace',
-    strokes: [{ key: 'l' }, { key: 'ArrowRight' }],
+    strokes: [{ key: 'k' }, { key: 'ArrowUp' }],
   },
 ]);
 
