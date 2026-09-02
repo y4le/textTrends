@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Source-extraction adapters for transformed formats (EPUB via standard-ebooks, HTML via parse5). Composes @texttrends/core's canonical artifact builder; heavy parsers are dynamically imported so they stay lazy chunks.",
+  "description": "Source-extraction adapters for transformed formats (EPUB and HTML). Composes @texttrends/core's canonical artifact builder; heavy parsers are dynamically imported so they stay lazy chunks.",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@texttrends/core": "workspace:*",
-    "@texttrends/standard-ebooks": "workspace:*",
+    "@texttrends/epub": "workspace:*",
     "parse5": "7.3.0"
   },
   "devDependencies": {

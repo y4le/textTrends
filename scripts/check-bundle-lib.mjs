@@ -96,7 +96,7 @@ export function checkBundle(files, catalogSource) {
   const entryPath = unique(files, /^assets\/index-[^/]+\.js$/, 'entry', failures);
   const workerPath = unique(files, /^assets\/index\.worker-[^/]+\.js$/, 'worker base', failures);
   const archivePath = unique(files, /^assets\/archive-[^/]+\.js$/, 'SE archive client', failures);
-  const extractPath = unique(files, /^assets\/extract-[^/]+\.js$/, 'epub extractor', failures);
+  const extractPath = unique(files, /^assets\/epub-reader-[^/]+\.js$/, 'epub reader', failures);
   const parse5Path = unique(files, /^assets\/dist-[^/]+\.js$/, 'html parser (parse5)', failures);
   const catalogPath = unique(files, /^assets\/standard-ebooks-catalog-[^/]+\.json$/, 'catalog asset', failures);
   const settingsSurfacePath = unique(files, /^assets\/SettingsPane-[^/]+\.js$/, 'Settings region', failures);
@@ -205,7 +205,7 @@ export function checkBundle(files, catalogSource) {
   if (workerPath && extractPath && parse5Path) {
     const workerText = files.get(workerPath).toString('utf8');
     const workerStatic = staticImports(workerText);
-    for (const [path, label] of [[extractPath, 'epub extractor'], [parse5Path, 'html parser']]) {
+    for (const [path, label] of [[extractPath, 'epub reader'], [parse5Path, 'html parser']]) {
       const name = path.replace('assets/', '');
       if (workerStatic.has(name)) failures.push(`${workerPath}: statically imports ${name} — the ${label} must stay a lazy worker chunk`);
       else if (!references(workerText, name)) failures.push(`${workerPath}: no dynamic import of ${name} — the lazy ${label} edge is gone`);

@@ -10,38 +10,10 @@ export interface ExtractedXhtml {
 
 const SKIPPED_ELEMENTS = new Set(['script', 'style', 'nav']);
 const BLOCK_ELEMENTS = new Set([
-  'address',
-  'article',
-  'aside',
-  'blockquote',
-  'caption',
-  'dd',
-  'div',
-  'dl',
-  'dt',
-  'figcaption',
-  'figure',
-  'footer',
-  'h1',
-  'h2',
-  'h3',
-  'h4',
-  'h5',
-  'h6',
-  'header',
-  'hr',
-  'li',
-  'main',
-  'ol',
-  'p',
-  'pre',
-  'section',
-  'table',
-  'tbody',
-  'tfoot',
-  'thead',
-  'tr',
-  'ul',
+  'address', 'article', 'aside', 'blockquote', 'caption', 'dd', 'div', 'dl', 'dt',
+  'figcaption', 'figure', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header',
+  'hr', 'li', 'main', 'ol', 'p', 'pre', 'section', 'table', 'tbody', 'tfoot',
+  'thead', 'tr', 'ul',
 ]);
 const SKIPPED_SEMANTICS = new Set(['backlink', 'noteref', 'pagebreak']);
 
@@ -61,9 +33,6 @@ function shouldSkip(element: Element): boolean {
 
 function walkText(node: Node, output: string[]): void {
   if (node.nodeType === 3) {
-    // XHTML source formatting is not prose formatting. Collapse indentation
-    // and source line wraps here; explicit block boundaries and <br/> below
-    // remain real newlines in the extracted text.
     output.push((node.nodeValue ?? '').replace(/[\t\r\n\f\v ]+/gu, ' '));
     return;
   }
@@ -133,9 +102,7 @@ export function extractXhtml(source: string, label = 'XHTML document'): Extracte
   walkText(body, output);
 
   return {
-    title:
-      headingText(body)
-      ?? (normalizedText(firstDescendant(document, 'title')) || 'Untitled section'),
+    title: headingText(body) ?? (normalizedText(firstDescendant(document, 'title')) || 'Untitled section'),
     partition: partitionFrom(bodyTypes) ?? partitionFrom(sectionTypes) ?? 'unknown',
     semanticTypes,
     text: cleanExtractedText(output.join('')),

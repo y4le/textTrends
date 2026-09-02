@@ -1,17 +1,20 @@
-import { downloadEbookArchive } from './archive.js';
-import { catalogPages, listCatalog } from './catalog.js';
-import { mapConcurrent } from './concurrency.js';
 import {
   assertValidPartitions,
   DEFAULT_MAX_EXTRACTED_BYTES,
+  decodeUtf8,
+  EpubError,
+  parseEpub,
+  parsePackage,
   selectEbookSections,
-} from './ebook-text.js';
+  type EpubDocument,
+  type ParsedPackage,
+} from '@texttrends/epub';
+import { downloadEbookArchive } from './archive.js';
+import { catalogPages, listCatalog } from './catalog.js';
+import { mapConcurrent } from './concurrency.js';
 import { describeError, isAbortError, StandardEbooksError } from './errors.js';
-import { parseEpub, type EpubDocument } from './epub.js';
 import { fetchChecked, readResponseBytes } from './http.js';
-import { parsePackage, type ParsedPackage } from './opf.js';
 import { validateRepositoryName } from './repository-name.js';
-import { decodeUtf8 } from './text.js';
 import type {
   CatalogOptions,
   DownloadEbookOptions,
@@ -156,7 +159,7 @@ export class StandardEbooksClient {
       'maxExtractedTextBytes',
     );
     if (sourcePackage.byteLength > maximumExtracted) {
-      throw new StandardEbooksError(
+      throw new EpubError(
         'CAP_EXCEEDED',
         `Repository OPF is ${sourcePackage.byteLength} bytes; the limit is ${maximumExtracted} bytes`,
       );
@@ -198,7 +201,7 @@ export class StandardEbooksClient {
       'maxExtractedTextBytes',
     );
     if (sourcePackage.byteLength > maximumExtracted) {
-      throw new StandardEbooksError(
+      throw new EpubError(
         'CAP_EXCEEDED',
         `Repository OPF is ${sourcePackage.byteLength} bytes; the limit is ${maximumExtracted} bytes`,
       );
@@ -231,7 +234,7 @@ export class StandardEbooksClient {
       sourcePackage.byteLength,
     );
     if (extractedBytes > maximumExtracted) {
-      throw new StandardEbooksError(
+      throw new EpubError(
         'CAP_EXCEEDED',
         `Repository OPF/XHTML is ${extractedBytes} bytes; the limit is ${maximumExtracted} bytes`,
       );
@@ -277,7 +280,7 @@ export class StandardEbooksClient {
           isAbortError(error)
           || options.fallbackToRepository === false
           || error instanceof RangeError
-          || (error instanceof StandardEbooksError && error.code === 'CAP_EXCEEDED')
+          || (error instanceof EpubError && error.code === 'CAP_EXCEEDED')
         ) {
           throw error;
         }

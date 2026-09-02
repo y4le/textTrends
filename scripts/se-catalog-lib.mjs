@@ -11,7 +11,8 @@
  * library's parsed facts rather than its own OPF regexes.
  */
 
-import { ebookPathToRepositoryName, parsePackage, validateRepositoryName } from '@texttrends/standard-ebooks';
+import { parsePackage } from '@texttrends/epub';
+import { ebookPathToRepositoryName, validateRepositoryName } from '@texttrends/standard-ebooks';
 
 export const ORIGIN = 'https://standardebooks.org';
 export const RAW_ORIGIN = 'https://raw.githubusercontent.com';

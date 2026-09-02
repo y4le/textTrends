@@ -1,7 +1,7 @@
 import { strToU8, unzipSync, Zip } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import { downloadEbookArchive } from '../src/archive.js';
-import { extractEpub } from '../src/extract.js';
+import { extractEpub } from '@texttrends/epub';
 import { StandardEbooksClient, StandardEbooksError } from '../src/index.js';
 import { yieldToEventLoop } from '../src/task-yield.js';
 import {
@@ -302,7 +302,7 @@ describe('downloadEbookArchive', () => {
     const invalidOpf = rawFetch({ '/master/src/epub/content.opf': new Uint8Array([0xff, 0xfe, 0x00]) });
     await expect(
       downloadEbookArchive(REPOSITORY, { fetch: invalidOpf, githubRawBase: 'https://raw.test' }),
-    ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    ).rejects.toMatchObject({ code: 'INVALID_EPUB' });
   });
 
   it('maps a fetch abort mid-download to ABORTED', async () => {

@@ -1,7 +1,7 @@
 import { unzipSync } from 'fflate';
-import { StandardEbooksError } from './errors.js';
-import { decodeUtf8 } from './text.js';
+import { EpubError } from './errors.js';
 import { parsePackage, type ParsedPackage } from './opf.js';
+import { decodeUtf8 } from './text.js';
 import { firstDescendant, parseXml } from './xml.js';
 
 export interface EpubDocument {
@@ -22,9 +22,7 @@ function resolveArchivePath(baseFile: string, relativeReference: string): string
   try {
     decoded = decodeURIComponent(cleanReference);
   } catch (error) {
-    throw new StandardEbooksError('INVALID_EPUB', `Invalid percent escape in ${relativeReference}`, {
-      cause: error,
-    });
+    throw new EpubError('INVALID_EPUB', `Invalid percent escape in ${relativeReference}`, { cause: error });
   }
   const segments = baseFile.split('/');
   segments.pop();
@@ -32,7 +30,7 @@ function resolveArchivePath(baseFile: string, relativeReference: string): string
     if (segment === '' || segment === '.') continue;
     if (segment === '..') {
       if (segments.length === 0) {
-        throw new StandardEbooksError('INVALID_EPUB', `Path escapes the EPUB root: ${relativeReference}`);
+        throw new EpubError('INVALID_EPUB', `Path escapes the EPUB root: ${relativeReference}`);
       }
       segments.pop();
     } else {
@@ -44,15 +42,13 @@ function resolveArchivePath(baseFile: string, relativeReference: string): string
 
 function requiredFile(files: Record<string, Uint8Array>, name: string, label: string): Uint8Array {
   const value = files[name];
-  if (value === undefined) {
-    throw new StandardEbooksError('INVALID_EPUB', `EPUB is missing ${label}: ${name}`);
-  }
+  if (value === undefined) throw new EpubError('INVALID_EPUB', `EPUB is missing ${label}: ${name}`);
   return value;
 }
 
 export function parseEpub(bytes: Uint8Array, maximumExtractedBytes: number): ParsedEpub {
   if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
-    throw new StandardEbooksError('INVALID_EPUB', 'Downloaded file is not a ZIP/EPUB');
+    throw new EpubError('INVALID_EPUB', 'File is not a ZIP/EPUB');
   }
   if (!Number.isSafeInteger(maximumExtractedBytes) || maximumExtractedBytes <= 0) {
     throw new RangeError('maximumExtractedBytes must be a positive safe integer');
@@ -70,7 +66,7 @@ export function parseEpub(bytes: Uint8Array, maximumExtractedBytes: number): Par
         if (!selected) return false;
         declaredExtractedSize += file.originalSize;
         if (declaredExtractedSize > maximumExtractedBytes) {
-          throw new StandardEbooksError(
+          throw new EpubError(
             'CAP_EXCEEDED',
             `EPUB text exceeds the ${maximumExtractedBytes}-byte extraction limit`,
           );
@@ -79,12 +75,12 @@ export function parseEpub(bytes: Uint8Array, maximumExtractedBytes: number): Par
       },
     });
   } catch (error) {
-    if (error instanceof StandardEbooksError) throw error;
-    throw new StandardEbooksError('INVALID_EPUB', 'Could not decompress EPUB', { cause: error });
+    if (error instanceof EpubError) throw error;
+    throw new EpubError('INVALID_EPUB', 'Could not decompress EPUB', { cause: error });
   }
   const totalSize = Object.values(files).reduce((sum, file) => sum + file.byteLength, 0);
   if (totalSize > maximumExtractedBytes) {
-    throw new StandardEbooksError(
+    throw new EpubError(
       'CAP_EXCEEDED',
       `Extracted EPUB text is ${totalSize} bytes; the limit is ${maximumExtractedBytes} bytes`,
     );
@@ -98,7 +94,7 @@ export function parseEpub(bytes: Uint8Array, maximumExtractedBytes: number): Par
   const rootfile = firstDescendant(container, 'rootfile');
   const packagePath = rootfile?.getAttribute('full-path');
   if (packagePath === null || packagePath === undefined || packagePath === '') {
-    throw new StandardEbooksError('INVALID_EPUB', 'EPUB container has no root package path');
+    throw new EpubError('INVALID_EPUB', 'EPUB container has no root package path');
   }
 
   const packageXml = decodeUtf8(requiredFile(files, packagePath, 'package document'), 'EPUB package');

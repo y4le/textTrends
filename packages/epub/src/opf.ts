@@ -1,4 +1,4 @@
-import { StandardEbooksError } from './errors.js';
+import { EpubError } from './errors.js';
 import type { EbookCollection, EbookContributor, EbookMetadata } from './types.js';
 import { namespacedDescendants, normalizedText, parseXml } from './xml.js';
 
@@ -65,24 +65,18 @@ function firstDcText(metadataElement: Element, localName: string): string | null
   return value === '' ? null : value;
 }
 
-/**
- * The canonical identifier is the `dc:identifier` the package root's
- * `unique-identifier` attribute points at — never whichever identifier
- * happens to come first, so a decoy identifier cannot impersonate the
- * package identity.
- */
 function canonicalIdentifier(packageElement: Element, metadataElement: Element, label: string): string {
   const uniqueIdentifierId = packageElement.getAttribute('unique-identifier');
   if (uniqueIdentifierId === null || uniqueIdentifierId === '') {
-    throw new StandardEbooksError('INVALID_RESPONSE', `${label} declares no unique-identifier`);
+    throw new EpubError('INVALID_EPUB', `${label} declares no unique-identifier`);
   }
   const match = dcDescendants(metadataElement, 'identifier').find(
     (element) => element.getAttribute('id') === uniqueIdentifierId,
   );
   const value = normalizedText(match ?? null);
   if (match === undefined || value === '') {
-    throw new StandardEbooksError(
-      'INVALID_RESPONSE',
+    throw new EpubError(
+      'INVALID_EPUB',
       `${label} unique-identifier ${JSON.stringify(uniqueIdentifierId)} does not resolve to a dc:identifier`,
     );
   }
@@ -102,9 +96,7 @@ function parseMetadata(packageElement: Element, metadataElement: Element, label:
   };
 
   const title = titleByType('main') ?? normalizedText(titleElements[0] ?? null);
-  if (title === '') {
-    throw new StandardEbooksError('INVALID_RESPONSE', 'The OPF package has no title');
-  }
+  if (title === '') throw new EpubError('INVALID_EPUB', 'The OPF package has no title');
   const subtitle = titleByType('subtitle');
   const fullTitle = titleByType('expanded') ?? (subtitle === null ? title : `${title}: ${subtitle}`);
 
@@ -144,17 +136,13 @@ function parseMetadata(packageElement: Element, metadataElement: Element, label:
     title,
     subtitle,
     fullTitle,
-    authors: dcDescendants(metadataElement, 'creator')
-      .map(normalizedText)
-      .filter((value) => value !== ''),
+    authors: dcDescendants(metadataElement, 'creator').map(normalizedText).filter((value) => value !== ''),
     translators: contributors
       .filter((contributor) => contributor.roles.includes('trl'))
       .map((contributor) => contributor.name),
     contributors,
     language: firstDcText(metadataElement, 'language'),
-    subjects: dcDescendants(metadataElement, 'subject')
-      .map(normalizedText)
-      .filter((value) => value !== ''),
+    subjects: dcDescendants(metadataElement, 'subject').map(normalizedText).filter((value) => value !== ''),
     description: firstDcText(metadataElement, 'description'),
     rights: firstDcText(metadataElement, 'rights'),
     publishedAt: firstDcText(metadataElement, 'date'),
@@ -169,16 +157,13 @@ export function parsePackage(source: string, label = 'OPF package'): ParsedPacka
   const document = parseXml(source, label);
   const packageElement = document.documentElement;
   if (packageElement === null || packageElement.localName !== 'package' || packageElement.namespaceURI !== OPF_NS) {
-    throw new StandardEbooksError('INVALID_RESPONSE', `${label} root is not an OPF package element`);
+    throw new EpubError('INVALID_EPUB', `${label} root is not an OPF package element`);
   }
   const metadataElement = opfDescendants(packageElement, 'metadata')[0] ?? null;
   const manifestElement = opfDescendants(packageElement, 'manifest')[0] ?? null;
   const spineElement = opfDescendants(packageElement, 'spine')[0] ?? null;
   if (metadataElement === null || manifestElement === null || spineElement === null) {
-    throw new StandardEbooksError(
-      'INVALID_RESPONSE',
-      `${label} must contain metadata, manifest, and spine elements`,
-    );
+    throw new EpubError('INVALID_EPUB', `${label} must contain metadata, manifest, and spine elements`);
   }
 
   const manifest = new Map<string, ManifestItem>();
@@ -201,8 +186,8 @@ export function parsePackage(source: string, label = 'OPF package'): ParsedPacka
     if (idref === null) continue;
     const item = manifest.get(idref);
     if (item === undefined) {
-      throw new StandardEbooksError(
-        'INVALID_RESPONSE',
+      throw new EpubError(
+        'INVALID_EPUB',
         `${label} spine references missing manifest item ${JSON.stringify(idref)}`,
       );
     }
@@ -210,8 +195,6 @@ export function parsePackage(source: string, label = 'OPF package'): ParsedPacka
     spine.push({ idref, item, linear: element.getAttribute('linear') !== 'no' });
   }
 
-  if (spine.length === 0) {
-    throw new StandardEbooksError('INVALID_RESPONSE', `${label} has no XHTML spine items`);
-  }
+  if (spine.length === 0) throw new EpubError('INVALID_EPUB', `${label} has no XHTML spine items`);
   return { metadata: parseMetadata(packageElement, metadataElement, label), spine };
 }

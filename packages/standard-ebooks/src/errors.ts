@@ -1,8 +1,6 @@
 export type StandardEbooksErrorCode =
   | 'ABORTED'
-  | 'CAP_EXCEEDED'
   | 'HTTP_ERROR'
-  | 'INVALID_EPUB'
   | 'INVALID_REPOSITORY'
   | 'INVALID_RESPONSE'
   | 'NETWORK_ERROR'

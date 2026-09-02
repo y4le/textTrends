@@ -1,7 +1,7 @@
 /**
  * EPUB container extraction — the worker-side adapter behind the `epub` format.
- * It DYNAMICALLY imports the catalog-independent `@texttrends/standard-ebooks/
- * extract` subpath (so the zip/XML libraries load only when an EPUB is actually
+ * It DYNAMICALLY imports the provider-neutral `@texttrends/epub` package (so
+ * the zip/XML libraries load only when an EPUB is actually
  * ingested, never for txt/md users) and turns archive bytes into a `transformed`
  * PreparedExtraction: the joined reading-order text and container provenance. Core's
  * `finalizeExtraction` then validates and hashes it into the one canonical
@@ -30,7 +30,7 @@ export async function extractEpubDocument(
   recipe: EpubRecipe,
   maxExtractedBytes: number,
 ): Promise<ExtractedDocument> {
-  const { extractEpub, StandardEbooksError } = await import('@texttrends/standard-ebooks/extract');
+  const { EpubError, extractEpub } = await import('@texttrends/epub');
   let result;
   try {
     result = extractEpub(bytes, {
@@ -42,7 +42,7 @@ export async function extractEpubDocument(
     // RangeError, a programming/systemic fault) propagates UNCHANGED so the
     // caller classifies it by its own taxonomy (e.g. a RangeError →
     // REQUEST_INVALID, otherwise INTERNAL) rather than a recoverable file error.
-    if (!(e instanceof StandardEbooksError)) throw e;
+    if (!(e instanceof EpubError)) throw e;
     throw new ExtractionFailure(e.code === 'CAP_EXCEEDED' ? 'CAP_EXCEEDED' : 'PARSE_FAILED', e.message, { cause: e });
   }
 

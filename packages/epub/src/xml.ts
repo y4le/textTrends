@@ -1,5 +1,5 @@
 import { DOMParser } from '@xmldom/xmldom';
-import { StandardEbooksError } from './errors.js';
+import { EpubError } from './errors.js';
 
 export function parseXml(source: string, label: string): Document {
   const document = new DOMParser().parseFromString(source, 'application/xml') as unknown as Document;
@@ -7,8 +7,8 @@ export function parseXml(source: string, label: string): Document {
   const parserErrors = document.getElementsByTagName('parsererror');
   if (root === null || parserErrors.length > 0) {
     const detail = parserErrors.item(0)?.textContent?.replace(/\s+/g, ' ').trim();
-    throw new StandardEbooksError(
-      'INVALID_RESPONSE',
+    throw new EpubError(
+      'INVALID_EPUB',
       `${label} is not valid XML${detail ? `: ${detail}` : ''}`,
     );
   }
@@ -25,11 +25,7 @@ export function descendants(parent: Document | Element, localName: string): Elem
   return result;
 }
 
-/**
- * XML element identity is namespace URI + local name, not local name alone:
- * a foreign-namespace `evil:link` must never satisfy a lookup for an OPF
- * `<link>`. Any prefix bound to the right namespace matches.
- */
+/** XML element identity is namespace URI + local name, not local name alone. */
 export function namespacedDescendants(
   parent: Document | Element,
   namespaceUri: string,
@@ -48,8 +44,8 @@ export function normalizedText(element: Element | null): string {
 
 export function semanticTokens(element: Element): string[] {
   const value =
-    element.getAttributeNS('http://www.idpf.org/2007/ops', 'type') ??
-    element.getAttribute('epub:type') ??
-    '';
+    element.getAttributeNS('http://www.idpf.org/2007/ops', 'type')
+    ?? element.getAttribute('epub:type')
+    ?? '';
   return value.split(/\s+/u).filter((token) => token !== '');
 }

@@ -42,8 +42,8 @@ function syntheticDist() {
   put('assets/WorkbenchFooter-FFFF.js', 'export const WorkbenchFooter=1;');
   put('assets/local-library-LLLL.js', 'export const localLibrary=1;');
   put('assets/archive-RRRR.js', 'export const archive=1;');
-  put('assets/index.worker-WWWW.js', 'const epub=()=>import(`./extract-EEEE.js`);const html=()=>import(`./dist-DDDD.js`);');
-  put('assets/extract-EEEE.js', 'export const extract=1;');
+  put('assets/index.worker-WWWW.js', 'const epub=()=>import(`./epub-reader-EEEE.js`);const html=()=>import(`./dist-DDDD.js`);');
+  put('assets/epub-reader-EEEE.js', 'export const extract=1;');
   put('assets/dist-DDDD.js', 'export const parse5=1;');
   put('assets/standard-ebooks-catalog-JJJJ.json', catalogSource);
   return { files, put };
@@ -240,13 +240,13 @@ describe('bundle contract', () => {
   it('a worker missing a lazy parser edge, or importing one statically, fails', () => {
     const d = syntheticDist();
     d.put('assets/index.worker-WWWW.js', 'const html=()=>import(`./dist-DDDD.js`);');
-    assert.ok(run(d.files).failures.some((f) => f.includes('extract-EEEE.js')));
+    assert.ok(run(d.files).failures.some((f) => f.includes('epub-reader-EEEE.js')));
     const d2 = syntheticDist();
-    d2.put('assets/index.worker-WWWW.js', 'import"./extract-EEEE.js";const html=()=>import(`./dist-DDDD.js`);');
-    assert.ok(run(d2.files).failures.some((f) => f.includes('statically imports extract-EEEE.js')));
+    d2.put('assets/index.worker-WWWW.js', 'import"./epub-reader-EEEE.js";const html=()=>import(`./dist-DDDD.js`);');
+    assert.ok(run(d2.files).failures.some((f) => f.includes('statically imports epub-reader-EEEE.js')));
     const d3 = syntheticDist();
-    d3.put('assets/index.worker-WWWW.js', "import'./extract-EEEE.js';const html=()=>import(`./dist-DDDD.js`);");
-    assert.ok(run(d3.files).failures.some((f) => f.includes('statically imports extract-EEEE.js')));
+    d3.put('assets/index.worker-WWWW.js', "import'./epub-reader-EEEE.js';const html=()=>import(`./dist-DDDD.js`);");
+    assert.ok(run(d3.files).failures.some((f) => f.includes('statically imports epub-reader-EEEE.js')));
   });
 
   it('an ambiguous role glob fails with the observed assets listed', () => {

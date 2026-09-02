@@ -22,16 +22,20 @@
  *   versioned into a cache key.
  */
 
+import {
+  DEFAULT_MAX_EXTRACTED_BYTES,
+  decodeUtf8,
+  EpubError,
+  parsePackage,
+  type EbookMetadata,
+} from '@texttrends/epub';
 import { strToU8, Zip, ZipDeflate, ZipPassThrough } from 'fflate';
 import { mapConcurrent } from './concurrency.js';
-import { DEFAULT_MAX_EXTRACTED_BYTES } from './ebook-text.js';
 import { StandardEbooksError } from './errors.js';
 import { fetchChecked, readResponseBytes, type ByteBudget } from './http.js';
-import { parsePackage } from './opf.js';
 import { validateRepositoryName } from './repository-name.js';
 import { yieldToEventLoop } from './task-yield.js';
-import { decodeUtf8 } from './text.js';
-import type { EbookMetadata, FetchLike } from './types.js';
+import type { FetchLike } from './types.js';
 
 const DEFAULT_REPOSITORY_CONCURRENCY = 6;
 const RAW_DOCUMENT_LIMIT = 8 * 1024 * 1024;
@@ -167,7 +171,7 @@ function acquisitionBudget(remainingBytes: number, totalLimit: number): ByteBudg
     charge(byteCount: number): void {
       used += byteCount;
       if (used > remainingBytes) {
-        throw new StandardEbooksError(
+        throw new EpubError(
           'CAP_EXCEEDED',
           `Repository OPF/XHTML exceeds the ${totalLimit}-byte limit`,
         );
@@ -235,7 +239,7 @@ async function assembleArchive(
   } catch (error) {
     zip.terminate();
     if (error instanceof StandardEbooksError || error instanceof RangeError) throw error;
-    throw new StandardEbooksError('INVALID_EPUB', 'Ebook archive assembly failed', { cause: error });
+    throw new StandardEbooksError('INVALID_RESPONSE', 'Ebook archive assembly failed', { cause: error });
   }
   const bytes = new Uint8Array(totalBytes);
   let offset = 0;
@@ -280,7 +284,7 @@ export async function downloadEbookArchive(
   const opfResponse = await fetchChecked(fetchImpl, opfUrl, { method: 'GET', signal: signal ?? null });
   const opfBytes = await readResponseBytes(opfResponse, RAW_DOCUMENT_LIMIT, 'Source OPF', { signal });
   if (opfBytes.byteLength > maximumExtracted) {
-    throw new StandardEbooksError(
+    throw new EpubError(
       'CAP_EXCEEDED',
       `Repository OPF is ${opfBytes.byteLength} bytes; the limit is ${maximumExtracted} bytes`,
     );

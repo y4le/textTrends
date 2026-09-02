@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "build:e2e": "pnpm --filter @texttrends/standard-ebooks build && vite build --mode e2e",
+    "build:e2e": "pnpm --filter @texttrends/epub build && pnpm --filter @texttrends/standard-ebooks build && vite build --mode e2e",
     "e2e": "playwright test --project=chromium-benchmark",
     "e2e:functional": "playwright test --project=chromium-functional",
     "e2e:viewport": "playwright test --project=webkit-compact",

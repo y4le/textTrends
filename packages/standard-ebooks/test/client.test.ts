@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { extractEpub, StandardEbooksClient, StandardEbooksError } from '../src/index.js';
+import { EpubError, extractEpub } from '@texttrends/epub';
+import { StandardEbooksClient, StandardEbooksError } from '../src/index.js';
 import {
   chapterXhtml,
   endnotesXhtml,
@@ -146,7 +147,7 @@ describe('ebook downloads', () => {
 
     await expect(
       client.downloadEbookText('test-author_test-book_test-translator', { maxDownloadBytes: 10 }),
-    ).rejects.toMatchObject({ code: 'CAP_EXCEEDED' } satisfies Partial<StandardEbooksError>);
+    ).rejects.toMatchObject({ code: 'CAP_EXCEEDED' } satisfies Partial<EpubError>);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

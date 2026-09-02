@@ -1,20 +1,16 @@
 {
-  "name": "@texttrends/standard-ebooks",
+  "name": "@texttrends/epub",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Browser-first Standard Ebooks catalog, download, and source-archive access.",
+  "description": "Deterministic, provider-neutral EPUB text and metadata extraction.",
   "engines": {
     "node": ">=22.12.0"
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./archive": {
-      "types": "./dist/archive.d.ts",
-      "import": "./dist/archive.js"
+      "types": "./dist/epub-reader.d.ts",
+      "import": "./dist/epub-reader.js"
     }
   },
   "files": [
@@ -25,12 +21,11 @@
   "scripts": {
     "build": "tsc -b tsconfig.build.json",
     "test": "vitest run",
-    "test:live": "STANDARD_EBOOKS_LIVE_TEST=1 vitest run test/live.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
-    "@texttrends/epub": "workspace:*",
+    "@xmldom/xmldom": "0.9.10",
     "fflate": "0.8.3"
   },
   "devDependencies": {

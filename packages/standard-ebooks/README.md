@@ -1,16 +1,15 @@
 # `@texttrends/standard-ebooks`
 
 Browser-first TypeScript client for browsing the
-[Standard Ebooks](https://standardebooks.org/) catalog and extracting analysis-ready text
-from its EPUBs. It works in static webapps and Node without an application server.
+[Standard Ebooks](https://standardebooks.org/) catalog and downloading its books.
+It works in static webapps and Node without an application server.
 
 ## Monorepo boundary
 
-This workspace owns Standard Ebooks HTTP/catalog policy, EPUB/archive parsing,
-and its public types. Other textTrends packages consume only the export map in
-`package.json` (`.`, `./extract`, and `./archive`); `src` is private to this
-package. Keep its build, tests, and dependency declarations package-local so it
-can evolve without leaking implementation details into the app or core.
+This workspace owns Standard Ebooks HTTP, catalog, repository, and source-archive
+policy. Provider-neutral EPUB parsing belongs to `@texttrends/epub`, which this
+client uses for both releases and repository source. Other packages consume only
+the export map in `package.json` (`.` and `./archive`); `src` is private.
 
 ## Install
 
@@ -83,8 +82,9 @@ public domain. Preserve `book.metadata.rights` and evaluate copyright in the use
 
 ## Errors and development
 
-Failures are `StandardEbooksError` instances with a stable `code`, including `RATE_LIMITED`,
-`ABORTED`, `CAP_EXCEEDED`, `HTTP_ERROR`, and `INVALID_EPUB`.
+Provider failures are `StandardEbooksError` instances with stable codes such as
+`RATE_LIMITED`, `ABORTED`, and `HTTP_ERROR`. EPUB validation and extraction-limit
+failures are `EpubError` instances from `@texttrends/epub`.
 
 ```sh
 pnpm install

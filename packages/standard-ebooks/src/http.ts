@@ -1,3 +1,4 @@
+import { EpubError } from '@texttrends/epub';
 import { StandardEbooksError, isAbortError } from './errors.js';
 import type { FetchLike, GitHubRateLimit } from './types.js';
 
@@ -86,9 +87,9 @@ export interface ReadResponseBytesOptions {
  * contract: aborts become `ABORTED` (callers such as a cache wrapper must
  * distinguish abort from transient failure and never treat cancellation as
  * fallback-eligible), other transport failures become `NETWORK_ERROR`, and
- * errors already shaped by this library (for example the budget's
- * `CAP_EXCEEDED`) pass through untouched — checked FIRST, so a cap trip while
- * the signal happens to be aborted stays a cap trip.
+ * errors already shaped by this library or `@texttrends/epub` (for example
+ * the budget's `CAP_EXCEEDED`) pass through untouched — checked FIRST, so a
+ * cap trip while the signal happens to be aborted stays a cap trip.
  */
 function wrapBodyReadError(
   error: unknown,
@@ -96,7 +97,7 @@ function wrapBodyReadError(
   responseOptions: { readonly url?: string },
   signal: AbortSignal | null | undefined,
 ): never {
-  if (error instanceof StandardEbooksError) throw error;
+  if (error instanceof StandardEbooksError || error instanceof EpubError) throw error;
   if (isAbortError(error) || signal?.aborted === true) {
     throw new StandardEbooksError('ABORTED', `${label} read aborted`, {
       ...responseOptions,
@@ -122,10 +123,9 @@ export async function readResponseBytes(
   const declared = response.headers.get('content-length');
   const responseOptions = response.url === '' ? {} : { url: response.url };
   if (declared !== null && /^\d+$/.test(declared) && Number(declared) > maximumBytes) {
-    throw new StandardEbooksError(
+    throw new EpubError(
       'CAP_EXCEEDED',
       `${label} is ${declared} bytes; the limit is ${maximumBytes} bytes`,
-      responseOptions,
     );
   }
 
@@ -137,10 +137,9 @@ export async function readResponseBytes(
       wrapBodyReadError(error, label, responseOptions, options.signal);
     }
     if (bytes.byteLength > maximumBytes) {
-      throw new StandardEbooksError(
+      throw new EpubError(
         'CAP_EXCEEDED',
         `${label} is ${bytes.byteLength} bytes; the limit is ${maximumBytes} bytes`,
-        responseOptions,
       );
     }
     options.budget?.charge(bytes.byteLength);
@@ -161,10 +160,9 @@ export async function readResponseBytes(
     length += item.value.byteLength;
     if (length > maximumBytes) {
       await reader.cancel('size limit exceeded');
-      throw new StandardEbooksError(
+      throw new EpubError(
         'CAP_EXCEEDED',
         `${label} exceeds the ${maximumBytes}-byte limit`,
-        responseOptions,
       );
     }
     try {

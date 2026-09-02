@@ -7,6 +7,5 @@
     "outDir": "dist"
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["test"],
-  "references": [{ "path": "../epub/tsconfig.build.json" }]
+  "exclude": ["test"]
 }
