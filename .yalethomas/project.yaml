@@ -1,0 +1,27 @@
+schema: 2
+title: textTrends
+description: Local workbench for text analysis; Google Trends for books.
+bullets:
+  - Browse and read books, visualize and contrast terms, and jump occurrences across multiple texts.
+  - View text statistics and vocabulary for a corpus, text, or selection.
+  - Compares texts or selections to find characteristic words.
+  - Reads TXT, Markdown, HTML/XHTML, and EPUB entirely in the browser; with demo corpora and a baked 1,000-book Standard Ebooks catalog.
+date:
+  start: "2014-11"
+  end: "present"
+link: https://yalethom.as/textTrends/
+type: app
+tags:
+  - reading
+  - speed reading
+  - linguistics
+  - analysis
+  - humanities
+skills:
+  - Web
+  - React
+  - Web Workers
+  - Data Visualization
+  - Statistics
+  - Information Retrieval
+svg: .yalethomas/card.svg

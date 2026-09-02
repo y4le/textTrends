@@ -1,0 +1,282 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  id="tt-card"
+  viewBox="0 0 1618 1000"
+  role="img"
+  aria-labelledby="tt-card-title tt-card-description"
+>
+  <title id="tt-card-title">textTrends</title>
+  <desc id="tt-card-description">
+    The textTrends corpus footer reading Bram Stoker&apos;s Dracula. A trend
+    graph, an occurrence barcode, a reading cursor and one line of source text
+    share a single token axis. The query is sunlight, which occurs 9
+    times in 162,412 tokens. The cursor steps from occurrence to occurrence; the
+    source line slides so the matched word stays directly above its own mark,
+    and the reading-position readout follows it.
+  </desc>
+
+  <style>
+    #tt-card {
+      color-scheme: light dark;
+      --fg: light-dark(#1c1913, #e8e2d5);
+      --fg-muted: light-dark(#6e6754, #9a937f);
+      --rule: light-dark(#c9c0aa, #454038);
+      --rule-strong: light-dark(#948a73, #746b57);
+      --series-1: light-dark(#1f68bc, #30aff8);
+      --tt-cycle: 8.1s;
+    }
+    #tt-card[data-color-scheme="light"] { color-scheme: only light; }
+    #tt-card[data-color-scheme="dark"] { color-scheme: only dark; }
+
+    .tt-word {
+      fill: var(--fg);
+      font-family: Geist, Inter, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 236px;
+      font-weight: 720;
+      letter-spacing: -0.06em;
+    }
+    .tt-mono {
+      font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', monospace;
+      font-kerning: none;
+    }
+    .tt-passage { font-size: 39px; fill: var(--fg); }
+    .tt-status { font-size: 33px; fill: var(--fg-muted); }
+    .tt-rule { fill: var(--rule); }
+    .tt-mark { fill: var(--series-1); }
+    .tt-node { fill: var(--rule-strong); }
+    .tt-tint { fill: var(--series-1); opacity: 0.22; }
+    .tt-cursor, .tt-progress { fill: var(--fg); }
+    .tt-track { fill: var(--fg); opacity: 0.14; }
+    .tt-spark { fill: none; stroke: var(--series-1); stroke-width: 3px; }
+
+    /* One duration, one phase, no delay: the landing page ends playback by
+     * letting the current iteration finish, and every element has to arrive
+     * at the resting frame together. */
+    .tt-step, .tt-cursor, .tt-progress {
+      animation-duration: var(--tt-cycle);
+      animation-timing-function: step-end;
+      animation-iteration-count: infinite;
+    }
+    .tt-s0 { animation-name: tt-s0; }
+    .tt-s1 { animation-name: tt-s1; }
+    .tt-s2 { animation-name: tt-s2; }
+    .tt-s3 { animation-name: tt-s3; }
+    .tt-s4 { animation-name: tt-s4; }
+    .tt-s5 { animation-name: tt-s5; }
+    .tt-s6 { animation-name: tt-s6; }
+    .tt-s7 { animation-name: tt-s7; }
+    .tt-s8 { animation-name: tt-s8; }
+    .tt-cursor { animation-name: tt-cursor; }
+    .tt-progress {
+      animation-name: tt-progress;
+      transform-box: fill-box;
+      transform-origin: left center;
+      transform: scaleX(0.4438);
+    }
+
+    @keyframes tt-s0 {
+      0% { opacity: 1; }
+      11.1111% { opacity: 0; }
+      100% { opacity: 1; }
+    }
+    @keyframes tt-s1 {
+      0% { opacity: 0; }
+      11.1111% { opacity: 1; }
+      22.2222% { opacity: 0; }
+      100% { opacity: 0; }
+    }
+    @keyframes tt-s2 {
+      0% { opacity: 0; }
+      22.2222% { opacity: 1; }
+      33.3333% { opacity: 0; }
+      100% { opacity: 0; }
+    }
+    @keyframes tt-s3 {
+      0% { opacity: 0; }
+      33.3333% { opacity: 1; }
+      44.4444% { opacity: 0; }
+      100% { opacity: 0; }
+    }
+    @keyframes tt-s4 {
+      0% { opacity: 0; }
+      44.4444% { opacity: 1; }
+      55.5556% { opacity: 0; }
+      100% { opacity: 0; }
+    }
+    @keyframes tt-s5 {
+      0% { opacity: 0; }
+      55.5556% { opacity: 1; }
+      66.6667% { opacity: 0; }
+      100% { opacity: 0; }
+    }
+    @keyframes tt-s6 {
+      0% { opacity: 0; }
+      66.6667% { opacity: 1; }
+      77.7778% { opacity: 0; }
+      100% { opacity: 0; }
+    }
+    @keyframes tt-s7 {
+      0% { opacity: 0; }
+      77.7778% { opacity: 1; }
+      88.8889% { opacity: 0; }
+      100% { opacity: 0; }
+    }
+    @keyframes tt-s8 {
+      0% { opacity: 0; }
+      88.8889% { opacity: 1; }
+      100.0000% { opacity: 0; }
+      100% { opacity: 0; }
+    }
+    @keyframes tt-cursor {
+      0.0000% { transform: translateX(726.1px); }
+      11.1111% { transform: translateX(1069.1px); }
+      22.2222% { transform: translateX(1288.2px); }
+      33.3333% { transform: translateX(1334.6px); }
+      44.4444% { transform: translateX(1491.8px); }
+      55.5556% { transform: translateX(224.2px); }
+      66.6667% { transform: translateX(445.8px); }
+      77.7778% { transform: translateX(566.5px); }
+      88.8889% { transform: translateX(690.1px); }
+      100% { transform: translateX(726.1px); }
+    }
+    @keyframes tt-progress {
+      0.0000% { transform: scaleX(0.4438); }
+      11.1111% { transform: scaleX(0.6804); }
+      22.2222% { transform: scaleX(0.8315); }
+      33.3333% { transform: scaleX(0.8635); }
+      44.4444% { transform: scaleX(0.9719); }
+      55.5556% { transform: scaleX(0.0977); }
+      66.6667% { transform: scaleX(0.2505); }
+      77.7778% { transform: scaleX(0.3338); }
+      88.8889% { transform: scaleX(0.4191); }
+      100% { transform: scaleX(0.4438); }
+    }
+
+    .tt-still { display: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .tt-motion { display: none; }
+      .tt-still { display: inline; }
+    }
+  </style>
+
+  <text class="tt-word" x="809.0" y="361.0" text-anchor="middle" aria-hidden="true">textTrends</text>
+
+  <g aria-hidden="true">
+    <rect class="tt-rule" x="84.0" y="577.0" width="1450.0" height="3" />
+    <path class="tt-spark" d="M102.1,772.0 L138.4,772.0 L174.6,772.0 L210.9,718.0 L247.1,772.0 L283.4,772.0 L319.6,772.0 L355.9,772.0 L392.1,772.0 L428.4,772.0 L464.6,718.0 L500.9,772.0 L537.1,772.0 L573.4,718.0 L609.6,772.0 L645.9,772.0 L682.1,718.0 L718.4,718.0 L754.6,772.0 L790.9,772.0 L827.1,772.0 L863.4,772.0 L899.6,772.0 L935.9,772.0 L972.1,772.0 L1008.4,772.0 L1044.6,772.0 L1080.9,718.0 L1117.1,772.0 L1153.4,772.0 L1189.6,772.0 L1225.9,772.0 L1262.1,772.0 L1298.4,718.0 L1334.6,718.0 L1370.9,772.0 L1407.1,772.0 L1443.4,772.0 L1479.6,718.0 L1515.9,772.0" />
+    <rect class="tt-track" x="84.0" y="712.0" width="1450.0" height="6" />
+    <rect class="tt-mark" x="225.7" y="781.0" width="3" height="15" />
+    <rect class="tt-mark" x="447.3" y="781.0" width="3" height="15" />
+    <rect class="tt-mark" x="568.0" y="781.0" width="3" height="15" />
+    <rect class="tt-mark" x="691.6" y="781.0" width="3" height="15" />
+    <rect class="tt-mark" x="727.6" y="781.0" width="3" height="15" />
+    <rect class="tt-mark" x="1070.6" y="781.0" width="3" height="15" />
+    <rect class="tt-mark" x="1289.7" y="781.0" width="3" height="15" />
+    <rect class="tt-mark" x="1336.1" y="781.0" width="3" height="15" />
+    <rect class="tt-mark" x="1493.3" y="781.0" width="3" height="15" />
+  </g>
+  <g class="tt-motion" aria-hidden="true">
+    <rect class="tt-progress" x="84.0" y="712.0" width="1450.0" height="6" />
+    <rect class="tt-cursor" x="0" y="712.0" width="3" height="84"
+          transform="translate(726.1 0)" />
+  </g>
+
+  <g class="tt-motion" aria-hidden="true">
+      <g class="tt-step tt-s0" opacity="1">
+        <rect class="tt-tint" x="634.0" y="592.0" width="187.2" height="60" />
+        <rect class="tt-mark" x="634.0" y="646.0" width="187.2" height="6" />
+        <rect class="tt-node" x="634.0" y="652.0" width="187.2" height="3" />
+        <text class="tt-mono tt-passage" xml:space="preserve" x="634.0" y="635.2" text-anchor="end"> as though the </text>
+        <text class="tt-mono tt-passage" x="727.6" y="635.2" text-anchor="middle" textLength="187.2" lengthAdjust="spacingAndGlyphs">sunlight</text>
+        <text class="tt-mono tt-passage" xml:space="preserve" x="821.2" y="635.2" text-anchor="start"> himself shone through. Then </text>
+      </g>
+      <g class="tt-step tt-s1" opacity="0">
+        <rect class="tt-tint" x="977.0" y="592.0" width="187.2" height="60" />
+        <rect class="tt-mark" x="977.0" y="646.0" width="187.2" height="6" />
+        <rect class="tt-node" x="977.0" y="652.0" width="187.2" height="3" />
+        <text class="tt-mono tt-passage" xml:space="preserve" x="977.0" y="635.2" text-anchor="end"> when, on the cliff, the dying </text>
+        <text class="tt-mono tt-passage" x="1070.6" y="635.2" text-anchor="middle" textLength="187.2" lengthAdjust="spacingAndGlyphs">sunlight</text>
+        <text class="tt-mono tt-passage" xml:space="preserve" x="1164.2" y="635.2" text-anchor="start"> struck the </text>
+      </g>
+      <g class="tt-step tt-s2" opacity="0">
+        <rect class="tt-tint" x="1196.1" y="592.0" width="187.2" height="60" />
+        <rect class="tt-mark" x="1196.1" y="646.0" width="187.2" height="6" />
+        <rect class="tt-node" x="1196.1" y="652.0" width="187.2" height="3" />
+        <text class="tt-mono tt-passage" xml:space="preserve" x="1196.1" y="635.2" text-anchor="end"> Here in the crisp autumn air in the bright </text>
+        <text class="tt-mono tt-passage" x="1289.7" y="635.2" text-anchor="middle" textLength="187.2" lengthAdjust="spacingAndGlyphs">sunlight</text>
+        <text class="tt-mono tt-passage" xml:space="preserve" x="1383.3" y="635.2" text-anchor="start">— </text>
+      </g>
+      <g class="tt-step tt-s3" opacity="0">
+        <rect class="tt-tint" x="1242.5" y="592.0" width="187.2" height="60" />
+        <rect class="tt-mark" x="1242.5" y="646.0" width="187.2" height="6" />
+        <rect class="tt-node" x="1242.5" y="652.0" width="187.2" height="3" />
+        <text class="tt-mono tt-passage" xml:space="preserve" x="1242.5" y="635.2" text-anchor="end"> when I had pulled up the blind and let in the </text>
+        <text class="tt-mono tt-passage" x="1336.1" y="635.2" text-anchor="middle" textLength="187.2" lengthAdjust="spacingAndGlyphs">sunlight</text>
+        <text class="tt-mono tt-passage" xml:space="preserve" x="1429.7" y="635.2" text-anchor="start"> </text>
+      </g>
+      <g class="tt-step tt-s4" opacity="0">
+        <rect class="tt-tint" x="1346.8" y="592.0" width="187.2" height="60" />
+        <rect class="tt-mark" x="1346.8" y="646.0" width="187.2" height="6" />
+        <rect class="tt-node" x="1346.8" y="652.0" width="187.2" height="3" />
+        <text class="tt-mono tt-passage" xml:space="preserve" x="1346.8" y="635.2" text-anchor="end"> there may be places where I must go, where that </text>
+        <text class="tt-mono tt-passage" x="1440.4" y="635.2" text-anchor="middle" textLength="187.2" lengthAdjust="spacingAndGlyphs">sunlight</text>
+        <text class="tt-mono tt-passage" xml:space="preserve" x="1534.0" y="635.2" text-anchor="start"></text>
+      </g>
+      <g class="tt-step tt-s5" opacity="0">
+        <rect class="tt-tint" x="132.1" y="592.0" width="187.2" height="60" />
+        <rect class="tt-mark" x="132.1" y="646.0" width="187.2" height="6" />
+        <rect class="tt-node" x="132.1" y="652.0" width="187.2" height="3" />
+        <text class="tt-mono tt-passage" xml:space="preserve" x="132.1" y="635.2" text-anchor="end"> </text>
+        <text class="tt-mono tt-passage" x="225.7" y="635.2" text-anchor="middle" textLength="187.2" lengthAdjust="spacingAndGlyphs">sunlight</text>
+        <text class="tt-mono tt-passage" xml:space="preserve" x="319.3" y="635.2" text-anchor="start"> of the morning, I cannot in the least believe </text>
+      </g>
+      <g class="tt-step tt-s6" opacity="0">
+        <rect class="tt-tint" x="353.7" y="592.0" width="187.2" height="60" />
+        <rect class="tt-mark" x="353.7" y="646.0" width="187.2" height="6" />
+        <rect class="tt-node" x="353.7" y="652.0" width="187.2" height="3" />
+        <text class="tt-mono tt-passage" xml:space="preserve" x="353.7" y="635.2" text-anchor="end"> The red </text>
+        <text class="tt-mono tt-passage" x="447.3" y="635.2" text-anchor="middle" textLength="187.2" lengthAdjust="spacingAndGlyphs">sunlight</text>
+        <text class="tt-mono tt-passage" xml:space="preserve" x="540.9" y="635.2" text-anchor="start"> was shining on the windows of St. </text>
+      </g>
+      <g class="tt-step tt-s7" opacity="0">
+        <rect class="tt-tint" x="474.4" y="592.0" width="187.2" height="60" />
+        <rect class="tt-mark" x="474.4" y="646.0" width="187.2" height="6" />
+        <rect class="tt-node" x="474.4" y="652.0" width="187.2" height="3" />
+        <text class="tt-mono tt-passage" xml:space="preserve" x="474.4" y="635.2" text-anchor="end"> the morning </text>
+        <text class="tt-mono tt-passage" x="568.0" y="635.2" text-anchor="middle" textLength="187.2" lengthAdjust="spacingAndGlyphs">sunlight</text>
+        <text class="tt-mono tt-passage" xml:space="preserve" x="661.6" y="635.2" text-anchor="start"> flooded the room, I heard the </text>
+      </g>
+      <g class="tt-step tt-s8" opacity="0">
+        <rect class="tt-tint" x="598.0" y="592.0" width="187.2" height="60" />
+        <rect class="tt-mark" x="598.0" y="646.0" width="187.2" height="6" />
+        <rect class="tt-node" x="598.0" y="652.0" width="187.2" height="3" />
+        <text class="tt-mono tt-passage" xml:space="preserve" x="598.0" y="635.2" text-anchor="end"> but when he saw the </text>
+        <text class="tt-mono tt-passage" x="691.6" y="635.2" text-anchor="middle" textLength="187.2" lengthAdjust="spacingAndGlyphs">sunlight</text>
+        <text class="tt-mono tt-passage" xml:space="preserve" x="785.2" y="635.2" text-anchor="start"> streaming in through the </text>
+      </g>
+  </g>
+  <g class="tt-motion" aria-hidden="true">
+    <text class="tt-mono tt-status tt-step tt-s0" x="809.0" y="693.9" text-anchor="middle" opacity="1">Dracula · token 72,084 of 162,412 · 44% of corpus</text>
+    <text class="tt-mono tt-status tt-step tt-s1" x="809.0" y="693.9" text-anchor="middle" opacity="0">Dracula · token 110,505 of 162,412 · 68% of corpus</text>
+    <text class="tt-mono tt-status tt-step tt-s2" x="809.0" y="693.9" text-anchor="middle" opacity="0">Dracula · token 135,049 of 162,412 · 83% of corpus</text>
+    <text class="tt-mono tt-status tt-step tt-s3" x="809.0" y="693.9" text-anchor="middle" opacity="0">Dracula · token 140,249 of 162,412 · 86% of corpus</text>
+    <text class="tt-mono tt-status tt-step tt-s4" x="809.0" y="693.9" text-anchor="middle" opacity="0">Dracula · token 157,851 of 162,412 · 97% of corpus</text>
+    <text class="tt-mono tt-status tt-step tt-s5" x="809.0" y="693.9" text-anchor="middle" opacity="0">Dracula · token 15,871 of 162,412 · 10% of corpus</text>
+    <text class="tt-mono tt-status tt-step tt-s6" x="809.0" y="693.9" text-anchor="middle" opacity="0">Dracula · token 40,690 of 162,412 · 25% of corpus</text>
+    <text class="tt-mono tt-status tt-step tt-s7" x="809.0" y="693.9" text-anchor="middle" opacity="0">Dracula · token 54,216 of 162,412 · 33% of corpus</text>
+    <text class="tt-mono tt-status tt-step tt-s8" x="809.0" y="693.9" text-anchor="middle" opacity="0">Dracula · token 68,062 of 162,412 · 42% of corpus</text>
+  </g>
+  <g class="tt-still" aria-hidden="true">
+    <rect class="tt-progress" x="84.0" y="712.0" width="643.6" height="6" style="animation: none; transform: none;" />
+    <rect class="tt-cursor" x="726.1" y="712.0" width="3" height="84" style="animation: none;" />
+      <g>
+        <rect class="tt-tint" x="634.0" y="592.0" width="187.2" height="60" />
+        <rect class="tt-mark" x="634.0" y="646.0" width="187.2" height="6" />
+        <rect class="tt-node" x="634.0" y="652.0" width="187.2" height="3" />
+        <text class="tt-mono tt-passage" xml:space="preserve" x="634.0" y="635.2" text-anchor="end"> as though the </text>
+        <text class="tt-mono tt-passage" x="727.6" y="635.2" text-anchor="middle" textLength="187.2" lengthAdjust="spacingAndGlyphs">sunlight</text>
+        <text class="tt-mono tt-passage" xml:space="preserve" x="821.2" y="635.2" text-anchor="start"> himself shone through. Then </text>
+      </g>
+    <text class="tt-mono tt-status" x="809.0" y="693.9" text-anchor="middle">Dracula · token 72,084 of 162,412 · 44% of corpus</text>
+  </g>
+</svg>
