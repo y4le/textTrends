@@ -10,7 +10,7 @@
  * 2. The retained query/KWIC/scrub intent discipline (unchanged from the
  *    listener-owning store): lease lanes, snapshot fences, and stale-result guards.
  *
- * The generation lifecycle (built-in fetch/restart/library import)
+ * The generation lifecycle (restart/library import)
  * moved WHOLESALE to `ProjectSession` and is covered in project-session.test.ts;
  * those store-owned tests are deleted here. One composition test proves the real
  * `ProjectSession` satisfies `SessionPort` and drives the bridge end to end.
@@ -251,7 +251,7 @@ function layerIds() {
 }
 
 // ── A fake SessionPort: a spyable immutable-state emitter. ──
-const BUILTIN_PROJECT: ProjectView = {
+const LIBRARY_PROJECT: ProjectView = {
   id: 'library',
   data: { id: 'library', order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'idx' },
 };
@@ -265,7 +265,7 @@ function sessionState(
   opts: { analysis?: AnalysisPhase; project?: Partial<ProjectView> } = {},
 ): SessionState {
   return {
-    project: { ...BUILTIN_PROJECT, ...opts.project },
+    project: { ...LIBRARY_PROJECT, ...opts.project },
     analysis: opts.analysis ?? (snapshot ? { phase: 'ready' } : { phase: 'loading', detail: null }),
     snapshot,
     imports: [],
@@ -662,7 +662,7 @@ describe('workbench route and history authority', () => {
     });
     expect(emptyHistory.url).toBe('/textTrends/?foreign=kept');
     emptyRuntime.attachSession(new FakeSessionPort(sessionState(null, {
-      project: { data: { ...BUILTIN_PROJECT.data, order: [] } },
+      project: { data: { ...LIBRARY_PROJECT.data, order: [] } },
     })));
     expect(emptyRuntime.useApp.getState()).toMatchObject({
       place: 'inputs',
@@ -676,7 +676,7 @@ describe('workbench route and history authority', () => {
     const loadedHistory = new FakeHistoryPort('/textTrends/');
     const loadedRuntime = createAppRuntime(fakeQueryClient().client, { history: loadedHistory });
     loadedRuntime.attachSession(new FakeSessionPort(sessionState(null, {
-      project: { data: { ...BUILTIN_PROJECT.data, order: ['a'] } },
+      project: { data: { ...LIBRARY_PROJECT.data, order: ['a'] } },
     })));
     expect(loadedRuntime.useApp.getState()).toMatchObject({
       place: 'trends',
@@ -691,7 +691,7 @@ describe('workbench route and history authority', () => {
     const history = new FakeHistoryPort('/textTrends/?p=vocabulary');
     const runtime = createAppRuntime(fakeQueryClient().client, { history });
     runtime.attachSession(new FakeSessionPort(sessionState(null, {
-      project: { data: { ...BUILTIN_PROJECT.data, order: [] } },
+      project: { data: { ...LIBRARY_PROJECT.data, order: [] } },
     })));
     expect(runtime.useApp.getState()).toMatchObject({
       place: 'vocabulary',
@@ -749,7 +749,7 @@ describe('workbench route and history authority', () => {
     expect(history.url).toBe('/textTrends/?foreign=kept');
 
     runtime.attachSession(new FakeSessionPort(sessionState(null, {
-      project: { data: { ...BUILTIN_PROJECT.data, order: ['a'] } },
+      project: { data: { ...LIBRARY_PROJECT.data, order: ['a'] } },
     })));
     expect(runtime.useApp.getState()).toMatchObject({
       place: 'trends',
@@ -772,7 +772,7 @@ describe('workbench route and history authority', () => {
     });
     expect(history.url).toBe('/textTrends/?p=inputs');
     runtime.attachSession(new FakeSessionPort(sessionState(null, {
-      project: { data: { ...BUILTIN_PROJECT.data, order: ['a'] } },
+      project: { data: { ...LIBRARY_PROJECT.data, order: ['a'] } },
     })));
     expect(runtime.useApp.getState().place).toBe('inputs');
     runtime.dispose();
@@ -1119,7 +1119,7 @@ describe('the session bridge', () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client, { newId: () => 'new' });
     const port = new FakeSessionPort(sessionState(null, {
-      project: { data: { ...BUILTIN_PROJECT.data, order: ['a', 'b'] } },
+      project: { data: { ...LIBRARY_PROJECT.data, order: ['a', 'b'] } },
     }));
     const durable = {
         ...workspaceState(),
@@ -1173,8 +1173,8 @@ describe('the session bridge', () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client);
     const project = {
-      ...BUILTIN_PROJECT,
-      data: { ...BUILTIN_PROJECT.data, order: ['a'] },
+      ...LIBRARY_PROJECT,
+      data: { ...LIBRARY_PROJECT.data, order: ['a'] },
     };
     const port = new FakeSessionPort(sessionState(null, { project }));
     const base = workspaceState();
@@ -1267,7 +1267,7 @@ describe('the session bridge', () => {
     const before = trends().map((t) => t.cancelled);
     // Same snapshot identity, different unrelated project metadata.
     port.emit(sessionState(snap('g1', 's1'), {
-      project: { data: { ...BUILTIN_PROJECT.data, indexRecipeHash: 'changed' } },
+      project: { data: { ...LIBRARY_PROJECT.data, indexRecipeHash: 'changed' } },
     }));
     expect(store.getState().projectSession!.project.data.indexRecipeHash).toBe('changed');
     expect(trends().length).toBe(issuedAfterSnapshot); // no new query
@@ -1342,7 +1342,7 @@ describe('the session bridge', () => {
         project: {
           id: 'library',
           data: {
-            ...BUILTIN_PROJECT.data,
+            ...LIBRARY_PROJECT.data,
             id: 'library',
             order: ['finalized', 'pending'],
           },
@@ -1391,7 +1391,7 @@ describe('the session bridge', () => {
     const active = sessionState(null, {
       project: {
         id: 'library',
-        data: { ...BUILTIN_PROJECT.data, id: 'library', order: ['active'] },
+        data: { ...LIBRARY_PROJECT.data, id: 'library', order: ['active'] },
       },
     });
     const { store, port } = harness(active, { seed: true });
@@ -1412,7 +1412,7 @@ describe('the session bridge', () => {
     const active = sessionState(null, {
       project: {
         id: 'library',
-        data: { ...BUILTIN_PROJECT.data, id: 'library', order: ['active'] },
+        data: { ...LIBRARY_PROJECT.data, id: 'library', order: ['active'] },
       },
     });
     const { store } = harness(active);
@@ -1770,7 +1770,7 @@ describe('store query intent discipline', () => {
 
   it('view toggle is presentation-only: no query is issued', () => {
     const project = (order: readonly string[]) => ({
-      data: { ...BUILTIN_PROJECT.data, order },
+      data: { ...LIBRARY_PROJECT.data, order },
     });
     const f = harness(sessionState(snap('g1', 's1', ['a', 'b']), {
       project: project(['a', 'b']),
@@ -1829,25 +1829,25 @@ describe('store query intent discipline', () => {
   it('preserves a restored separate view while a multi-text import settles', () => {
     const project = (order: readonly string[]) => ({
       id: 'library',
-      data: { ...BUILTIN_PROJECT.data, id: 'library', order },
+      data: { ...LIBRARY_PROJECT.data, id: 'library', order },
     });
-    const migration = harness(sessionState(null, { project: project([]) }));
+    const flow = harness(sessionState(null, { project: project([]) }));
     const empty = emptyLibraryWorkspace();
-    migration.store.getState().restoreWorkspace({
+    flow.store.getState().restoreWorkspace({
       ...empty,
       views: {
         ...empty.views,
         trend: { ...empty.views.trend, mode: 'by-book' },
       },
     });
-    expect(migration.store.getState().trendView).toBe('by-book');
+    expect(flow.store.getState().trendView).toBe('by-book');
 
-    // Starting analysis publishes the still-empty library before migration
+    // Starting analysis publishes the still-empty library before the import
     // stages any source files; the restored preference must survive that gap.
-    migration.port.emit(sessionState(null, { project: project([]) }));
-    expect(migration.store.getState().trendView).toBe('by-book');
+    flow.port.emit(sessionState(null, { project: project([]) }));
+    expect(flow.store.getState().trendView).toBe('by-book');
 
-    migration.port.emit({
+    flow.port.emit({
       ...sessionState(snap('g1', 's1', ['a']), { project: project(['a']) }),
       imports: [{
         doc: 'b',
@@ -1857,32 +1857,32 @@ describe('store query intent discipline', () => {
         published: false,
       }],
     });
-    expect(migration.store.getState().trendView).toBe('by-book');
+    expect(flow.store.getState().trendView).toBe('by-book');
 
-    migration.port.emit(sessionState(snap('g2', 's2', ['a', 'b']), {
+    flow.port.emit(sessionState(snap('g2', 's2', ['a', 'b']), {
       project: project(['a', 'b']),
     }));
-    expect(migration.store.getState().trendView).toBe('by-book');
-    migration.runtime.dispose();
+    expect(flow.store.getState().trendView).toBe('by-book');
+    flow.runtime.dispose();
   });
 
   it('normalizes a restored separate view when an import fails with one active text', () => {
     const project = {
       id: 'library',
-      data: { ...BUILTIN_PROJECT.data, id: 'library', order: ['a'] },
+      data: { ...LIBRARY_PROJECT.data, id: 'library', order: ['a'] },
     };
-    const migration = harness(sessionState(null, {
+    const flow = harness(sessionState(null, {
       project: { ...project, data: { ...project.data, order: [] } },
     }));
     const empty = emptyLibraryWorkspace();
-    migration.store.getState().restoreWorkspace({
+    flow.store.getState().restoreWorkspace({
       ...empty,
       views: {
         ...empty.views,
         trend: { ...empty.views.trend, mode: 'by-book' },
       },
     });
-    migration.port.emit({
+    flow.port.emit({
       ...sessionState(snap('g1', 's1', ['a']), { project }),
       imports: [{
         doc: 'b',
@@ -1892,8 +1892,8 @@ describe('store query intent discipline', () => {
         published: false,
       }],
     });
-    expect(migration.store.getState().trendView).toBe('series');
-    migration.runtime.dispose();
+    expect(flow.store.getState().trendView).toBe('series');
+    flow.runtime.dispose();
   });
 
   it('keeps display settings resident-only and reissues only trend lanes for bin changes', () => {
@@ -5659,8 +5659,8 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
 
   it('rolls fitted page navigation across nonempty texts in declared corpus order', async () => {
     const project: ProjectView = {
-      ...BUILTIN_PROJECT,
-      data: { ...BUILTIN_PROJECT.data, order: ['a', 'empty', 'b'] },
+      ...LIBRARY_PROJECT,
+      data: { ...LIBRARY_PROJECT.data, order: ['a', 'empty', 'b'] },
     };
     const f = harness(sessionState(snap('g1', 's1', ['b', 'empty', 'a']), { project }));
     f.store.setState({
@@ -5712,8 +5712,8 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
 
   it('steps texts at relative position and preserves Atlas', () => {
     const project: ProjectView = {
-      ...BUILTIN_PROJECT,
-      data: { ...BUILTIN_PROJECT.data, order: ['a', 'empty', 'b'] },
+      ...LIBRARY_PROJECT,
+      data: { ...LIBRARY_PROJECT.data, order: ['a', 'empty', 'b'] },
     };
     const f = harness(sessionState(snap('g1', 's1', ['b', 'empty', 'a']), { project }));
     f.store.setState({
@@ -6259,7 +6259,7 @@ describe('dueling keyness query intent (slice-4)', () => {
   it('holds a demo reset on its first document while later books become ready first', () => {
     const project = (order: readonly string[]) => ({
       id: 'library',
-      data: { ...BUILTIN_PROJECT.data, id: 'library', order },
+      data: { ...LIBRARY_PROJECT.data, id: 'library', order },
     });
     const pendingFirst = {
       doc: 'book-1',
@@ -6723,7 +6723,7 @@ describe('dueling keyness query intent (slice-4)', () => {
 
   it('round-trips shared settings through research', () => {
     const f = harness(sessionState(snap('g1', 's1', ['a', 'b']), {
-      project: { data: { ...BUILTIN_PROJECT.data, order: ['a', 'b'] } },
+      project: { data: { ...LIBRARY_PROJECT.data, order: ['a', 'b'] } },
     }));
     f.store.getState().applyKeynessSettings({
       minCountTotal: 9,

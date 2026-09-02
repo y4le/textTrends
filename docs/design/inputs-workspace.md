@@ -90,10 +90,10 @@ Compare-side parameters is a P1 follow-up below.
 The Opus consultation established these constraints before implementation:
 
 - **One ordinary document model.** A demo is acquisition plus additive starter
-  terms, never a special corpus object. Legacy built-in workspaces migrate in
-  the background while retaining the notebook and authored view settings. The
-  old built-in document ids are replaced by new local ids, so document focus
-  and Compare sides are reconciled; the legacy schema stored no corpus order.
+  terms, never a special corpus object or runtime mode. Durable workspaces
+  contain only a library corpus and the current notebook and view shapes.
+  Obsolete or damaged records bootstrap an empty workspace with a recovery
+  notice; reusable local-library bytes remain untouched.
 - **One library mutation owner.** Demo fetch/save/activation, Standard Ebooks,
   OS files, activation, and deletion coordinate through the same lease lane.
 - **Two inventory residents.** `inventory` follows the linked selection for

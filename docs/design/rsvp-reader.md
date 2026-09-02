@@ -131,12 +131,11 @@ The bounded WPM contract is:
 - maximum: 2,000 WPM; and
 - keyboard/button step: 25 WPM.
 
-The shipped WPM preference currently survives subsequent RSVP entries in the
-browser tab's session storage. The rhythm amendment migrates a valid v1 WPM
-into a strict v2 record in local storage. The resulting rhythm survives browser
-sessions on the device and remains a local reading preference, never project,
-URL, or history state. The widened range does not change that record's shape or
-invalidate an existing value, so it needs no storage-version migration.
+The complete pacing preference survives browser sessions in device-local
+storage. It remains a reading preference, never project, URL, or history state.
+Only the exact current `texttrends/rsvp-rhythm/3` record is read; pre-alpha
+records are ignored, and a successful current save removes the retired local
+rhythm record.
 
 The active mode is visually unmistakable. It
 shows the existing Reader title and position idiom, a central focal frame, and
@@ -326,16 +325,12 @@ has no length emphasis or rests; **Natural** is the default timing row above; **
 uses 100% emphasis, 500ms sentence rests, and 900ms paragraph rests. Any timing
 divergence selects **Custom**. Reset restores Natural timing and 300 WPM while
 preserving words at once and the character limit. Character-limit changes do
-not turn an otherwise matching rhythm into Custom. The strict device-local
-preference record advances to v3; a valid v2 record migrates by retaining every
-authored value and adding the thirty-character default. That default
-intentionally preserves the former three-word ceiling while widening ordinary
-and compact two-word frames from twenty to thirty characters; the independent
-word limit still caps those frames at two members. A v3 record is valid only
-with the exact key set and in-range integer fields. Every integer from twelve
-through forty is valid for the character limit—the step of two is a UI
-increment, not a storage constraint—and a malformed or out-of-range v3 record
-is rejected as a whole rather than clamped.
+not turn an otherwise matching rhythm into Custom. The current device-local
+record has an exact key set and in-range integer fields; there is no durable
+compatibility translator. Every integer from twelve through forty is valid for
+the character limit—the step of two is a UI increment, not a storage
+constraint—and a malformed or out-of-range record is rejected as a whole
+rather than clamped.
 
 ### Multi-word frames
 
@@ -564,77 +559,9 @@ pane returns to RSVP still paused; playback never resumes merely because the
 utility pane closed. These command sites do not exit or overwrite the
 suspended Find interaction.
 
-## Delivery and acceptance
+## Acceptance
 
-The base implementation was divided into five reviewable commits:
-
-1. this research-backed decision record;
-2. Reader boundary transport plus a pure RSVP unit/anchor/timing library and
-   unit tests;
-3. interaction/store state, session preference, the effective-Find derivation,
-   and state tests;
-4. the isolated full-screen RSVP presentation component, styles, and component
-   tests; and
-5. shortcut context, Reader/footer integration, and browser acceptance.
-
-The rhythm amendment adds three focused commits:
-
-6. this amended decision record;
-7. pure pacing/frame primitives, strict v2 local preference migration, store
-   state, and unit tests; and
-8. the disclosure controls, responsive multi-word presentation, two-phase
-   playback timer, and cross-browser acceptance.
-
-The phrase-aware amendment adds five focused commits:
-
-9. this amended decision record;
-10. deterministic clause-, width-, and orphan-aware frame primitives plus
-    backward-frame derivation and unit tests;
-11. separation of the words-at-once display preference from rhythm presets and
-    reset semantics without a storage migration;
-12. the primary words-at-once control and per-size fixed-anchor presentation;
-    and
-13. paused sentence context, resident frame regression, and browser acceptance.
-
-The honest-WPM follow-up adds four focused commits:
-
-14. preserve ordinary spaces at the split flex-span join and pin the browser
-    whitespace contract;
-15. this amended decision record;
-16. deterministic resident-span timing plans, exact integer apportionment,
-    widened pace validation, and pure-model coverage; and
-17. honest pace/rest copy, planned-deadline playback, capped-rest disclosure,
-    and cross-browser acceptance.
-
-The standalone-foundation amendment adds four focused commits:
-
-18. this amended decision record;
-19. behavior-preserving extraction of the pure engine into
-    `@texttrends/rsvp`, including the structural host contract and drift guard;
-20. the inert plain-text source builder on `@texttrends/rsvp/source`; and
-21. the 30ms exposure floor, derived 2,000 WPM ceiling, factual high-speed
-    guidance, and updated unit/browser acceptance.
-
-The frame-limit amendment adds three focused commits:
-
-22. this amended decision record and pinned Opus UX decision;
-23. explicit dual-ceiling frame primitives, the strict v2-to-v3 preference
-    migration, store state, and unit tests; and
-24. the separated frame/rhythm settings groups, focusable aria-disabled state,
-    responsive styling, and browser acceptance.
-
-The visible-entry and mobile amendment adds five focused commits:
-
-25. exact, query-free prose reading-cursor selection;
-26. the one- or multi-text ruler's visible paused Speed entry;
-27. guarded focal-stage play/pause with explicit exact exits;
-28. compact dock collapse, short-viewport suppression, and responsive mobile
-    transport; and
-29. this amended decision record.
-
-Every staged commit receives an exact Opus review before commit.
-
-Acceptance requires:
+The retained Speed capability must continue to satisfy:
 
 - sentence/paragraph bounds survive `reader-page/1` planning, materialization,
   wire transport, and browser slicing;
@@ -663,9 +590,9 @@ Acceptance requires:
   length emphasis has no residual budget, and timer catch-up cannot reduce an
   exposure;
 - the first member's anchor stays on the pixel guide for every frame size;
-- strict local-storage preference validation, session-storage v1 pace and
-  local-storage v2 preference migration, rhythm-only presets, compact word
-  clamping, and frame-preference-preserving reset behavior are covered;
+- exact current local-storage preference validation, pre-alpha-record
+  rejection, rhythm-only presets, compact word clamping, and
+  frame-preference-preserving reset behavior are covered;
 - the character limit is absolute, counts rendered graphemes including spaces
   and punctuation, preserves a whole first word, remains authored across the
   compact clamp, is aria-disabled only when one effective word makes it inert,
@@ -706,17 +633,6 @@ Acceptance requires:
 - the anchor glyph remains at the same pixel guide across short and long words; and
 - the normal Reader's page/occurrence shortcuts and fitted-page behavior do
   not regress.
-
-The amendment's exact staged reviews were approved by the pinned Opus reviewer:
-
-- cursor: `req_review_diff_aa7a47684b3e2584`, receipt
-  `rev_sha256_64f47a00092d11f968205c22e13e0d95a58aa73b7c8c6659ea0ab102be31e893`;
-- visible entry: `req_review_diff_c46af77b7a1bc1dd`, receipt
-  `rev_sha256_2d790a15091ccaaed8c3d6a54fe3b9fc71c44caa0d240c9b787974e4973f14eb`;
-- stage interaction: `req_review_diff_f04b6d4ebcabb02f`, receipt
-  `rev_sha256_a016156da9fa890af3283ca1e44e7b6d5240d9e691a96683ad4fc45b340a5f17`;
-- mobile layout: `req_review_diff_00055d6146589793`, receipt
-  `rev_sha256_024d8245273ddf625d7cadffc9a0756237e93ccff2edcb566ab90b37aba1ebb8`.
 
 ## Research basis
 

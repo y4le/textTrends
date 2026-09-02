@@ -33,18 +33,21 @@ describe current contracts and decisions rather than implementation history.
 - `apps/web` — React workbench, browser persistence, worker adapter, and
   Playwright coverage
 - `packages/core` — environment-independent indexing and analysis kernels
-- `packages/extractors` — lazy TXT/Markdown/HTML/EPUB extraction boundary
-- `packages/standard-ebooks` — browser-first Standard Ebooks archive and
-  extraction client
+- `packages/epub` — provider-neutral EPUB parsing and deterministic extraction
+- `packages/extractors` — lazy format dispatch for TXT, Markdown, HTML, and EPUB
+- `packages/standard-ebooks` — Standard Ebooks catalog, download, and archive
+  policy built on `packages/epub`
+- `packages/rsvp` — framework-free Speed framing and playback planning
 - `packages/cli` — Node portability and benchmark harness
 - `docs/design` — current contracts, decisions, benchmarks, and roadmap
 - `text` — development corpora; read `text/README.md` before redistribution
 
 Every workspace dependency is contained in this repository, so a clean
 checkout is sufficient for local development and CI.
-`packages/standard-ebooks` remains an independent package boundary: consumers
-use only its declared `.`, `./extract`, and `./archive` exports, never its
-`src` internals.
+Package boundaries are explicit: generic EPUB consumers use `@texttrends/epub`;
+Standard Ebooks consumers use only its declared `.` and `./archive` exports;
+and the web app includes `@texttrends/rsvp` as its reusable Speed engine.
+Consumers never reach into package `src` internals.
 
 Pushes to `master` run the full CI suite and, after it passes, publish the web
 app to GitHub Pages. Pull requests run the same checks without deploying.

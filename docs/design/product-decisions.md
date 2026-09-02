@@ -4,6 +4,36 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-09-02 — Simplify around reusable capabilities and current state
+
+Speed remains a first-class product capability and a reusable dependency. Its
+framework-free framing, pacing, source, and playback logic stays in
+`@texttrends/rsvp`; the web host owns React, persistence, fetching, and Reader
+integration. That is already the seam needed for a future spin-off, so a
+separate release process is not required now.
+
+There is one project runtime: an ordered corpus backed by the local library.
+Prepared demos are acquisition recipes that populate that library, not another
+runtime arm. Durable workspace and notebook parsers accept only their current
+exact shapes. Incompatible or damaged records recover to an empty workspace
+with notice while leaving saved source bytes intact.
+
+Browser preferences share one storage mechanism and one key/scope registry;
+each domain retains its own validation. Current readers do not translate
+pre-alpha records. Successful saves or explicit reset may remove known retired
+keys without turning those keys back into supported input formats.
+
+Provider-neutral EPUB parsing and extraction belongs to `@texttrends/epub`.
+Format dispatch and Standard Ebooks both depend on it; Standard Ebooks retains
+only provider-specific catalog, network, repository, and archive policy. This
+keeps ordinary ebooks from depending on one acquisition provider.
+
+Tests should pin public boundaries, invariants, failure modes, and behavioral
+integration. Migration-only tests disappear with their translators, duplicate
+parser assertions collapse into the owning package, and historical delivery
+ledgers do not live in current contract documents. Rights/provenance records
+and evidence-bearing acceptance criteria remain.
+
 ## 2026-09-01 — Read and Speed carry one reading bar and one progress rail
 
 Ordinary Read will treat authenticated prose as the primary surface. Compact
@@ -371,16 +401,14 @@ Vocabulary now filters by case-insensitive literal substring by default, with
 case-sensitive Unicode regex behind an explicit checkbox. Literal matching
 widens the displayed set across separately counted case variants; it does not
 merge those types or accent-fold them. Mode and query are one atomic value
-through store, worker protocol, provenance, and workspace persistence. Former
-regex and prefix workspace values migrate into regex mode. Writers emit only
-the new filter shape, so a newly saved filtered workspace is intentionally
-rejected by builds that predate this decision rather than being silently
-misinterpreted.
+through store, worker protocol, provenance, and workspace persistence. Durable
+workspaces accept only the current filter shape; retired standalone regex and
+prefix fields are not translated.
 
 The architecture and settings information model were frozen with pinned Claude
 Opus collaboration through Parley (`req_consult_09d491e1a04c6012`), with UX
 challenge passes in `req_consult_4ad30d6d0bded486` and
-`req_consult_273d383a67802f53`. The filter migration and interaction contract
+`req_consult_273d383a67802f53`. The filter and interaction contract
 were refined separately in `req_consult_758335124003a436`; final staged review
 required the 320px layout and keyboard-focus corrections in
 `req_review_diff_7c6c474e01c83782`, then verified them in
@@ -393,13 +421,9 @@ The Trends presentation control is a flat three-way choice: `combined`,
 every book fills the row and x expresses relative progress. `to scale` keeps
 one row per book but gives every row the longest book's token domain, so the
 same x coordinate means the same token count and shorter books form a jagged
-right edge. Existing `by-book` workspaces remain `equal`; the new durable wire
-value is `by-book-scaled`. A single-text corpus still temporarily forces
+right edge. The current durable wire values are `by-book` for equal and
+`by-book-scaled` for to scale. A single-text corpus still temporarily forces
 `combined` without discarding the preference, and `V` cycles the three views.
-This additive wire value deliberately keeps the current schema version: older
-saved workspaces load without migration, while a workspace saved in `to scale`
-will be rejected by builds that predate this option rather than silently
-changing its x-axis semantics.
 
 One per-row domain drives paths, baselines, barcode marks, cursors, linked
 ranges, and pointer inversion. In `to scale`, the baseline stops at the real

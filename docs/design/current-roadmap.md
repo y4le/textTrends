@@ -1,6 +1,6 @@
 # Current roadmap
 
-This is the reconciliation index for the current tree as of 2026-08-30. The
+This is the reconciliation index for the current tree as of 2026-09-02. The
 [analysis contract](analysis-contract.md) remains the semantic authority;
 the other retained design documents record current product decisions,
 measurement gates, and method contracts.
@@ -9,8 +9,11 @@ measurement gates, and method contracts.
 
 - **One browser-local workspace pipeline:** TXT, Markdown, HTML/XHTML, and EPUB
   extraction feed one versioned snapshot/index engine (`packages/core`,
-  `packages/extractors`, and `apps/web/src/worker`). One content-addressed local
-  library and one last-write-wins workspace own durable browser state.
+  `packages/epub`, `packages/extractors`, and `apps/web/src/worker`). Generic
+  EPUB extraction is provider-neutral; Standard Ebooks owns only its catalog,
+  download, and source-archive policy. One content-addressed local library and
+  one last-write-wins workspace own durable browser state. The durable parser
+  accepts only the current exact workspace and query-notebook shapes.
 - **Five reachable workbench places:** Inputs, Trends, Matches,
   Vocabulary, and Compare (`apps/web/src/places`). They cover local file and
   active-corpus management, term groups, linked selections, frequency,
@@ -34,6 +37,10 @@ measurement gates, and method contracts.
   notices still disclose capped marks and marks retained from a superseded
   query. The footer, KWIC, Read, and Atlas share authored token geometry. See
   the [spatial Reader contract and decision](spatial-reader.md).
+- **Reusable Speed engine:** `@texttrends/rsvp` is a framework-free package for
+  framing, pacing, source adaptation, and playback planning. The web app keeps
+  Speed as a first-class Reader mode while depending on that extraction seam;
+  publishing it independently remains optional rather than required.
 - **Guided learning:** a seven-card tour teaches one round trip from a resident
   analytical mark to canonical source text and back. Four pull-only contextual
   notes live in Help, useful empty states explain their own next action, and a
@@ -58,9 +65,9 @@ measurement gates, and method contracts.
   corpus shelf plus private `lotr` and `asoif`; they replace active research
   state while preserving reusable local-library bytes.
 - **Hermetic builds and deployment:** every workspace package, including the
-  Standard Ebooks client, lives in this repository. Pull requests run the full
-  CI suite; successful pushes to `master` build and deploy the production
-  bundle to GitHub Pages.
+  EPUB reader, Standard Ebooks client, and Speed engine, lives in this
+  repository. Pull requests run the full CI suite; successful pushes to
+  `master` build and deploy the production bundle to GitHub Pages.
 
 ## In progress
 

@@ -745,9 +745,9 @@ export function occurrenceNavigationText(
 }
 
 /** Bootstrap lifecycle, distinct from analysis state: the store is exported
- *  synchronously but the session needs the async-built built-in project, so
- *  there is a window before the one-shot attachment where no session exists.
- *  A construction/hashing failure here is NOT an analysis-generation failure. */
+ *  synchronously while the local library, workspace, and initial project load
+ *  asynchronously, so there is a window before one-shot session attachment.
+ *  A bootstrap failure here is NOT an analysis-generation failure. */
 export type BootstrapState =
   | { readonly phase: 'initializing' }
   | { readonly phase: 'attached' }
@@ -1166,7 +1166,7 @@ export interface AppRuntime {
     workspace?: WorkspaceV1,
     workspaceStore?: WorkspaceStorePort,
   ): void;
-  /** Report an async bootstrap (built-in construction/hashing) failure. */
+  /** Report an async local-library/workspace bootstrap failure. */
   failBootstrap(error: unknown): void;
   /** Surface a recoverable startup reconciliation to the user. */
   reportNotice(message: string): void;
