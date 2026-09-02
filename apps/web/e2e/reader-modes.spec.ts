@@ -63,7 +63,6 @@ async function expectReaderFillsViewport(
   expect(box!.y).toBeCloseTo(0, 0);
   expect(box!.width).toBeCloseTo(width, 0);
   expect(box!.height).toBeCloseTo(height, 0);
-  const pane = reader.locator('.reader-prose-pane');
   await expectReaderFitSettled(reader);
   const layout = reader.locator('.reader-read-layout');
   await expect(layout).toHaveAttribute('data-reader-layout', /^(bar|rails)$/);
