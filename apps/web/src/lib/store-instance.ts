@@ -39,10 +39,7 @@ import { findScope } from './interaction.ts';
 import { RSVP_PACING_DEFAULTS, type RsvpPacing } from '@texttrends/rsvp';
 import {
   browserLocalStorage,
-  hasRsvpPacingV3,
   loadRsvpPacing,
-  loadRsvpWpm,
-  pacingFromLegacyWpm,
   saveRsvpPacing,
 } from './rsvp-storage.ts';
 import {
@@ -63,15 +60,8 @@ const restoredMatchesColumns = loadMatchesColumnSettings(matchesStorage);
 const rsvpStorage = browserLocalStorage(window);
 const restoredAtlasNormalization = loadAtlasNormalization(rsvpStorage)
   ?? DEFAULT_ATLAS_NORMALIZATION;
-const hadRsvpPacingV3 = hasRsvpPacingV3(rsvpStorage);
 const storedRsvpPacing = loadRsvpPacing(rsvpStorage);
-const legacyRsvpWpm = storedRsvpPacing === null ? loadRsvpWpm(matchesStorage) : null;
-const restoredRsvpPacing = storedRsvpPacing
-  ?? (legacyRsvpWpm === null ? RSVP_PACING_DEFAULTS : pacingFromLegacyWpm(legacyRsvpWpm));
-if ((storedRsvpPacing !== null && !hadRsvpPacingV3) || legacyRsvpWpm !== null) {
-  // Keep the inert v2 record for rollback; v3 always takes read precedence.
-  saveRsvpPacing(rsvpStorage, restoredRsvpPacing);
-}
+const restoredRsvpPacing = storedRsvpPacing ?? RSVP_PACING_DEFAULTS;
 const runtime = createAppRuntime(client, {
   history: browserHistoryPort(window),
   ...(restoredMatchesColumns === null

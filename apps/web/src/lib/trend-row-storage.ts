@@ -19,8 +19,7 @@ export interface TrendRowPitchContext {
 
 export interface TrendRowPitchPreference {
   readonly pitch: number;
-  /** Legacy v1 records have no context and are clamped without reprojection. */
-  readonly context: TrendRowPitchContext | null;
+  readonly context: TrendRowPitchContext;
 }
 
 type StorageReader = Pick<Storage, 'getItem'>;
@@ -64,46 +63,32 @@ export function trendRowPitchPreference(
   });
 }
 
-/** Read a durable device-local viewing-density preference. V1 is accepted as
- * context-unknown and is migrated only on the next explicit commit. */
+/** Read a durable device-local viewing-density preference. */
 export function loadTrendRowPitch(
   storage: StorageReader | null,
 ): TrendRowPitchPreference | null {
   if (storage === null) return null;
   try {
     const raw = storage.getItem(TREND_ROW_PITCH_STORAGE_KEY);
-    if (raw !== null) {
-      const parsed: unknown = JSON.parse(raw);
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
-      const record = parsed as Record<string, unknown>;
-      if (
-        !exactKeys(record, ['pitch', 'tracks', 'width', 'coarse'])
-        || !validPitch(record.pitch)
-        || !validTracks(record.tracks)
-        || !validWidth(record.width)
-        || typeof record.coarse !== 'boolean'
-      ) return null;
-      return Object.freeze({
-        pitch: record.pitch,
-        context: Object.freeze({
-          tracks: record.tracks,
-          width: record.width,
-          coarse: record.coarse,
-        }),
-      });
-    }
-
-    const legacyRaw = storage.getItem(LEGACY_TREND_ROW_PITCH_STORAGE_KEY);
-    if (legacyRaw === null) return null;
-    const legacyParsed: unknown = JSON.parse(legacyRaw);
+    if (raw === null) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
     if (
-      typeof legacyParsed !== 'object'
-      || legacyParsed === null
-      || Array.isArray(legacyParsed)
+      !exactKeys(record, ['pitch', 'tracks', 'width', 'coarse'])
+      || !validPitch(record.pitch)
+      || !validTracks(record.tracks)
+      || !validWidth(record.width)
+      || typeof record.coarse !== 'boolean'
     ) return null;
-    const legacy = legacyParsed as Record<string, unknown>;
-    if (!exactKeys(legacy, ['pitch']) || !validPitch(legacy.pitch)) return null;
-    return Object.freeze({ pitch: legacy.pitch, context: null });
+    return Object.freeze({
+      pitch: record.pitch,
+      context: Object.freeze({
+        tracks: record.tracks,
+        width: record.width,
+        coarse: record.coarse,
+      }),
+    });
   } catch {
     return null;
   }
@@ -122,14 +107,13 @@ export function saveTrendRowPitch(
       storage.removeItem(LEGACY_TREND_ROW_PITCH_STORAGE_KEY);
       return;
     }
-    if (preference.context === null) return;
     const valid = trendRowPitchPreference(preference.pitch, preference.context);
     if (valid === null) return;
     storage.setItem(TREND_ROW_PITCH_STORAGE_KEY, JSON.stringify({
       pitch: valid.pitch,
-      tracks: valid.context!.tracks,
-      width: valid.context!.width,
-      coarse: valid.context!.coarse,
+      tracks: valid.context.tracks,
+      width: valid.context.width,
+      coarse: valid.context.coarse,
     }));
     storage.removeItem(LEGACY_TREND_ROW_PITCH_STORAGE_KEY);
   } catch {
@@ -213,8 +197,7 @@ function pitchForPhase(
 }
 
 /** Preserve the user's compression treatment as tracks or presentation change.
- * Zero-track and legacy contexts clamp only because neither has an honest
- * barcode phase to map. The final sizing pass also normalizes legacy gap values. */
+ * Zero-track contexts clamp because they have no honest barcode phase to map. */
 export function resolveTrendRowPitch(
   preference: TrendRowPitchPreference | null,
   liveContext: TrendRowPitchContext,
@@ -228,8 +211,7 @@ export function resolveTrendRowPitch(
   });
   const sourceContext = preference.context;
   if (
-    sourceContext === null
-    || sourceContext.tracks === 0
+    sourceContext.tracks === 0
     || liveContext.tracks === 0
     || (
       sourceContext.tracks === liveContext.tracks

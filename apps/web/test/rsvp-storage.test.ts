@@ -5,12 +5,8 @@ import {
   RSVP_PACING_V2_STORAGE_KEY,
   RSVP_WPM_STORAGE_KEY,
   browserLocalStorage,
-  hasRsvpPacingV3,
   loadRsvpPacing,
-  loadRsvpWpm,
-  pacingFromLegacyWpm,
   saveRsvpPacing,
-  saveRsvpWpm,
 } from '../src/lib/rsvp-storage.ts';
 
 function memoryStorage(initial: Readonly<Record<string, string>> = {}) {
@@ -18,6 +14,7 @@ function memoryStorage(initial: Readonly<Record<string, string>> = {}) {
   return {
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => { values.set(key, value); },
+    removeItem: (key: string) => { values.delete(key); },
     value: (key: string) => values.get(key) ?? null,
   };
 }
@@ -42,7 +39,6 @@ describe('RSVP rhythm local storage', () => {
     const storage = memoryStorage();
     const pacing = { ...RSVP_PACING_DEFAULTS, frameCharLimit: 13 };
     saveRsvpPacing(storage, pacing);
-    expect(hasRsvpPacingV3(storage)).toBe(true);
     expect(loadRsvpPacing(storage)).toEqual(pacing);
   });
 
@@ -66,7 +62,7 @@ describe('RSVP rhythm local storage', () => {
     expect(read({ ...RSVP_PACING_DEFAULTS, wpm: 2_001 })).toBeNull();
   });
 
-  it('migrates a strict v2 rhythm record without losing any saved preference', () => {
+  it('ignores pre-alpha records and removes the old local record on save', () => {
     const storage = memoryStorage({
       [RSVP_PACING_V2_STORAGE_KEY]: JSON.stringify({
         wpm: 425,
@@ -75,43 +71,23 @@ describe('RSVP rhythm local storage', () => {
         paragraphPauseMs: 800,
         lengthEmphasis: 50,
       }),
+      [RSVP_WPM_STORAGE_KEY]: JSON.stringify({ wpm: 425 }),
     });
-    const migrated = loadRsvpPacing(storage);
-    expect(migrated).toEqual({
-      wpm: 425,
-      wordsPerFrame: 2,
-      frameCharLimit: 30,
-      sentencePauseMs: 250,
-      paragraphPauseMs: 800,
-      lengthEmphasis: 50,
-    });
-    if (migrated === null) throw new Error('expected a migrated RSVP preference');
-    saveRsvpPacing(storage, migrated);
-    expect(JSON.parse(storage.value(RSVP_PACING_STORAGE_KEY)!)).toEqual(migrated);
-  });
-
-  it('reads the v1 session pace and seeds all new fields from Natural', () => {
-    const legacy = memoryStorage();
-    saveRsvpWpm(legacy, 425);
-    const wpm = loadRsvpWpm(legacy);
-    expect(wpm).toBe(425);
-    expect(legacy.value(RSVP_WPM_STORAGE_KEY)).not.toBeNull();
-    expect(wpm === null ? null : pacingFromLegacyWpm(wpm)).toEqual({
-      ...RSVP_PACING_DEFAULTS,
-      wpm: 425,
-    });
+    expect(loadRsvpPacing(storage)).toBeNull();
+    saveRsvpPacing(storage, RSVP_PACING_DEFAULTS);
+    expect(storage.value(RSVP_PACING_V2_STORAGE_KEY)).toBeNull();
+    expect(storage.value(RSVP_WPM_STORAGE_KEY)).not.toBeNull();
+    expect(loadRsvpPacing(storage)).toEqual(RSVP_PACING_DEFAULTS);
   });
 
   it('keeps unavailable storage non-fatal', () => {
     const unavailable = {
       getItem: () => { throw new DOMException('disabled', 'SecurityError'); },
       setItem: () => { throw new DOMException('disabled', 'SecurityError'); },
+      removeItem: () => { throw new DOMException('disabled', 'SecurityError'); },
     };
     expect(loadRsvpPacing(unavailable)).toBeNull();
-    expect(hasRsvpPacingV3(unavailable)).toBe(false);
-    expect(loadRsvpWpm(unavailable)).toBeNull();
     expect(() => saveRsvpPacing(unavailable, RSVP_PACING_DEFAULTS)).not.toThrow();
-    expect(() => saveRsvpWpm(unavailable, 300)).not.toThrow();
     expect(browserLocalStorage({
       get localStorage(): Storage { throw new DOMException('disabled', 'SecurityError'); },
     })).toBeNull();

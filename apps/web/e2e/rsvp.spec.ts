@@ -738,53 +738,6 @@ test('a forty-character frame stays anchored and clips locally at 320px', async 
     .toBeCloseTo(compactWideAnchorRatio, 2);
 });
 
-test('migrates v2 preferences and restores the full local frame and rhythm', async ({ page }) => {
-  await page.addInitScript(() => {
-    const marker = 'texttrends/e2e-rsvp-migration';
-    if (sessionStorage.getItem(marker) !== null) return;
-    localStorage.removeItem('texttrends/rsvp-rhythm/3');
-    localStorage.setItem('texttrends/rsvp-rhythm/2', JSON.stringify({
-      wpm: 425,
-      wordsPerFrame: 1,
-      sentencePauseMs: 350,
-      paragraphPauseMs: 700,
-      lengthEmphasis: 100,
-    }));
-    sessionStorage.setItem(marker, 'ready');
-  });
-
-  let reader = await openReader(page);
-  await enterRsvp(reader);
-  await expect(reader.locator('.reader-position')).toContainText('425 WPM');
-  await chooseWordsAtOnce(reader.getByRole('group', { name: /^Words at once/ }), 2);
-  await reader.getByRole('button', { name: 'Open Speed settings', exact: true }).click();
-  let settings = page.getByRole('dialog', { name: 'Speed settings' });
-  const sentence = settings.getByRole('spinbutton', { name: 'Sentence rest in milliseconds' });
-  await sentence.fill('250');
-  await sentence.press('Enter');
-  await expect.poll(() => page.evaluate(() => {
-    const raw = localStorage.getItem('texttrends/rsvp-rhythm/3');
-    return raw === null ? null : JSON.parse(raw);
-  })).toMatchObject({
-    wpm: 425, wordsPerFrame: 2, frameCharLimit: 30, sentencePauseMs: 250,
-  });
-
-  await page.keyboard.press('Escape');
-  await expect(settings).toHaveCount(0);
-  await page.keyboard.press('Escape');
-  reader = await openReader(page);
-  await enterRsvp(reader);
-  await expect(reader.locator('.reader-position')).toContainText('425 WPM');
-  await expect(reader.getByRole('region', { name: 'Speed reading word' }))
-    .toHaveAttribute('data-rsvp-words', '2');
-  await reader.getByRole('button', { name: 'Open Speed settings', exact: true }).click();
-  settings = page.getByRole('dialog', { name: 'Speed settings' });
-  await expect(settings.getByRole('spinbutton', { name: 'Sentence rest in milliseconds' }))
-    .toHaveValue('250');
-  await expect(settings.getByRole('spinbutton', { name: 'Frame character limit in characters' }))
-    .toHaveValue('30');
-});
-
 test('reduced-motion preference enters RSVP paused', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const reader = await openReader(page);

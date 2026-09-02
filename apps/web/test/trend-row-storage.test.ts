@@ -62,15 +62,12 @@ describe('trend row-pitch storage', () => {
     expect(storage.value(LEGACY_TREND_ROW_PITCH_STORAGE_KEY)).toBeNull();
   });
 
-  it('reads v1 as context-unknown without writing during migration', () => {
+  it('does not read the pre-alpha v1 record', () => {
     const storage = memoryStorage({
       [LEGACY_TREND_ROW_PITCH_STORAGE_KEY]: '{"pitch":58}',
     });
-    expect(loadTrendRowPitch(storage)).toEqual({ pitch: 58, context: null });
-    expect(storage.calls()).toEqual([
-      `get:${TREND_ROW_PITCH_STORAGE_KEY}`,
-      `get:${LEGACY_TREND_ROW_PITCH_STORAGE_KEY}`,
-    ]);
+    expect(loadTrendRowPitch(storage)).toBeNull();
+    expect(storage.calls()).toEqual([`get:${TREND_ROW_PITCH_STORAGE_KEY}`]);
   });
 
   it.each([
@@ -179,11 +176,7 @@ describe('trend row-pitch reprojection', () => {
     expect(resolveTrendRowPitch(target, regularOne)).toBe(pitch);
   });
 
-  it('clamps legacy, zero-track, and hand-written gap pitches without reprojection', () => {
-    expect(resolveTrendRowPitch(
-      { pitch: 17, context: null },
-      regularOne,
-    )).toBe(14);
+  it('clamps zero-track pitches without reprojection', () => {
     expect(resolveTrendRowPitch(
       trendRowPitchPreference(58, { ...regularOne, tracks: 0 }),
       regularOne,
