@@ -4446,6 +4446,28 @@ describe('temporary corpus Find', () => {
     });
   });
 
+  it('cycles from the displayed Find hit instead of ambient cursor drift', async () => {
+    const f = setup();
+    f.store.getState().setScrub({ doc: 'a', token: 10 });
+    f.store.getState().submitFind('holmes');
+    const initial = f.occurrenceSteps().at(-1)!;
+    initial.resolve(resultFor(initial, {
+      doc: 'a', token: 4, spanTokens: 1, members: [0],
+    }));
+    await flush();
+
+    // Hovering/scrubbing remains allowed while Find is open, but Next still
+    // names the exact result that the Find status and progress UI display.
+    f.store.getState().setScrub({ doc: 'a', token: 90 });
+    f.store.getState().stepFind(1);
+    const next = f.occurrenceSteps().at(-1)!;
+    expect(next).not.toBe(initial);
+    expect((next.query as { request: unknown }).request).toEqual({
+      method: 'occurrence-step/1', doc: 'a', token: 4, direction: 1,
+    });
+    f.runtime.dispose();
+  });
+
   it('moves the truthful cursor, reanchors Matches, detects wrap, and does not open Reader', async () => {
     const f = setup(['a', 'b']);
     f.store.getState().quickAdd('holmes');

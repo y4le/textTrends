@@ -3849,7 +3849,15 @@ export function createAppRuntime(
                 ?? readyReader.tokens.start,
             }
           : null;
-        let anchor = readerAnchor ?? initial.scrub;
+        // Once Find has settled, its displayed exact result owns subsequent
+        // cycling. Ambient chart/footer motion still updates the shared reading
+        // cursor, but must not silently replace the result named by the Find UI.
+        // A live Reader remains higher priority because it is the active reading
+        // surface and may have advanced beyond the displayed Find hit.
+        const settledFindAnchor = initial.scrub !== null && find.state.status === 'ready'
+          ? { doc: find.state.hit.doc, token: find.state.hit.token }
+          : null;
+        let anchor = readerAnchor ?? settledFindAnchor ?? initial.scrub;
         const syntheticAnchor = anchor === null;
         if (anchor === null) {
           const candidates = direction === 1

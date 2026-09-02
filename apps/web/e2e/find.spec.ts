@@ -315,17 +315,22 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await expect(page.locator('[data-series-label^="find-series:"]')).toHaveCount(0);
   await page.getByRole('link', { name: 'Trends', exact: true }).click();
 
-  const first = await status.textContent();
+  // Matches-window progress settles on its own lane and is asserted below.
+  // Compare only the result sentence here so that lane cannot change the
+  // live-region string between two otherwise identical Find hits.
+  const resultStatus = async () => (await status.textContent())
+    ?.replace(/ Find match [\d,]+ of [\d,]+\.$/, '');
+  const first = await resultStatus();
   await input.press('Meta+g');
   await expect.poll(async () => {
-    const text = await status.textContent();
+    const text = await resultStatus();
     return text?.includes('Searching') ? first : text;
   }).not.toBe(first);
   await expect.poll(() => progressValue.textContent()).not.toBe(firstProgress);
-  const second = await status.textContent();
+  const second = await resultStatus();
   await input.press('Control+Shift+G');
   await expect.poll(async () => {
-    const text = await status.textContent();
+    const text = await resultStatus();
     return text?.includes('Searching') ? second : text;
   }).toBe(first);
   await expect.poll(() => progressValue.textContent()).toBe(firstProgress);
