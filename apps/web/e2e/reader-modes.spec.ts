@@ -20,7 +20,20 @@ async function openReader(page: Page) {
   await read.click();
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader.locator('[data-reader-page]')).toBeVisible();
+  await expectReaderFitSettled(reader);
   return { grid, read, reader };
+}
+
+async function expectReaderFitSettled(reader: Locator) {
+  const pane = reader.locator('.reader-prose-pane');
+  await expect.poll(async () => {
+    const published = await reader.getAttribute('data-reader-fit-size');
+    const current = await pane.evaluate(
+      (element) => `${element.clientWidth}x${element.clientHeight}`,
+    );
+    return published === current;
+  }).toBe(true);
+  await expect(pane).not.toHaveAttribute('data-reader-fitting');
 }
 
 async function expectNoBodyOverflow(page: Page) {
@@ -51,13 +64,7 @@ async function expectReaderFillsViewport(
   expect(box!.width).toBeCloseTo(width, 0);
   expect(box!.height).toBeCloseTo(height, 0);
   const pane = reader.locator('.reader-prose-pane');
-  await expect.poll(async () => {
-    const published = await reader.getAttribute('data-reader-fit-size');
-    const current = await pane.evaluate(
-      (element) => `${element.clientWidth}x${element.clientHeight}`,
-    );
-    return published === current;
-  }).toBe(true);
+  await expectReaderFitSettled(reader);
   const layout = reader.locator('.reader-read-layout');
   await expect(layout).toHaveAttribute('data-reader-layout', /^(bar|rails)$/);
   if (await layout.getAttribute('data-reader-layout') === 'rails') {
@@ -68,7 +75,6 @@ async function expectReaderFillsViewport(
   } else {
     await expect(reader.getByRole('navigation', { name: 'Reader controls' })).toBeVisible();
   }
-  await expect(pane).not.toHaveAttribute('data-reader-fitting');
   await expectNoBodyOverflow(page);
 }
 
