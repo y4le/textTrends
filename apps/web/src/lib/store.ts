@@ -1442,6 +1442,12 @@ function defaultPlaceFor(project: ProjectView | null | undefined): Place {
   return (project?.data.order.length ?? 0) === 0 ? 'inputs' : 'trends';
 }
 
+function placeReturnFocusTo(place: Place): string {
+  return place === 'vocabulary'
+    ? 'vocabulary-grid-port'
+    : `place-${place}-heading`;
+}
+
 function restoreFocusTo(id: string): void {
   if (typeof document === 'undefined') return;
   const focus = () => document.getElementById(id)?.focus({ preventScroll: true });
@@ -3165,7 +3171,7 @@ export function createAppRuntime(
           kind: 'place',
           id: newLayerId(),
           target: Object.freeze({ place }),
-          returnFocusTo: `place-${get().place}-heading`,
+          returnFocusTo: placeReturnFocusTo(get().place),
         };
         const layers = pushLayerStack(get().layers, next);
         rememberLayer(next, layers);
@@ -3180,7 +3186,7 @@ export function createAppRuntime(
           kind: 'place',
           id: newLayerId(),
           target: Object.freeze({ place }),
-          returnFocusTo: `place-${get().place}-heading`,
+          returnFocusTo: placeReturnFocusTo(get().place),
         };
         const layers = replaceTopLayer(get().layers, next);
         rememberLayer(next, layers);

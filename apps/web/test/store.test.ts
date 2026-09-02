@@ -724,6 +724,20 @@ describe('workbench route and history authority', () => {
     runtime.dispose();
   });
 
+  it('returns place navigation to the Vocabulary list entry surface', () => {
+    const history = new FakeHistoryPort('/textTrends/?p=vocabulary');
+    const runtime = createAppRuntime(fakeQueryClient().client, {
+      history,
+      newLayerId: layerIds(),
+    });
+
+    runtime.useApp.getState().setPlace('matches');
+
+    expect(runtime.useApp.getState().layers.at(-1)?.returnFocusTo)
+      .toBe('vocabulary-grid-port');
+    runtime.dispose();
+  });
+
   it('keeps non-place layers from choosing the provisional place during bootstrap', () => {
     const history = new FakeHistoryPort('/textTrends/?foreign=kept');
     const runtime = createAppRuntime(fakeQueryClient().client, {
