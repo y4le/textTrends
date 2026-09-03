@@ -4,6 +4,23 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-09-02 — Wide Read reuses the active Atlas entry
+
+When Read has enough measured inline space for its two lateral rails, the
+right rail shows the active text's Atlas entry instead of a plain vertical
+progress track. The entry reuses Atlas's resident whole-text projection,
+theme-aware canvas painter, term evidence, and exact position marker. It always
+uses Equal geometry so the active text fills the sidebar height; the Atlas
+screen's saved Equal/To-scale choice remains independent. The sidebar issues
+no analysis operation of its own.
+
+The authenticated text extent remains a seekable vertical slider for pointer
+and keyboard users, with Reader's existing preview, commit, and position-history
+behavior. The title/position summary, highlight key, and reference controls
+remain in the rail. Compact and regular Read retain their horizontal progress
+bar, and wide Find temporarily replaces the Atlas entry with its own horizontal
+progress control.
+
 ## 2026-09-02 — Simplify around reusable capabilities and current state
 
 Speed remains a first-class product capability and a reusable dependency. Its

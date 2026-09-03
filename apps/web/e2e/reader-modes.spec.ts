@@ -136,6 +136,12 @@ test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ p
 });
 
 test('Read uses measured wide rails, falls back to one compact bar, and has no analytical dock', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'texttrends/reader-atlas/1',
+      JSON.stringify({ normalization: 'to-scale' }),
+    );
+  });
   const { grid, reader } = await openReader(page);
 
   await expect(reader).not.toHaveAttribute('role', 'dialog');
@@ -169,8 +175,33 @@ test('Read uses measured wide rails, falls back to one compact bar, and has no a
   expect(leftBox.x + leftBox.width).toBeLessThanOrEqual(proseBoxWide.x + 0.5);
   expect(proseBoxWide.x + proseBoxWide.width).toBeLessThanOrEqual(rightBox.x + 0.5);
   expect(fit.available + 0.5).toBeGreaterThanOrEqual(fit.required);
-  await expect(reader.getByRole('slider', { name: /Position in/ }))
-    .toHaveAttribute('data-orientation', 'vertical');
+  const atlasEntry = rightRail.locator('[data-atlas-entry]');
+  await expect(atlasEntry).toBeVisible();
+  await expect(atlasEntry).toHaveAttribute('data-atlas-normalization', 'equal');
+  await expect(atlasEntry.locator('[data-atlas-canvas]')).toHaveCount(1);
+  const [entryBox, extentBox] = await Promise.all([
+    atlasEntry.boundingBox(),
+    atlasEntry.locator('.reader-atlas-extent').boundingBox(),
+  ]);
+  expect(entryBox).not.toBeNull();
+  expect(extentBox).not.toBeNull();
+  expect(extentBox!.height).toBeCloseTo(entryBox!.height, 0);
+  await expect(atlasEntry.getByRole('img')).toBeVisible();
+  await expect(rightRail.locator('.reader-wide-progress')).toHaveCount(0);
+  const position = reader.getByRole('slider', { name: /Position in/ });
+  await expect(position).toHaveAttribute('data-orientation', 'vertical');
+  const positionBox = await position.boundingBox();
+  expect(positionBox).not.toBeNull();
+  expect(positionBox!.x).toBeCloseTo(entryBox!.x, 0);
+  expect(positionBox!.y).toBeCloseTo(entryBox!.y, 0);
+  expect(positionBox!.width).toBeCloseTo(entryBox!.width, 0);
+  expect(positionBox!.height).toBeCloseTo(entryBox!.height, 0);
+  expect(await page.evaluate(({ x, y }) => (
+    document.elementFromPoint(x, y)?.closest('[role="slider"]')?.getAttribute('role') ?? ''
+  ), {
+    x: positionBox!.x + positionBox!.width / 2,
+    y: positionBox!.y + positionBox!.height * 0.7,
+  })).toBe('slider');
   for (const name of [
     'Open document Atlas',
     'Open Speed reader paused at the reading cursor',
@@ -189,9 +220,59 @@ test('Read uses measured wide rails, falls back to one compact bar, and has no a
   for (const button of await leftRail.getByRole('button').all()) {
     expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   }
-  await expect(reader.getByRole('slider', { name: /Position in/ })).toHaveCount(1);
-  await expect(reader.getByRole('slider', { name: /Position in/ }))
-    .not.toHaveAttribute('aria-live');
+  await expect(position).toHaveCount(1);
+  await expect(position).not.toHaveAttribute('aria-live');
+
+  const queryMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await page.setViewportSize({ width: 1_420, height: 880 });
+  await expectReaderFitSettled(reader);
+  await expect(layout).toHaveAttribute('data-reader-layout', 'rails');
+  await expect(atlasEntry).toBeVisible();
+  await page.setViewportSize({ width: 1_440, height: 900 });
+  await expectReaderFitSettled(reader);
+  expect(workerQueriesAfter((await trace(page)).events, queryMark)).toEqual([]);
+
+  const tokenCount = Number(await position.getAttribute('aria-valuemax'));
+  const pointerTarget = Math.round(0.7 * (tokenCount - 1));
+  const seekBox = await position.boundingBox();
+  expect(seekBox).not.toBeNull();
+  const pointer = {
+    pointerType: 'mouse',
+    pointerId: 17,
+    isPrimary: true,
+    button: 0,
+  };
+  await position.dispatchEvent('pointerdown', {
+    ...pointer,
+    clientX: seekBox!.x + seekBox!.width / 2,
+    clientY: seekBox!.y + seekBox!.height * 0.2,
+  });
+  await position.dispatchEvent('pointermove', {
+    ...pointer,
+    clientX: seekBox!.x + seekBox!.width / 2,
+    clientY: seekBox!.y + seekBox!.height * 0.7,
+  });
+  await expect(position).toHaveAttribute('data-seeking', 'true');
+  await expect(position).toHaveAttribute('aria-valuenow', String(pointerTarget + 1));
+  await position.dispatchEvent('pointerup', {
+    ...pointer,
+    clientX: seekBox!.x + seekBox!.width / 2,
+    clientY: seekBox!.y + seekBox!.height * 0.7,
+  });
+  await expect(reader.locator('[data-reader-page]')).toHaveAttribute(
+    'data-reader-page',
+    new RegExp(`^${pointerTarget}:\\d+$`),
+  );
+
+  const keyboardTarget = pointerTarget + Math.round((tokenCount - 1) / 100);
+  await position.dispatchEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown' });
+  await expect(position).toHaveAttribute('aria-valuenow', String(keyboardTarget + 1));
+  await position.dispatchEvent('keyup', { key: 'ArrowDown', code: 'ArrowDown' });
+  await expect(position).not.toHaveAttribute('data-seeking', 'true');
+  await expect(reader.locator('[data-reader-page]')).toHaveAttribute(
+    'data-reader-page',
+    new RegExp(`^${keyboardTarget}:\\d+$`),
+  );
 
   const railsMeasure = (await reader.locator('.source-text').boundingBox())?.width;
   await page.setViewportSize({ width: 1_000, height: 900 });
@@ -294,6 +375,7 @@ test('wide Reader Find overlays the fitted page without replacing its measured r
   await expect(reader.getByRole('slider', { name: /Position in/ })).toHaveCount(1);
   await expect(reader.getByRole('slider', { name: /Position in/ }))
     .toHaveAttribute('data-orientation', 'horizontal');
+  await expect(reader.locator('[data-atlas-entry]')).toHaveCount(0);
   expect(await pane.boundingBox()).toEqual(paneBox);
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
   const [findBox, layoutBox] = await Promise.all([find.boundingBox(), layout.boundingBox()]);
@@ -306,6 +388,7 @@ test('wide Reader Find overlays the fitted page without replacing its measured r
   await expect(trigger).toBeFocused();
   await expect(reader.getByRole('slider', { name: /Position in/ }))
     .toHaveAttribute('data-orientation', 'vertical');
+  await expect(reader.locator('[data-atlas-entry]')).toBeVisible();
   expect(await pane.boundingBox()).toEqual(paneBox);
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
 });

@@ -1014,15 +1014,48 @@ canvas {
   font-size: var(--text-sm);
 }
 
-.reader-wide-progress-wrap {
+.reader-wide-atlas-wrap {
   display: grid;
   min-block-size: 4rem;
-  justify-items: center;
   padding-block: var(--space-2);
 }
 
-.reader-wide-progress {
+.reader-wide-atlas-entry {
+  position: relative;
+  min-block-size: 0;
+  min-inline-size: 0;
   block-size: 100%;
+}
+
+.reader-wide-atlas-visual {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.reader-wide-atlas-entry > .reader-atlas-unavailable {
+  block-size: 100%;
+}
+
+.reader-wide-atlas-entry .reader-atlas-rail {
+  cursor: pointer;
+}
+
+.reader-wide-atlas-seek-wrap {
+  position: absolute;
+  z-index: 3;
+  inset-block-start: 0;
+  inset-inline: 0;
+}
+
+.reader-wide-atlas-seek.reader-progress-rail[data-orientation='vertical'][data-seekable='true'] {
+  inline-size: 100%;
+}
+
+.reader-wide-atlas-seek.reader-progress-rail[data-seekable='true']::before,
+.reader-wide-atlas-seek .reader-progress-fill,
+.reader-wide-atlas-seek .reader-progress-cursor {
+  display: none;
 }
 
 .reader-wide-highlights {

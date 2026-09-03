@@ -4,7 +4,7 @@ import { shortcutAria } from '../../lib/shortcuts.ts';
 import { DEFAULT_SERIES_STYLE, seriesColor } from '../../lib/series-style.ts';
 import type { TrackLegendEntry } from '../../lib/track-legend.ts';
 import { useApp } from '../../lib/store-instance.ts';
-import { ReaderProgressRail } from './ReaderProgressRail.tsx';
+import { ReaderWideAtlasEntry } from './ReaderWideAtlasEntry.tsx';
 import { useReaderChromeModel } from './useReaderChromeModel.ts';
 
 function RailCommandButton({
@@ -176,11 +176,9 @@ export function ReaderWideRails({
           )}
         </header>
 
-        <div className="reader-wide-progress-wrap" aria-hidden={!showProgress || undefined}>
+        <div className="reader-wide-atlas-wrap" aria-hidden={!showProgress || undefined}>
           {showProgress && (
-            <ReaderProgressRail
-              className="reader-wide-progress"
-              orientation="vertical"
+            <ReaderWideAtlasEntry
               progress={progress}
               accessibleName={position === null ? 'Reading position' : `Position in ${position.title}`}
               onSeek={seekReader}
