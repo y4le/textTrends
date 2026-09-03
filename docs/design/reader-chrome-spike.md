@@ -298,9 +298,10 @@ Read footer or duplicated diagnostic header.
 └────────────────────────────────────────┘
 ```
 
-- **Transport:** previous frame, Play/Pause, slower, pace, faster. Play/Pause
-  is the visual primary. Rename `back` to **previous frame** or **rewind** so it
-  cannot be confused with leaving Speed.
+- **Transport:** previous/next passage, previous/next word, Play/Pause, slower,
+  pace, faster. Play/Pause is the visual primary. Double arrows cross the
+  complete paused-context boundary without skipping authenticated text; short
+  contexts may make that distance as small as one word.
 - **Shape:** words at once and rhythm preset. Compact captions such as
   “including rests” and “3 becomes 2 here” remain accessible descriptions and
   polite announcements, not permanent multi-line labels.

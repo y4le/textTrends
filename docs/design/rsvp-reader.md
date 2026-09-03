@@ -118,10 +118,15 @@ targets. RSVP controls handle their native Space activation locally and stop
 it from reaching the document shortcut, so Play/Pause toggles exactly once
 and Slower/Faster perform only their labelled action.
 
-An explicit **back** control regresses to the previous resident RSVP frame and
-pauses. It replays only authenticated text already in the current source
-window, never fetches backward, and has no global shortcut. At the resident
-window's first frame it is disabled. Regression publishes the new frame start
+The single-arrow controls move by one word. The double-arrow controls move by
+one complete authenticated passage—the token span shown in the paused context
+above the transport—and pause. Passage paging lands on the first previously
+unseen token across the selected edge, so adjacent views may overlap but no
+authenticated text is skipped. Reversing direction retraces uninterrupted
+passage-navigation history exactly; word movement, playback, or direct seeking
+starts a new passage chain. The control disables when its visible edge already
+reaches a document endpoint and uses the ordinary bounded source request when
+the destination leaves the resident window. Movement publishes the new token
 immediately, so Return to Reader and every other exit remain exact.
 
 The bounded WPM contract is:

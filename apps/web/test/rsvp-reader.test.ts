@@ -53,10 +53,10 @@ describe('RSVP Reader presentation', () => {
     expect(html).toContain('class="reader-rsvp-word" aria-hidden="true"');
     expect(html).not.toContain('role="note"');
     expect(html).toContain('aria-label="Return to Reader"');
-    expect(html).toContain('aria-label="Previous frame"');
+    expect(html).toContain('aria-label="Previous passage"');
     expect(html).toContain('aria-label="Previous word" aria-keyshortcuts="h ArrowLeft"');
     expect(html).toContain('aria-label="Next word" aria-keyshortcuts="l ArrowRight"');
-    expect(html).toContain('aria-label="Next frame"');
+    expect(html).toContain('aria-label="Next passage"');
     expect(html).toContain('role="slider"');
     expect(html).toContain('aria-label="Pace in words per minute"');
     expect(html).toContain('>Including rests</span>');
@@ -92,6 +92,7 @@ describe('RSVP Reader presentation', () => {
       onOpenSettings: vi.fn(),
     }));
     expect(pausedHtml).toContain('role="note" aria-label="Paused sentence context" tabindex="0"');
+    expect(pausedHtml).toContain('data-rsvp-context="10:12"');
     expect(pausedHtml).toContain('<mark>Speed,</mark> reader');
     const contextTag = pausedHtml.match(/<div class="reader-rsvp-context"[^>]*>/u)?.[0];
     expect(contextTag).toBeDefined();

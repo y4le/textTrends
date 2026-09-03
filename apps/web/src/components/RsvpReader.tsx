@@ -18,10 +18,10 @@ import {
   RSVP_RHYTHM_PRESETS,
   RSVP_WPM_STEP,
   effectiveRsvpWordsPerFrame,
+  rsvpContextPageToken,
   rsvpFrameAt,
   rsvpFrameTiming,
   rsvpPausedContext,
-  rsvpPreviousFrameStart,
   rsvpPresetSelection,
   rsvpSpanAt,
   rsvpSpanPlan,
@@ -140,7 +140,10 @@ export function RsvpReader({
   const editingPaceRef = useRef(false);
   const requestedSource = useRef<string | null>(null);
   const nextFrameStart = useRef<number | null>(null);
-  const frameReturn = useRef<number | null>(null);
+  const passageHistory = useRef<{ back: number[]; forward: number[] }>({
+    back: [],
+    forward: [],
+  });
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playRef = useRef<HTMLButtonElement | null>(null);
   const exitRef = useRef<HTMLButtonElement | null>(null);
@@ -239,16 +242,25 @@ export function RsvpReader({
     () => frame && spanPlan ? rsvpFrameTiming(spanPlan, frame) : null,
     [frame, spanPlan],
   );
-  const pausedContext = useMemo(
-    () => resident && frame && source.status !== 'error' && !mode.playing && !completed
+  const passageContext = useMemo(
+    () => resident && frame && source.status !== 'error'
       ? rsvpPausedContext(resident, frame)
       : null,
-    [completed, frame, mode.playing, resident, source.status],
+    [frame, resident, source.status],
   );
+  const pausedContext = !mode.playing && !completed ? passageContext : null;
   const canGoWordBack = cursor > 0;
   const canGoWordForward = cursor < mode.docTokenCount - 1;
-  const nextFrameToken = frame === null ? null : cursor + frame.words.length;
-  const canGoFrameForward = nextFrameToken !== null && nextFrameToken < mode.docTokenCount;
+  const previousPassageToken = passageContext === null
+    ? null
+    : rsvpContextPageToken(passageContext, cursor, mode.docTokenCount, -1);
+  const nextPassageToken = passageContext === null
+    ? null
+    : rsvpContextPageToken(passageContext, cursor, mode.docTokenCount, 1);
+  const canGoPassageBack = passageHistory.current.back.length > 0
+    || previousPassageToken !== null;
+  const canGoPassageForward = passageHistory.current.forward.length > 0
+    || nextPassageToken !== null;
   const frameKey = frame
     ? `${frame.startToken}:${frame.words.map((word) => word.token).join(',')}:${frame.text}`
     : '';
@@ -297,7 +309,7 @@ export function RsvpReader({
     const advance = (scheduledDeadline: number) => {
       const step = rsvpCursorStep(resident, cursor, frame.words.length);
       if (step.kind === 'next') {
-        frameReturn.current = null;
+        passageHistory.current = { back: [], forward: [] };
         nextFrameStart.current = scheduledDeadline;
         setCursor(step.token);
         onPublish(step.token);
@@ -354,10 +366,10 @@ export function RsvpReader({
   const moveToToken = useCallback((
     token: number,
     status: string,
-    retainFrameReturn = false,
+    retainPassageHistory = false,
   ) => {
     if (!Number.isSafeInteger(token) || token < 0 || token >= mode.docTokenCount) return;
-    if (!retainFrameReturn) frameReturn.current = null;
+    if (!retainPassageHistory) passageHistory.current = { back: [], forward: [] };
     nextFrameStart.current = null;
     onSetPlaying(false);
     setCompleted(false);
@@ -371,24 +383,21 @@ export function RsvpReader({
     if (next < 0 || next >= mode.docTokenCount) return;
     moveToToken(next, direction === -1 ? 'previous word' : 'next word');
   }, [cursor, mode.docTokenCount, moveToToken]);
-  const moveFrame = (direction: -1 | 1) => {
-    if (direction === 1) {
-      if (nextFrameToken !== null) {
-        frameReturn.current = cursor;
-        moveToToken(nextFrameToken, 'next frame', true);
-      }
-      return;
+  const movePassage = (direction: -1 | 1) => {
+    if (passageContext === null) return;
+    const history = passageHistory.current;
+    const remembered = direction === -1 ? history.back.pop() : history.forward.pop();
+    const target = remembered
+      ?? (direction === -1 ? previousPassageToken : nextPassageToken);
+    if (target !== null) {
+      if (direction === -1) history.forward.push(cursor);
+      else history.back.push(cursor);
+      moveToToken(
+        target,
+        direction === -1 ? 'previous passage' : 'next passage',
+        true,
+      );
     }
-    const remembered = frameReturn.current;
-    frameReturn.current = null;
-    const canonical = resident !== null && contains(resident, cursor)
-      ? resident.tokens.start + rsvpPreviousFrameStart(resident, relative, {
-          wordsPerFrame: effectiveWords,
-          charLimit: mode.frameCharLimit,
-        })
-      : cursor;
-    const previous = canonical < cursor ? canonical : Math.max(0, cursor - 1);
-    moveToToken(remembered ?? previous, 'previous frame');
   };
   const seekFromProgress = (token: number, phase: ReaderSeekPhase) => {
     moveToToken(token, phase === 'commit' ? 'position selected' : '');
@@ -641,6 +650,7 @@ export function RsvpReader({
             <div
               className="reader-rsvp-context"
               data-rsvp-control="true"
+              data-rsvp-context={`${pausedContext.startToken}:${pausedContext.endToken}`}
               role="note"
               aria-label="Paused sentence context"
               tabIndex={0}
@@ -680,12 +690,12 @@ export function RsvpReader({
         <nav className="reader-rsvp-transport" aria-label="Speed reading transport">
           <div className="reader-rsvp-movement">
             <button
-              className="reader-rsvp-frame-previous"
+              className="reader-rsvp-passage-previous"
               type="button"
               data-rsvp-control="true"
-              aria-label="Previous frame"
-              disabled={!canGoWordBack}
-              onClick={() => moveFrame(-1)}
+              aria-label="Previous passage"
+              disabled={!canGoPassageBack}
+              onClick={() => movePassage(-1)}
               onKeyDown={stopControlSpace}
             >
               <span aria-hidden="true">«</span>
@@ -728,12 +738,12 @@ export function RsvpReader({
               <span aria-hidden="true">›</span>
             </button>
             <button
-              className="reader-rsvp-frame-next"
+              className="reader-rsvp-passage-next"
               type="button"
               data-rsvp-control="true"
-              aria-label="Next frame"
-              disabled={!canGoFrameForward}
-              onClick={() => moveFrame(1)}
+              aria-label="Next passage"
+              disabled={!canGoPassageForward}
+              onClick={() => movePassage(1)}
               onKeyDown={stopControlSpace}
             >
               <span aria-hidden="true">»</span>

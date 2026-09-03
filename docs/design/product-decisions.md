@@ -4,6 +4,17 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-09-02 — Speed double arrows page the visible passage
+
+Speed's single arrows continue to move one word. Its double arrows now page
+across the complete authenticated token span shown in the paused context above
+the transport. Movement lands on the first previously
+unseen token across that context boundary, never skips source text, pauses
+playback, and uses the ordinary bounded source lane when the adjacent passage
+is outside the resident window. Reversing direction retraces uninterrupted
+passage-navigation history exactly. The controls are named Previous passage and
+Next passage for assistive technology.
+
 ## 2026-09-02 — Wide Read reuses the active Atlas entry
 
 When Read has enough measured inline space for its two lateral rails, the

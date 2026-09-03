@@ -17,6 +17,7 @@ import {
   clampRsvpWpm,
   effectiveRsvpWordsPerFrame,
   rsvpAnchorIndex,
+  rsvpContextPageToken,
   rsvpFrameAt,
   rsvpFrameHoldMs,
   rsvpFrameTiming,
@@ -265,6 +266,8 @@ describe('RSVP focal presentation', () => {
     );
     const context = rsvpPausedContext(source, rsvpFrameAt(source, 2, frameLimits(3)));
     expect(context).toEqual({
+      startToken: 1,
+      endToken: 6,
       text: '“One   two, three four five.”',
       before: '“One   ',
       current: 'two,',
@@ -279,6 +282,8 @@ describe('RSVP focal presentation', () => {
     const source = textPage(Array.from({ length: 90 }, (_, index) => `w${index}`).join(' '));
     const context = rsvpPausedContext(source, rsvpFrameAt(source, 45, frameLimits(1)));
     expect(context.before.match(/\bw\d+\b/gu)).toHaveLength(40);
+    expect(context.startToken).toBe(5);
+    expect(context.endToken).toBe(86);
     expect(context.current).toBe('w45');
     expect(context.after.match(/\bw\d+\b/gu)).toHaveLength(40);
     expect(context.leadingEllipsis).toBe(true);
@@ -295,6 +300,8 @@ describe('RSVP focal presentation', () => {
       cappedBy: 'tokens' as const,
     };
     expect(rsvpPausedContext(window, rsvpFrameAt(window, 1, frameLimits(1)))).toMatchObject({
+      startToken: 50,
+      endToken: 53,
       text: 'middle sentence words',
       current: 'sentence',
       leadingEllipsis: true,
@@ -307,6 +314,22 @@ describe('RSVP focal presentation', () => {
     };
     expect(() => rsvpPausedContext(window, nonconsecutive)).toThrow(RangeError);
     expect(() => rsvpPausedContext(window, rsvpFrameAt(window, 1, frameLimits(1)), -1))
+      .toThrow(RangeError);
+  });
+
+  it('pages to the first unseen token beyond the visible context', () => {
+    const context = { startToken: 20, endToken: 31 };
+    expect(rsvpContextPageToken(context, 25, 100, -1)).toBe(19);
+    expect(rsvpContextPageToken(context, 25, 100, 1)).toBe(31);
+    expect(rsvpContextPageToken({ startToken: 0, endToken: 11 }, 5, 100, -1)).toBeNull();
+    expect(rsvpContextPageToken({ startToken: 89, endToken: 100 }, 95, 100, 1)).toBeNull();
+    expect(rsvpContextPageToken({ startToken: 0, endToken: 11 }, 0, 100, -1)).toBeNull();
+    expect(() => rsvpContextPageToken(context, 10, 100, 1)).toThrow(RangeError);
+    expect(() => rsvpContextPageToken({ startToken: 20, endToken: 20 }, 20, 100, 1))
+      .toThrow(RangeError);
+    expect(() => rsvpContextPageToken({ startToken: 20, endToken: 101 }, 25, 100, 1))
+      .toThrow(RangeError);
+    expect(() => rsvpContextPageToken(context, 25, 100, 0 as -1))
       .toThrow(RangeError);
   });
 

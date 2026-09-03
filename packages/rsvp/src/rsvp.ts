@@ -157,6 +157,8 @@ export interface RsvpSpanPlan extends RsvpSpan {
 }
 
 export interface RsvpPausedContext {
+  readonly startToken: number;
+  readonly endToken: number;
   readonly text: string;
   readonly before: string;
   readonly current: string;
@@ -511,6 +513,8 @@ export function rsvpPausedContext(
   const currentStart = currentFirst.displayStartUtf16;
   const currentEnd = currentLast.displayEndUtf16;
   return {
+    startToken: page.tokens.start + contextStart,
+    endToken: page.tokens.start + contextEnd,
     text: page.text.slice(sourceStart, sourceEnd),
     before: page.text.slice(sourceStart, currentStart),
     current: page.text.slice(currentStart, currentEnd),
@@ -518,6 +522,34 @@ export function rsvpPausedContext(
     leadingEllipsis: !hasSentenceStart || contextStart > sentenceStart,
     trailingEllipsis: !hasSentenceEnd || contextEnd < sentenceEnd,
   };
+}
+
+/** Page across the boundary of the complete authenticated context currently
+ * shown around the focal frame. The landing token is the first token not
+ * represented on that side, so passage navigation never skips source text. */
+export function rsvpContextPageToken(
+  context: Pick<RsvpPausedContext, 'startToken' | 'endToken'>,
+  cursor: number,
+  documentTokenCount: number,
+  direction: -1 | 1,
+): number | null {
+  if (
+    !Number.isSafeInteger(context.startToken)
+    || !Number.isSafeInteger(context.endToken)
+    || !Number.isSafeInteger(cursor)
+    || !Number.isSafeInteger(documentTokenCount)
+    || documentTokenCount < 1
+    || context.startToken < 0
+    || context.endToken <= context.startToken
+    || context.endToken > documentTokenCount
+    || cursor < context.startToken
+    || cursor >= context.endToken
+    || (direction !== -1 && direction !== 1)
+  ) throw new RangeError('RSVP passage page input is invalid');
+  if (direction === 1) {
+    return context.endToken < documentTokenCount ? context.endToken : null;
+  }
+  return context.startToken > 0 ? context.startToken - 1 : null;
 }
 
 function rsvpLengthWeight(

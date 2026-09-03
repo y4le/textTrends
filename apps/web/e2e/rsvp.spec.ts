@@ -273,7 +273,7 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
     await expect(position).toHaveText(protectedPosition!);
   }
 
-  const back = reader.getByRole('button', { name: 'Previous frame', exact: true });
+  const back = reader.getByRole('button', { name: 'Previous passage', exact: true });
   const play = reader.getByRole('button', { name: /^(play|pause)$/ });
   const firstControl = reader.getByRole('button', { name: 'Return to Reader', exact: true });
   const lastControl = reader.getByRole('combobox', { name: 'Rhythm preset' });
@@ -330,7 +330,7 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
   );
 });
 
-test('Speed word/frame controls, frame taps, and progress dragging seek exactly', async ({ page }) => {
+test('Speed word/passage controls, frame taps, and progress dragging seek exactly', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const reader = await openReader(page);
   await enterRsvp(reader);
@@ -339,17 +339,17 @@ test('Speed word/frame controls, frame taps, and progress dragging seek exactly'
   const words = reader.getByRole('group', { name: /^Words at once/ });
   await chooseWordsAtOnce(words, 3);
 
-  const previousFrame = reader.getByRole('button', { name: 'Previous frame', exact: true });
+  const previousPassage = reader.getByRole('button', { name: 'Previous passage', exact: true });
   const previousWord = reader.getByRole('button', { name: 'Previous word', exact: true });
   const play = reader.getByRole('button', { name: 'play', exact: true });
   const nextWord = reader.getByRole('button', { name: 'Next word', exact: true });
-  const nextFrame = reader.getByRole('button', { name: 'Next frame', exact: true });
+  const nextPassage = reader.getByRole('button', { name: 'Next passage', exact: true });
   await expect(reader.locator('.reader-rsvp-movement > button')).toHaveCount(5);
-  await expect(previousFrame).toBeVisible();
+  await expect(previousPassage).toBeVisible();
   await expect(previousWord).toBeVisible();
   await expect(play).toBeVisible();
   await expect(nextWord).toBeVisible();
-  await expect(nextFrame).toBeVisible();
+  await expect(nextPassage).toBeVisible();
 
   const wordStart = displayedToken(await position.textContent());
   await nextWord.click();
@@ -381,16 +381,31 @@ test('Speed word/frame controls, frame taps, and progress dragging seek exactly'
     .toBe(clickedToken);
   await expect(stage.locator(`[data-rsvp-frame-token="${clickedToken}"]`)).not.toHaveCount(0);
 
-  frameTokens = await stage.locator('[data-rsvp-frame-token]').evaluateAll((elements) =>
-    [...new Set(elements.map((element) => Number(
-      (element as HTMLElement).dataset.rsvpFrameToken,
-    )))],
-  );
+  const context = reader.getByRole('note', { name: 'Paused sentence context' });
+  const contextRange = async (): Promise<readonly [number, number]> => {
+    let range: readonly [number, number] | null = null;
+    await expect.poll(async () => {
+      const match = /^(\d+):(\d+)$/.exec(
+        await context.getAttribute('data-rsvp-context') ?? '',
+      );
+      if (match === null) return false;
+      const candidate = [Number(match[1]), Number(match[2])] as const;
+      const active = displayedToken(await position.textContent());
+      if (active < candidate[0] || active >= candidate[1]) return false;
+      range = candidate;
+      return true;
+    }).toBe(true);
+    if (range === null) throw new Error('Speed passage has no token range');
+    return range;
+  };
   const frameStart = displayedToken(await position.textContent());
-  await nextFrame.click();
+  const firstPassage = await contextRange();
+  await nextPassage.click();
   await expect.poll(async () => displayedToken(await position.textContent()))
-    .toBe(frameStart + frameTokens.length);
-  await previousFrame.click();
+    .toBe(firstPassage[1]);
+  const secondPassage = await contextRange();
+  expect(secondPassage[0]).toBeLessThanOrEqual(firstPassage[1]);
+  await previousPassage.click();
   await expect.poll(async () => displayedToken(await position.textContent()))
     .toBe(frameStart);
 
@@ -405,23 +420,32 @@ test('Speed word/frame controls, frame taps, and progress dragging seek exactly'
   await expect.poll(async () => displayedToken(await position.textContent())).toBe(0);
   await expect(progress).not.toHaveAttribute('data-seeking', 'true');
   let canonicalStart = 0;
+  const visitedPassages = [canonicalStart];
   for (let step = 0; step < 2; step++) {
-    const visibleTokens = await stage.locator('[data-rsvp-frame-token]').evaluateAll((elements) =>
-      [...new Set(elements.map((element) => Number(
-        (element as HTMLElement).dataset.rsvpFrameToken,
-      )))],
-    );
-    await nextFrame.click();
-    canonicalStart += visibleTokens.length;
+    const passage = await contextRange();
+    await nextPassage.click();
+    canonicalStart = passage[1];
     await expect.poll(async () => displayedToken(await position.textContent()))
       .toBe(canonicalStart);
+    visitedPassages.push(canonicalStart);
+    const landingPassage = await contextRange();
+    expect(landingPassage[0]).toBeLessThanOrEqual(passage[1]);
+  }
+  for (const prior of visitedPassages.slice(0, -1).reverse()) {
+    await previousPassage.click();
+    await expect.poll(async () => displayedToken(await position.textContent())).toBe(prior);
+  }
+  for (const later of visitedPassages.slice(1)) {
+    await nextPassage.click();
+    await expect.poll(async () => displayedToken(await position.textContent())).toBe(later);
   }
   await nextWord.click();
   await expect.poll(async () => displayedToken(await position.textContent()))
     .toBe(canonicalStart + 1);
-  await previousFrame.click();
+  const priorPassage = await contextRange();
+  await previousPassage.click();
   await expect.poll(async () => displayedToken(await position.textContent()))
-    .toBe(canonicalStart);
+    .toBe(priorPassage[0] - 1);
 
   const tokenCount = Number(await progress.getAttribute('aria-valuemax'));
   const targetToken = Math.round(0.7 * (tokenCount - 1));
@@ -770,7 +794,8 @@ test('document completion pauses and keeps focus inside RSVP', async ({ page }) 
 
   const status = reader.locator('.reader-rsvp-shell [role="status"]');
   const stage = reader.getByRole('region', { name: 'Speed reading word' });
-  const back = reader.getByRole('button', { name: 'Previous frame', exact: true });
+  const back = reader.getByRole('button', { name: 'Previous passage', exact: true });
+  const previousWord = reader.getByRole('button', { name: 'Previous word', exact: true });
   await expect(back).toBeDisabled();
   await expect(reader.locator('.reader-rsvp-identity'))
     .toContainText('paragraph rest 700 ms (500 ms here)');
@@ -779,8 +804,9 @@ test('document completion pauses and keeps focus inside RSVP', async ({ page }) 
   await expect(status).toContainText('End of document', { timeout: 5_000 });
   await expect(reader.getByRole('button', { name: 'completed', exact: true })).toBeDisabled();
   await expect(reader.getByRole('button', { name: 'Return to Reader', exact: true })).toBeFocused();
-  await expect(back).toBeEnabled();
-  await back.click();
+  await expect(back).toBeDisabled();
+  await expect(previousWord).toBeEnabled();
+  await previousWord.click();
   await expect(status).toContainText('paused');
   await expect(status).not.toContainText('End of document');
   await expect(reader.getByRole('button', { name: 'play', exact: true })).toBeEnabled();
