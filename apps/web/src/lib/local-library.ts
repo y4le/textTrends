@@ -19,7 +19,7 @@ import {
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 
 export const LOCAL_LIBRARY_DB_NAME = 'texttrends-library';
-export const LOCAL_LIBRARY_DB_VERSION = 1;
+export const LOCAL_LIBRARY_DB_VERSION = 2;
 
 const LOCAL_FILE_SCHEMA = 'texttrends/library-file/1' as const;
 const CURRENT_WORKSPACE = 'current' as const;
@@ -36,16 +36,20 @@ export interface LocalLibraryItem {
   readonly contentHash: string;
 }
 
-interface StoredLocalFileV1 extends LocalLibraryItem {
+interface StoredLocalMetadataV1 extends LocalLibraryItem {
   readonly schema: typeof LOCAL_FILE_SCHEMA;
-  readonly bytes: ArrayBuffer;
 }
 
+// Reads stay unknown because existing databases can contain damaged records.
 interface LocalLibraryDb extends DBSchema {
   files: {
     key: IDBValidKey;
-    value: StoredLocalFileV1;
+    value: unknown;
     indexes: { addedAt: number };
+  };
+  bodies: {
+    key: IDBValidKey;
+    value: unknown;
   };
   workspace: {
     key: typeof CURRENT_WORKSPACE;
@@ -117,9 +121,9 @@ function supportedFiles(files: readonly LocalFileInput[]): readonly SourceFormat
   return formats;
 }
 
-function validMetadata(value: unknown): value is Omit<StoredLocalFileV1, 'bytes'> {
+function validMetadata(value: unknown): value is StoredLocalMetadataV1 {
   if (value === null || typeof value !== 'object') return false;
-  const record = value as Partial<StoredLocalFileV1>;
+  const record = value as Partial<StoredLocalMetadataV1>;
   return (
     record.schema === LOCAL_FILE_SCHEMA &&
     typeof record.id === 'string' && record.id.length > 0 &&
@@ -134,11 +138,6 @@ function validMetadata(value: unknown): value is Omit<StoredLocalFileV1, 'bytes'
   );
 }
 
-function validCurrentRecord(value: unknown): value is StoredLocalFileV1 {
-  return validMetadata(value) && 'bytes' in value
-    && value.bytes instanceof ArrayBuffer && value.bytes.byteLength === value.size;
-}
-
 export interface DamagedLibraryItem {
   readonly key: IDBValidKey;
   readonly name: string;
@@ -150,7 +149,7 @@ export interface LibraryInspection {
   readonly damaged: readonly DamagedLibraryItem[];
 }
 
-function itemFromRecord(record: StoredLocalFileV1): LocalLibraryItem {
+function itemFromRecord(record: StoredLocalMetadataV1): LocalLibraryItem {
   const { id, name, size, type, lastModified, addedAt, format, contentHash } = record;
   return { id, name, size, type, lastModified, addedAt, format, contentHash };
 }
@@ -162,8 +161,18 @@ export class BrowserLocalLibrary {
 
   private open(): Promise<IDBPDatabase<LocalLibraryDb>> {
     if (this.database !== null) return this.database;
-    const opening = openDB<LocalLibraryDb>(this.name, LOCAL_LIBRARY_DB_VERSION, {
-      upgrade(database) {
+    let abandoned = false;
+    let upgrading = false;
+    let rejectBlocked!: (error: Error) => void;
+    const blocked = new Promise<never>((_resolve, reject) => { rejectBlocked = reject; });
+    const request = openDB<LocalLibraryDb>(this.name, LOCAL_LIBRARY_DB_VERSION, {
+      blocked() {
+        abandoned = true;
+        rejectBlocked(new Error('Close other textTrends tabs, then retry opening the local library.'));
+      },
+      upgrade(database, oldVersion, _newVersion, transaction) {
+        upgrading = oldVersion === 1;
+        void transaction.done.catch(() => {});
         if (!database.objectStoreNames.contains('files')) {
           const store = database.createObjectStore('files', { keyPath: 'id' });
           store.createIndex('addedAt', 'addedAt');
@@ -171,7 +180,34 @@ export class BrowserLocalLibrary {
         if (!database.objectStoreNames.contains('workspace')) {
           database.createObjectStore('workspace');
         }
+        if (!database.objectStoreNames.contains('bodies')) database.createObjectStore('bodies');
+        if (oldVersion === 1) {
+          // Split storage without interpreting or repairing old values. Even a
+          // malformed body is preserved at its original primary key. Only IDB
+          // requests are awaited so the upgrade transaction remains alive.
+          void (async () => {
+            let cursor = await transaction.objectStore('files').openCursor();
+            while (cursor) {
+              const value: unknown = cursor.value;
+              if (value !== null && typeof value === 'object' && 'bytes' in value) {
+                const { bytes, ...metadata } = value;
+                await transaction.objectStore('bodies').put(bytes, cursor.primaryKey);
+                await cursor.update(metadata);
+              }
+              cursor = await cursor.continue();
+            }
+          })().catch(() => abortQuietly(transaction));
+        }
       },
+    });
+    // A blocked open can eventually succeed after its caller has already been
+    // told to retry. Close that abandoned connection instead of leaking it.
+    void request.then((database) => { if (abandoned) database.close(); }, () => {});
+    const opening = Promise.race([request, blocked]).catch((error: unknown) => {
+      if (upgrading && !abandoned) {
+        throw new Error('The local library could not be upgraded. Your saved files are unchanged. Check available browser storage and reload to retry.', { cause: error });
+      }
+      throw error;
     });
     this.database = opening;
     void opening.then(
@@ -191,17 +227,19 @@ export class BrowserLocalLibrary {
 
   async inspect(): Promise<LibraryInspection> {
     const database = await this.open();
-    const transaction = database.transaction('files', 'readonly');
+    const transaction = database.transaction(['files', 'bodies'], 'readonly');
     void transaction.done.catch(() => {});
-    const [keys, values] = await Promise.all([
-      transaction.store.getAllKeys(), transaction.store.getAll(),
+    const [keys, values, bodyKeys] = await Promise.all([
+      transaction.objectStore('files').getAllKeys(), transaction.objectStore('files').getAll(),
+      transaction.objectStore('bodies').getAllKeys(),
     ]);
+    const bodies = new Set(bodyKeys);
     await transaction.done;
     const items: LocalLibraryItem[] = [];
     const damaged: DamagedLibraryItem[] = [];
     for (let index = 0; index < keys.length; index++) {
       const value: unknown = values[index];
-      if (validCurrentRecord(value) && value.id === keys[index]) items.push(itemFromRecord(value));
+      if (validMetadata(value) && value.id === keys[index] && bodies.has(value.id)) items.push(itemFromRecord(value));
       else {
         const name = value !== null && typeof value === 'object' && 'name' in value
           && typeof value.name === 'string' && value.name !== '' ? value.name : `Saved text ${index + 1}`;
@@ -229,33 +267,43 @@ export class BrowserLocalLibrary {
       }
       const contentHash = await hashSourceBytes(new Uint8Array(bytes));
       const id = localFileIdentity(format, contentHash);
-      const existing: unknown = await db.get('files', id);
-      if (validCurrentRecord(existing)) {
-        results.push({ item: itemFromRecord(existing), added: false });
-        continue;
+      const tx = db.transaction(['files', 'bodies'], 'readwrite');
+      void tx.done.catch(() => {});
+      try {
+        const [existing, body] = await Promise.all([
+          tx.objectStore('files').get(id), tx.objectStore('bodies').get(id),
+        ]);
+        if (validMetadata(existing) && existing.id === id && body instanceof ArrayBuffer && body.byteLength === existing.size) {
+          await tx.done;
+          results.push({ item: itemFromRecord(existing), added: false });
+          continue;
+        }
+        const record: StoredLocalMetadataV1 = {
+          schema: LOCAL_FILE_SCHEMA, id, name: file.name, size: file.size,
+          type: file.type ?? '', lastModified: file.lastModified ?? 0,
+          addedAt: Date.now(), format, contentHash,
+        };
+        await tx.objectStore('files').put(record);
+        await tx.objectStore('bodies').put(bytes, id);
+        await tx.done;
+        results.push({ item: itemFromRecord(record), added: true });
+      } catch (error) {
+        abortQuietly(tx);
+        throw error;
       }
-      const record: StoredLocalFileV1 = {
-        schema: LOCAL_FILE_SCHEMA,
-        id,
-        name: file.name,
-        size: file.size,
-        type: file.type ?? '',
-        lastModified: file.lastModified ?? 0,
-        addedAt: Date.now(),
-        format,
-        contentHash,
-        bytes: bytes.slice(0),
-      };
-      await db.put('files', record);
-      results.push({ item: itemFromRecord(record), added: true });
     }
     return results;
   }
 
   async file(id: string): Promise<LocalLibraryFile> {
     const db = await this.open();
-    const record: unknown = await db.get('files', id);
-    if (!validCurrentRecord(record) || record.id !== id) {
+    const tx = db.transaction(['files', 'bodies'], 'readonly');
+    void tx.done.catch(() => {});
+    const [record, bytes] = await Promise.all([
+      tx.objectStore('files').get(id), tx.objectStore('bodies').get(id),
+    ]);
+    await tx.done;
+    if (!validMetadata(record) || record.id !== id || !(bytes instanceof ArrayBuffer) || bytes.byteLength !== record.size) {
       throw new Error(record === undefined ? 'that saved file no longer exists' : 'that saved local file is damaged');
     }
     return {
@@ -266,13 +314,13 @@ export class BrowserLocalLibrary {
       size: record.size,
       type: record.type,
       lastModified: record.lastModified,
-      arrayBuffer: async () => record.bytes.slice(0),
+      arrayBuffer: async () => bytes.slice(0),
     };
   }
 
   async delete(id: IDBValidKey): Promise<LocalLibraryDeleteResult> {
     const db = await this.open();
-    const tx = db.transaction(['files', 'workspace'], 'readwrite');
+    const tx = db.transaction(['files', 'bodies', 'workspace'], 'readwrite');
     // idb creates tx.done eagerly. Observe its rejection even when this method
     // aborts before reaching the normal await below.
     void tx.done.catch(() => {});
@@ -308,6 +356,7 @@ export class BrowserLocalLibrary {
         }
       }
       await tx.objectStore('files').delete(id);
+      await tx.objectStore('bodies').delete(id);
       await tx.done;
     } catch (error) {
       abortQuietly(tx);
@@ -318,7 +367,7 @@ export class BrowserLocalLibrary {
 
   async clear(): Promise<LocalLibraryDeleteResult> {
     const db = await this.open();
-    const tx = db.transaction(['files', 'workspace'], 'readwrite');
+    const tx = db.transaction(['files', 'bodies', 'workspace'], 'readwrite');
     void tx.done.catch(() => {});
     let removedDocuments: readonly string[] = [];
     try {
@@ -340,6 +389,7 @@ export class BrowserLocalLibrary {
         }
       }
       await tx.objectStore('files').clear();
+      await tx.objectStore('bodies').clear();
       await tx.done;
     } catch (error) {
       abortQuietly(tx);
@@ -368,9 +418,10 @@ export class BrowserLocalLibrary {
 
   async close(): Promise<void> {
     if (this.database === null) return;
-    const db = await this.database;
-    db.close();
-    this.database = null;
+    const opening = this.database;
+    const db = await opening.catch(() => null);
+    db?.close();
+    if (this.database === opening) this.database = null;
   }
 }
 

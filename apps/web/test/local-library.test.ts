@@ -1,9 +1,10 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { EMPTY_NOTEBOOK, type WorkspaceV1 } from '@texttrends/core';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EMPTY_NOTEBOOK, hashSourceBytes, type WorkspaceV1 } from '@texttrends/core';
 import {
   BrowserLocalLibrary,
+  LOCAL_LIBRARY_DB_VERSION,
   localFileIdentity,
 } from '../src/lib/local-library.ts';
 
@@ -67,7 +68,116 @@ function workspace(library: string): WorkspaceV1 {
   };
 }
 
+async function legacyDatabase(name: string) {
+  const input = file('legacy.txt', 'legacy source bytes');
+  const bytes = await input.arrayBuffer();
+  const contentHash = await hashSourceBytes(new Uint8Array(bytes));
+  const id = localFileIdentity('txt', contentHash);
+  const record = { schema: 'texttrends/library-file/1', id, name: input.name, size: input.size,
+    type: input.type, lastModified: input.lastModified, addedAt: 456, format: 'txt', contentHash, bytes };
+  const database = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(name, 1);
+    request.onupgradeneeded = () => {
+      const files = request.result.createObjectStore('files', { keyPath: 'id' });
+      files.createIndex('addedAt', 'addedAt');
+      files.put(record);
+      files.put({ id: 'damaged', name: 'damaged.txt', bytes: new Uint8Array([9]).buffer });
+      request.result.createObjectStore('workspace').put(workspace(id), 'current');
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  return { database, record, input };
+}
+
 describe('BrowserLocalLibrary', () => {
+  it('upgrades v1 atomically while listing only metadata and preserving all source bytes', async () => {
+    const name = `local-library-${crypto.randomUUID()}`;
+    const legacy = await legacyDatabase(name);
+    legacy.database.close();
+    const library = new BrowserLocalLibrary(name);
+    const inspection = await library.inspect();
+    expect(inspection.items).toHaveLength(1);
+    expect(inspection.damaged.map((item) => item.key)).toEqual(['damaged']);
+    expect(await library.loadWorkspace()).toEqual({ kind: 'ready', workspace: workspace(legacy.record.id) });
+    expect(new Uint8Array(await (await library.file(legacy.record.id)).arrayBuffer())).toEqual(new Uint8Array(legacy.record.bytes));
+    const getAll = vi.spyOn(IDBObjectStore.prototype, 'getAll');
+    try {
+      await library.list();
+      expect(getAll.mock.contexts.map((store) => store instanceof IDBObjectStore ? store.name : null)).toEqual(['files']);
+    } finally { getAll.mockRestore(); }
+    await library.close();
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const tx = db.transaction(['files', 'bodies']);
+    const records = await new Promise<object[]>((resolve) => { const read = tx.objectStore('files').getAll(); read.onsuccess = () => resolve(read.result); });
+    expect(records.every((record) => !('bytes' in record))).toBe(true);
+    const damaged = await new Promise<ArrayBuffer>((resolve) => { const read = db.transaction('bodies').objectStore('bodies').get('damaged'); read.onsuccess = () => resolve(read.result); });
+    expect([...new Uint8Array(damaged)]).toEqual([9]);
+    db.close();
+  });
+
+  it('reports a blocked upgrade and allows retry after the old connection closes', async () => {
+    const name = `local-library-${crypto.randomUUID()}`;
+    const legacy = await legacyDatabase(name);
+    const library = new BrowserLocalLibrary(name);
+    await expect(library.list()).rejects.toThrow(/Close other textTrends tabs/);
+    legacy.database.close();
+    expect(await library.list()).toHaveLength(1);
+    await library.close();
+  });
+
+  it('rolls back a failed upgrade without removing the original inline bytes', async () => {
+    const name = `local-library-${crypto.randomUUID()}`;
+    const legacy = await legacyDatabase(name);
+    legacy.database.close();
+    const put = IDBObjectStore.prototype.put;
+    const failBodies = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore['put']>) {
+      if (this.name === 'bodies') throw new DOMException('quota reached', 'QuotaExceededError');
+      return put.apply(this, args);
+    });
+    const library = new BrowserLocalLibrary(name);
+    try { await expect(library.list()).rejects.toThrow(/saved files are unchanged.*storage.*retry/); }
+    finally { failBodies.mockRestore(); }
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name, 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    expect(db.objectStoreNames.contains('bodies')).toBe(false);
+    const original = await new Promise<{ bytes: ArrayBuffer }>((resolve) => { const read = db.transaction('files').objectStore('files').get(legacy.record.id); read.onsuccess = () => resolve(read.result); });
+    expect(new Uint8Array(original.bytes)).toEqual(new Uint8Array(legacy.record.bytes));
+    db.close();
+    expect(await library.list()).toHaveLength(1);
+    await library.close();
+  });
+
+  it('reports a missing body and repairs it when the source is reimported', async () => {
+    const name = `local-library-${crypto.randomUUID()}`;
+    const library = new BrowserLocalLibrary(name);
+    const input = file('repair.txt', 'repair body');
+    const saved = (await library.add([input]))[0]!.item;
+    await library.close();
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('bodies', 'readwrite'); tx.objectStore('bodies').delete(saved.id);
+      tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    expect((await library.inspect()).damaged.map((item) => item.key)).toEqual([saved.id]);
+    await expect(library.file(saved.id)).rejects.toThrow(/damaged/);
+    await library.add([input]);
+    expect(await library.list()).toEqual([expect.objectContaining({ id: saved.id })]);
+    await library.close();
+  });
+
   it('isolates damaged records by their actual key and repairs them on reimport', async () => {
     const name = `local-library-${crypto.randomUUID()}`;
     const library = new BrowserLocalLibrary(name);
@@ -164,7 +274,7 @@ describe('BrowserLocalLibrary', () => {
     await library.close();
 
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(name, 1);
+      const request = indexedDB.open(name, LOCAL_LIBRARY_DB_VERSION);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -264,7 +374,7 @@ describe('BrowserLocalLibrary', () => {
     await library.close();
 
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(name, 1);
+      const request = indexedDB.open(name, LOCAL_LIBRARY_DB_VERSION);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
