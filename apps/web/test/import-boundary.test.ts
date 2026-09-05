@@ -6,7 +6,8 @@
  * `worker/protocol-*` outside the allowed set fails here, not in review.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const SRC = join(__dirname, '..', 'src');
@@ -187,6 +188,26 @@ describe('guided-learning import boundary', () => {
           !spec.endsWith('/guide/anchors.ts')
           && !spec.endsWith('/guide/activation.ts')
         ) offenders.push(`${rel} -> ${spec}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+
+describe('application contract boundary', () => {
+  it('imports shared contracts directly instead of through the runtime', () => {
+    const parse = (file: string) => ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+    const contracts = new Set(parse(join(SRC, 'lib/app-state.ts')).statements.flatMap((node) =>
+      ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) ? [node.name.text] : []));
+    const offenders: string[] = [];
+    for (const file of walk(SRC)) {
+      for (const node of parse(file).statements) {
+        if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) continue;
+        if (resolve(dirname(file), node.moduleSpecifier.text) !== join(SRC, 'lib/store.ts')) continue;
+        const bindings = node.importClause?.namedBindings;
+        if (bindings && (ts.isNamespaceImport(bindings) || bindings.elements.some((item) =>
+          contracts.has(item.propertyName?.text ?? item.name.text)))) offenders.push(relative(SRC, file));
       }
     }
     expect(offenders).toEqual([]);
