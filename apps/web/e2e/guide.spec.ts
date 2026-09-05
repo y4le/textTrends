@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { guideAnchorSelector, type GuideAnchorId } from '../src/lib/guide/anchors.ts';
 import {
   GUIDE_PROGRESS_STORAGE_KEY,
   type GuideProgressV1,
@@ -14,6 +15,16 @@ import {
   workerQueriesAfter,
   workspaceRecord,
 } from './helpers.ts';
+
+/** Test the rendered semantic contract, independent of component and CSS ownership. */
+async function expectActiveAnchor(page: Page, anchor: GuideAnchorId) {
+  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', anchor);
+  const publisher = page.locator(guideAnchorSelector(anchor));
+  await expect(publisher).toHaveCount(1);
+  await expect(publisher).toBeVisible();
+  await expect(publisher).toHaveCSS('outline-style', 'solid');
+  await expect(publisher).toHaveCSS('outline-width', '2px');
+}
 
 async function openHelp(page: Page) {
   await page.getByRole('button', { name: 'Help', exact: true }).click();
@@ -38,15 +49,15 @@ async function advanceToMark(page: Page) {
   await startTour(page);
   await page.locator('.guide-card').getByRole('button', { name: 'Begin' }).click();
   await expect(page.getByRole('dialog', { name: 'The terms you track' })).toBeVisible();
-  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'terms-rail');
+  await expectActiveAnchor(page, 'terms-rail');
   await page.locator('.guide-card').getByRole('button', { name: 'Next' }).click();
   await expect(page.getByRole('dialog', { name: 'One order, followed everywhere' })).toBeVisible();
   await expect(page).toHaveURL(/[?&]p=trends(?:&|#|$)/);
-  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'trend-plate');
+  await expectActiveAnchor(page, 'trend-plate');
   await page.locator('.guide-card').getByRole('button', { name: 'Next' }).click();
   const mark = page.locator('.guide-card');
   await expect(mark).toContainText(/Every mark is a position|These marks are counts/);
-  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'dispersion-strip');
+  await expectActiveAnchor(page, 'dispersion-strip');
   return mark;
 }
 
@@ -154,7 +165,7 @@ test('walks from a mark to its source and restores the captured workbench place'
   await expect(page.locator('#guide-live-region')).toHaveText('Opened the source in Reader.');
   const source = page.getByRole('dialog', { name: 'The text is the evidence' });
   await expect(source).toBeVisible();
-  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'reader-prose');
+  await expectActiveAnchor(page, 'reader-prose');
   await source.getByRole('button', { name: 'Next' }).click();
 
   const returning = page.getByRole('dialog', { name: 'The place comes with you' });
@@ -165,6 +176,7 @@ test('walks from a mark to its source and restores the captured workbench place'
     'Returned to the chart at the reading position.',
   );
   await expect(returning).toContainText('You are back on the chart, at the passage you just read.');
+  await expectActiveAnchor(page, 'chart-cursor');
   await expect(returning.getByRole('heading', { name: 'The place comes with you' })).toBeFocused();
   await returning.getByRole('button', { name: 'Finish' }).click();
 
@@ -358,11 +370,11 @@ test('lists only relevant Help notes and reads one without staging product work'
   await help.getByRole('button', { name: /Reading a trend/ }).click();
   let card = page.locator('.guide-card');
   await expect(card.getByRole('heading', { name: 'Three views, one reading order' })).toBeFocused();
-  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'trend-plate');
+  await expectActiveAnchor(page, 'trend-plate');
   await card.getByRole('button', { name: 'Next' }).click();
   await expect(card).toContainText('Height answers a chosen question');
   await card.getByRole('button', { name: 'Next' }).click();
-  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'dispersion-strip');
+  await expectActiveAnchor(page, 'dispersion-strip');
   await card.getByRole('button', { name: 'Next' }).click();
   await expect(card).toContainText('The cursor is a shared place');
   await card.getByRole('button', { name: 'Done' }).click();
@@ -402,9 +414,9 @@ test('opens deep notes only from the useful Compare and Matches states', async (
   await compareLink.click();
   let card = page.locator('.guide-card');
   await expect(card).toContainText('Choose a passage or two texts');
-  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'compare-sides');
+  await expectActiveAnchor(page, 'compare-sides');
   await card.getByRole('button', { name: 'Next' }).click();
-  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'reading-footer');
+  await expectActiveAnchor(page, 'reading-footer');
   await card.getByRole('button', { name: 'Exit guide' }).click();
   await expect(compareLink).toBeFocused();
 
@@ -416,7 +428,7 @@ test('opens deep notes only from the useful Compare and Matches states', async (
   await termsLink.click();
   card = page.locator('.guide-card');
   await expect(card).toContainText('A notebook, not a search box');
-  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'terms-rail');
+  await expectActiveAnchor(page, 'terms-rail');
   await card.getByRole('button', { name: 'Exit guide' }).click();
 
   await gotoPlace(page, 'trends');
