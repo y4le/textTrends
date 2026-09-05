@@ -49,7 +49,7 @@ export default defineConfig({
     },
     {
       name: 'webkit-compact',
-      testMatch: /(viewport|reader-modes|rsvp|shortcuts|find|position-history|keyboard-navigation|dock|footer-touch|scope|compact-trends|compact-barcode|compact-matches|compact-corpus|compact-vocabulary|compact-compare|guide|learning-states)\.spec\.ts/,
+      testMatch: /(recovery|viewport|reader-modes|rsvp|shortcuts|find|position-history|keyboard-navigation|dock|footer-touch|scope|compact-trends|compact-barcode|compact-matches|compact-corpus|compact-vocabulary|compact-compare|guide|learning-states)\.spec\.ts/,
       use: { ...devices['iPhone 14'] },
       ...(process.env.CI ? { workers: 1 } : {}),
       retries: process.env.CI ? 1 : 0,

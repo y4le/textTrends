@@ -72,8 +72,6 @@ export function ProjectPanel() {
   const clearActiveInputsAndTerms = useApp((s) => s.clearActiveInputsAndTerms);
   const termCount = useApp((s) => s.notebook.groups.length);
   const reorder = useApp((s) => s.reorder);
-  const workspacePersistence = useApp((s) => s.workspacePersistence);
-  const retryWorkspaceSave = useApp((s) => s.retryWorkspaceSave);
 
   const importRef = useRef<HTMLInputElement>(null);
   const saveRef = useRef<HTMLInputElement>(null);
@@ -787,13 +785,6 @@ export function ProjectPanel() {
         </section>
 
       </div>
-
-      {workspacePersistence.phase === 'error' && (
-        <div role="alert" style={{ margin: 'var(--space-1) 0 0' }}>
-          {workspacePersistence.message}{' '}
-          <button type="button" onClick={() => retryWorkspaceSave()} style={SMALL_BUTTON_STYLE}>retry</button>
-        </div>
-      )}
     </section>
   );
 }

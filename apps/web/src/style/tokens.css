@@ -8607,3 +8607,23 @@ html[data-footer-resizing='true'] * {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* An exceptional durability warning stays reachable even in full-page Reader. */
+.workspace-save-warning {
+  position: fixed;
+  z-index: 76;
+  inset-block-start: calc(var(--app-header-block-size) + max(8px, env(safe-area-inset-top)));
+  inset-inline-end: max(8px, env(safe-area-inset-right));
+  inline-size: min(32rem, calc(100% - 16px));
+  max-block-size: 35dvh;
+  overflow: auto;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 2px solid var(--accent-text);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.workspace-save-warning button { justify-self: start; }

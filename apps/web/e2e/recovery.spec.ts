@@ -1,0 +1,46 @@
+import { expect, test } from '@playwright/test';
+import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
+import { awaitAllReady, gotoPlace, openQuickAdd } from './helpers.ts';
+
+test('workspace save failures remain visible in Trends and Reader and can be retried', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'trends');
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    const host = window as unknown as { restoreWorkspaceWrites: () => void };
+    host.restoreWorkspaceWrites = () => { IDBObjectStore.prototype.put = put; };
+    IDBObjectStore.prototype.put = function (...args: Parameters<IDBObjectStore['put']>) {
+      if (this.name === 'workspace') throw new DOMException('Storage quota reached', 'QuotaExceededError');
+      return put.apply(this, args);
+    };
+  });
+  const input = await openQuickAdd(page);
+  await input.fill('clue');
+  await input.press('Enter');
+  const warning = page.getByRole('alert', { name: 'Unsaved workspace' });
+  await expect(warning).toContainText('Your changes are not saved.');
+  await gotoPlace(page, 'inputs');
+  await gotoPlace(page, 'trends');
+  await page.getByRole('button', { name: /^read from here/ }).first().click();
+  await expect(page.locator('#reader-region')).toBeVisible();
+  await expect(warning).toBeVisible();
+  await page.evaluate(() => (window as unknown as { restoreWorkspaceWrites: () => void }).restoreWorkspaceWrites());
+  await warning.getByRole('button', { name: 'Retry saving' }).click();
+  await expect.poll(() => page.evaluate(async (name) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const value = await new Promise<{ notebook: { groups: { aliases: string[] }[] } }>((resolve, reject) => {
+        const request = db.transaction('workspace').objectStore('workspace').get('current');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      return value.notebook.groups.some((group) => group.aliases.includes('clue'));
+    } finally { db.close(); }
+  }, LOCAL_LIBRARY_DB_NAME)).toBe(true);
+  await expect(warning).toHaveCount(0);
+});

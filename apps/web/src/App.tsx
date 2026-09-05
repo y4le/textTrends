@@ -12,6 +12,7 @@ import {
 import { useApp } from './lib/store-instance.ts';
 import { StatusBar } from './components/StatusBar.tsx';
 import { HeaderActions } from './components/HeaderActions.tsx';
+import { WorkspaceSaveStatus } from './components/WorkspaceSaveStatus.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { WorkbenchTabs } from './components/WorkbenchTabs.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
@@ -813,6 +814,7 @@ export function App() {
     const readerDockPresent = readerScale === 'atlas';
     return (
       <>
+      <WorkspaceSaveStatus />
       <main
         id="reader-region"
         className="reader-region"
@@ -960,6 +962,7 @@ export function App() {
 
   return (
     <>
+    <WorkspaceSaveStatus />
     <main
       className="app-shell"
       data-place={place}
