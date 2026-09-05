@@ -12,6 +12,7 @@ import {
 import { useApp } from './lib/store-instance.ts';
 import { StatusBar } from './components/StatusBar.tsx';
 import { HeaderActions } from './components/HeaderActions.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { WorkspaceSaveStatus } from './components/WorkspaceSaveStatus.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { WorkbenchTabs } from './components/WorkbenchTabs.tsx';
@@ -93,6 +94,12 @@ interface CloseUtilityPaneOptions {
   readonly onSettled?: (interactive: boolean) => void;
 }
 
+const focusAfterRender = (id: string) => {
+  requestAnimationFrame(() => {
+    document.getElementById(id)?.focus({ preventScroll: true });
+  });
+};
+
 function PlaceSurface({
   place,
   children,
@@ -100,6 +107,7 @@ function PlaceSurface({
   readonly place: Place;
   readonly children: ReactNode;
 }) {
+  const setPlace = useApp((state) => state.setPlace);
   const focusId = `place-${place}-heading`;
   return (
     <section
@@ -108,15 +116,17 @@ function PlaceSurface({
       aria-label={PLACE_HEADING[place]}
       tabIndex={-1}
     >
-      <Suspense
-        fallback={(
-          <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>
-            loading {PLACE_HEADING[place]}…
-          </p>
-        )}
-      >
-        {children}
-      </Suspense>
+      <ErrorBoundary resetKey={place} {...(place === 'inputs' ? {} : { onReturn: () => { setPlace('inputs'); focusAfterRender('place-inputs-heading'); } })}>
+        <Suspense
+          fallback={(
+            <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>
+              loading {PLACE_HEADING[place]}…
+            </p>
+          )}
+        >
+          {children}
+        </Suspense>
+      </ErrorBoundary>
     </section>
   );
 }
@@ -422,11 +432,6 @@ export function App() {
       : mode.startToken;
     state.exitRsvp(token);
     return true;
-  };
-  const focusAfterRender = (id: string) => {
-    requestAnimationFrame(() => {
-      document.getElementById(id)?.focus({ preventScroll: true });
-    });
   };
   const runWorkbenchShortcut = (id: ShortcutId): boolean => {
     const state = useApp.getState();

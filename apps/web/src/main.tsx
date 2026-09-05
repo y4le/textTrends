@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { PresentationProvider } from './components/PresentationProvider.tsx';
 import { SeriesPaletteSync } from './components/SeriesPaletteSync.tsx';
 import { GuideProvider } from './components/guide/GuideProvider.tsx';
@@ -12,11 +13,13 @@ if (!root) throw new Error('missing #root element');
 
 createRoot(root).render(
   <StrictMode>
-    <PresentationProvider>
-      <SeriesPaletteSync />
-      <GuideProvider>
-        <App />
-      </GuideProvider>
-    </PresentationProvider>
+    <ErrorBoundary>
+      <PresentationProvider>
+        <SeriesPaletteSync />
+        <GuideProvider>
+          <App />
+        </GuideProvider>
+      </PresentationProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );

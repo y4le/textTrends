@@ -34,13 +34,28 @@ test('workspace save failures remain visible in Trends and Reader and can be ret
       request.onerror = () => reject(request.error);
     });
     try {
-      const value = await new Promise<{ notebook: { groups: { aliases: string[] }[] } }>((resolve, reject) => {
+      const value = await new Promise<{ notebook: { groups: { aliases: string[] }[] } } | undefined>((resolve, reject) => {
         const request = db.transaction('workspace').objectStore('workspace').get('current');
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-      return value.notebook.groups.some((group) => group.aliases.includes('clue'));
+      return value?.notebook.groups.some((group) => group.aliases.includes('clue')) ?? false;
     } finally { db.close(); }
   }, LOCAL_LIBRARY_DB_NAME)).toBe(true);
   await expect(warning).toHaveCount(0);
+});
+
+test('a rejected lazy page keeps navigation and offers a recovery route', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await page.route('**/ComparePlace-*.js', (route) => route.abort('failed'));
+  await gotoPlace(page, 'compare');
+  const fallback = page.getByRole('alert', { name: 'View unavailable' });
+  await expect(fallback).toBeVisible();
+  await expect(fallback.getByRole('button', { name: 'Reload app' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workbench sections' })).toBeVisible();
+  await fallback.getByRole('button', { name: 'Return to Inputs' }).click();
+  await expect(page.getByRole('region', { name: 'Active inputs' })).toBeVisible();
+  await expect(fallback).toHaveCount(0);
+  await expect(page.locator('#place-inputs-heading')).toBeFocused();
 });
