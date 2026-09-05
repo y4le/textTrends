@@ -31,13 +31,11 @@ import {
   STOPLIST_EN_VERSION,
   STOPLIST_MAX_TOP_N,
   TREND_MAX_ROWS,
-  TREND_RATE_DENOMINATOR,
   termGroupIdentity,
   type GroupMember,
   type NumericTrend,
   type TermGroupSpec,
   type TrendBinsSpecV1,
-  type WorkspaceTrendMeasureV1,
   type WorkspaceV1,
 } from '@texttrends/core';
 import { detailSelection, isValidSelection, sameSelection, selectionComplement } from './selection.ts';
@@ -177,6 +175,16 @@ import type {
   AppState,
   AppRuntime,
 } from './app-state.ts';
+import { DEFAULT_TREND_BINS, DEFAULT_TREND_MEASURE, DEFAULT_KEYNESS_VIEW } from './app-defaults.ts';
+import { createWorkspacePersistence } from './workspace-persistence.ts';
+export { DEFAULT_TREND_BINS, DEFAULT_TREND_MEASURE, DEFAULT_KEYNESS_VIEW } from './app-defaults.ts';
+export {
+  workspaceFromApp,
+  workspaceSemanticKey,
+  emptyLibraryWorkspace,
+  WORKSPACE_SEMANTIC_SOURCE_KEYS,
+} from './workspace-state.ts';
+
 
 /** Source budgets are call-site intent, not the worker's protocol ceiling.
  * The footer is latency-sensitive and only renders one clipped passage; the
@@ -197,16 +205,7 @@ export function kwicRowKey(r: KwicRowView): string {
 /** The max compared/matches terms — one authority, shared with the kwic
  *  track cap so a series set can always be sent as matches tracks. */
 export const MAX_SERIES = MAX_KWIC_TRACKS;
-export const DEFAULT_TREND_BINS: TrendBinsSpecV1 = Object.freeze({
-  mode: 'per-doc',
-  count: 40,
-});
-export const DEFAULT_TREND_MEASURE: WorkspaceTrendMeasureV1 = Object.freeze({
-  kind: 'rate',
-  denominator: TREND_RATE_DENOMINATOR,
-  smoothing: 0,
-  showRaw: false,
-});
+
 export const INVENTORY_MATTR_WINDOW = 500;
 
 /** (generation, snapshot) identity — a query result is written only if the live
@@ -231,25 +230,6 @@ function sameReaderTrackSet(
   }
   return true;
 }
-
-export const DEFAULT_KEYNESS_VIEW: KeynessViewV1 = Object.freeze({
-  schema: 'texttrends/keyness-view/1',
-  mode: 'document-rest',
-  documentA: null,
-  documentB: null,
-  restOn: 'b',
-  minCountTotal: 5,
-  minDocFreqTotal: 2,
-  classes: Object.freeze(['lexical'] as const),
-  stoplistTopN: 0,
-  sort: Object.freeze({
-    by: 'logRatio' as const,
-    dirA: -1 as const,
-    dirB: 1 as const,
-  }),
-  showConfidenceIntervals: false,
-  pageLimit: 100,
-});
 
 export function reconcileKeynessView(
   view: KeynessViewV1,
@@ -515,144 +495,6 @@ function adjacentReaderDocument(
   );
 }
 
-export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
-  const project = state.projectSession?.project;
-  if (!project) return null;
-  if (project.data.docs.some((doc) => doc.library === undefined)) return null;
-  const liveLibraries = new Set(project.data.docs.map((doc) => doc.library));
-  const retained = state.unavailableDocs.filter((entry) => !liveLibraries.has(entry.doc.library));
-  const order = [...project.data.order];
-  // Preserve a best-effort neighbouring position after live texts are reordered.
-  for (const entry of [...retained].sort((a, b) => a.index - b.index)) {
-    order.splice(Math.min(entry.index, order.length), 0, entry.doc.doc);
-  }
-  const { filter, ...frequency } = state.frequencyView;
-  return {
-    schema: 'texttrends/workspace/1',
-    corpus: {
-      kind: 'library',
-      order,
-      docs: [...project.data.docs.map((doc) => ({
-        doc: doc.doc,
-        library: doc.library!,
-        meta: doc.meta,
-        ...(doc.extraction.text === undefined || doc.extraction.textLengthUtf16 === undefined
-          ? {}
-          : { warm: { textHash: doc.extraction.text, textLengthUtf16: doc.extraction.textLengthUtf16 } }),
-      })), ...retained.map((entry) => entry.doc)],
-    },
-    notebook: state.notebook,
-    active: state.notebook.groups
-      .filter((group) => state.activeGroupIds.has(group.id))
-      .map((group) => group.id),
-    views: {
-      trend: {
-        mode: state.trendViewPreference,
-        bins: state.trendBins,
-        measure: state.trendMeasure,
-      },
-      frequency: {
-        minCount: frequency.minCount,
-        minDocFreq: frequency.minDocFreq,
-        classes: frequency.classes,
-        stoplistTopN: frequency.stoplistTopN,
-        ...(filter === undefined ? {} : { filter }),
-        sort: frequency.sort,
-        pageSize: frequency.page.limit,
-      },
-      compare: {
-        mode: state.keynessView.mode,
-        documentA: state.keynessView.documentA,
-        documentB: state.keynessView.documentB,
-        restOn: state.keynessView.restOn,
-        minCountTotal: state.keynessView.minCountTotal,
-        minDocFreqTotal: state.keynessView.minDocFreqTotal,
-        classes: state.keynessView.classes,
-        stoplistTopN: state.keynessView.stoplistTopN,
-        sort: state.keynessView.sort,
-        showConfidenceIntervals: state.keynessView.showConfidenceIntervals,
-        pageSize: state.keynessView.pageLimit,
-      },
-    },
-  };
-}
-
-/** A fresh install is a durable, fully valid local workspace with no inputs.
- *  Demo content is an explicit acquisition, never implicit project state. */
-export function emptyLibraryWorkspace(): WorkspaceV1 {
-  return {
-    schema: 'texttrends/workspace/1',
-    corpus: { kind: 'library', order: [], docs: [] },
-    notebook: { schema: 'texttrends/query-notebook/3', groups: [] },
-    active: [],
-    views: {
-      trend: {
-        mode: DEFAULT_TREND_VIEW,
-        bins: DEFAULT_TREND_BINS,
-        measure: DEFAULT_TREND_MEASURE,
-      },
-      frequency: {
-        minCount: 1,
-        minDocFreq: 1,
-        classes: ['lexical'],
-        stoplistTopN: 0,
-        sort: { by: 'count', dir: -1 },
-        pageSize: 100,
-      },
-      compare: {
-        mode: DEFAULT_KEYNESS_VIEW.mode,
-        documentA: null,
-        documentB: null,
-        restOn: DEFAULT_KEYNESS_VIEW.restOn,
-        minCountTotal: DEFAULT_KEYNESS_VIEW.minCountTotal,
-        minDocFreqTotal: DEFAULT_KEYNESS_VIEW.minDocFreqTotal,
-        classes: DEFAULT_KEYNESS_VIEW.classes,
-        stoplistTopN: DEFAULT_KEYNESS_VIEW.stoplistTopN,
-        sort: DEFAULT_KEYNESS_VIEW.sort,
-        showConfidenceIntervals: DEFAULT_KEYNESS_VIEW.showConfidenceIntervals,
-        pageSize: DEFAULT_KEYNESS_VIEW.pageLimit,
-      },
-    },
-  };
-}
-
-/** Exact referential inputs to `workspaceFromApp`. The persistence subscriber
- * sees every transient Zustand write (Find, Reader, Matches, cursor, …), so it
- * must reject states that cannot possibly change the durable projection before
- * paying for a full canonical serialization of the library metadata. Keep this
- * tuple adjacent to and in lockstep with `workspaceFromApp`. */
-export const WORKSPACE_SEMANTIC_SOURCE_KEYS = [
-  'projectSession',
-  'unavailableDocs',
-  'notebook',
-  'activeGroupIds',
-  'trendViewPreference',
-  'trendBins',
-  'trendMeasure',
-  'frequencyView',
-  'keynessView',
-] as const satisfies readonly (keyof AppState)[];
-
-function workspaceSemanticSources(state: AppState): readonly unknown[] {
-  return WORKSPACE_SEMANTIC_SOURCE_KEYS.map((key) =>
-    key === 'projectSession'
-      ? state.projectSession?.project ?? null
-      : state[key]);
-}
-
-function sameWorkspaceSemanticSources(
-  left: readonly unknown[],
-  right: readonly unknown[],
-): boolean {
-  return left.length === right.length
-    && left.every((value, index) => Object.is(value, right[index]));
-}
-
-export function workspaceSemanticKey(state: AppState): string | null {
-  const workspace = workspaceFromApp(state);
-  return workspace === null ? null : canonicalJson(workspace);
-}
-
 /** One query-intent lane: latest-wins ownership plus the in-flight transport
  *  cancels it may best-effort clean up. Superseding is ONE operation, so no
  *  call site can cancel without invalidating or invalidate without cancelling. */
@@ -752,7 +594,6 @@ export function createAppRuntime(
   const newLayerId = opts?.newLayerId ?? (() => crypto.randomUUID());
   const historyPort = opts?.history ?? null;
   let lastRsvpPacing = clampRsvpPacing(opts?.rsvpPacing ?? RSVP_PACING_DEFAULTS);
-  let workspaceStore = opts?.workspace ?? null;
   // Ownership: ONE scope for the runtime lifetime (closed on dispose) and one
   // lane per query intent. A lease carries the fences the old hand-rolled
   // epochs + captured keys expressed.
@@ -807,13 +648,6 @@ export function createAppRuntime(
   let unsubscribe: (() => void) | null = null;
   let attached = false;
   let disposed = false;
-  let workspaceHydrated = false;
-  let workspaceLastKey: string | null = null;
-  let workspacePausedKey: string | null = null;
-  let workspaceSaveTimer: ReturnType<typeof setTimeout> | null = null;
-  let workspaceSaveToken = 0;
-  let workspaceScheduling = false;
-  let saveWorkspaceNow = (): void => undefined;
   let positionHistoryTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingPositionSettle: PositionHistoryEntry | null = null;
   let pendingPositionReconciliation: {
@@ -5479,8 +5313,7 @@ export function createAppRuntime(
         set({ appNotice: null });
       },
       retryWorkspaceSave() {
-        workspacePausedKey = null;
-        saveWorkspaceNow();
+        persistence.saveNow();
       },
       restoreWorkspace(workspace) {
         pendingKeynessResetDoc = null;
@@ -5633,93 +5466,7 @@ export function createAppRuntime(
   };
   const unsubscribeHistory = historyPort?.subscribe(reconcileHistory) ?? (() => undefined);
 
-  const clearWorkspaceTimer = (): void => {
-    if (workspaceSaveTimer !== null) {
-      clearTimeout(workspaceSaveTimer);
-      workspaceSaveTimer = null;
-    }
-  };
-
-  const scheduleWorkspaceSave = (): void => {
-    if (
-      disposed ||
-      !workspaceHydrated ||
-      workspaceStore === null
-    ) {
-      return;
-    }
-    if (workspaceScheduling) return;
-    workspaceScheduling = true;
-    clearWorkspaceTimer();
-    if (store.getState().workspacePersistence.phase !== 'dirty') {
-      store.setState({ workspacePersistence: { phase: 'dirty' } });
-    }
-    workspaceSaveTimer = setTimeout(() => {
-      workspaceSaveTimer = null;
-      saveWorkspaceNow();
-    }, 1_500);
-    workspaceScheduling = false;
-  };
-
-  saveWorkspaceNow = (): void => {
-    if (disposed || !workspaceHydrated || workspaceStore === null) return;
-    const workspace = workspaceFromApp(store.getState());
-    const issuedKey = workspaceSemanticKey(store.getState());
-    if (workspace === null || issuedKey === null) return;
-    clearWorkspaceTimer();
-    const token = ++workspaceSaveToken;
-    workspaceScheduling = true;
-    try {
-      store.setState({ workspacePersistence: { phase: 'saving' } });
-    } finally {
-      workspaceScheduling = false;
-    }
-    void workspaceStore.saveWorkspace(workspace).then(() => {
-      if (disposed || token !== workspaceSaveToken) return;
-      workspacePausedKey = null;
-      workspaceLastKey = issuedKey;
-      const liveKey = workspaceSemanticKey(store.getState());
-      if (liveKey === issuedKey) {
-        store.setState({ workspacePersistence: { phase: 'saved' } });
-      } else {
-        scheduleWorkspaceSave();
-      }
-    }).catch((error: unknown) => {
-      if (disposed || token !== workspaceSaveToken) return;
-      workspacePausedKey = workspaceSemanticKey(store.getState());
-      store.setState({
-        workspacePersistence: {
-          phase: 'error',
-          message: `Workspace could not be saved: ${msg(error)}`,
-        },
-      });
-    });
-  };
-
-  let workspaceSources = workspaceSemanticSources(store.getState());
-  const unsubscribeWorkspace = store.subscribe((state) => {
-    const nextSources = workspaceSemanticSources(state);
-    if (sameWorkspaceSemanticSources(workspaceSources, nextSources)) return;
-    workspaceSources = nextSources;
-    if (!workspaceHydrated) return;
-    const key = workspaceSemanticKey(state);
-    if (key === workspacePausedKey) return;
-    if (workspacePausedKey !== null) workspacePausedKey = null;
-    if (key !== workspaceLastKey) scheduleWorkspaceSave();
-  });
-
-  const flushWorkspace = (): void => {
-    if (
-      typeof document !== 'undefined' &&
-      document.visibilityState === 'hidden' &&
-      workspaceSaveTimer !== null
-    ) {
-      saveWorkspaceNow();
-    }
-  };
-  if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', flushWorkspace);
-  }
+  const persistence = createWorkspacePersistence(store, opts?.workspace ?? null);
 
   /** One-way bridge: mirror the session view for the query flow and reissue
    *  queries ONLY when the (generation, snapshot) identity changes (including a
@@ -5889,12 +5636,7 @@ export function createAppRuntime(
         if (next === session) return;
         throw new Error('a session is already attached; one session lives per app lifetime');
       }
-      if (workspacePort !== undefined) {
-        if (workspaceStore !== null && workspaceStore !== workspacePort) {
-          throw new Error('a different workspace store is already connected');
-        }
-        workspaceStore = workspacePort;
-      }
+      if (workspacePort !== undefined) persistence.connect(workspacePort);
       attached = true;
       session = next;
       // Subscribe first, then seed from the current state (subscribe does not
@@ -5913,11 +5655,7 @@ export function createAppRuntime(
         }
         store.setState({ place, routeStatus: 'resolved' });
       }
-      if (workspaceStore !== null) {
-        workspaceHydrated = true;
-        workspaceLastKey = workspaceSemanticKey(store.getState());
-        store.setState({ workspacePersistence: { phase: 'saved' } });
-      }
+      persistence.hydrate();
     },
     failBootstrap(error: unknown) {
       if (disposed) return; // a torn-down runtime reports nothing
@@ -5936,18 +5674,10 @@ export function createAppRuntime(
     reportNotice(message: string) {
       if (!disposed) store.setState({ appNotice: message });
     },
-    reportWorkspaceFailure(error: unknown) {
-      if (!disposed) {
-        store.setState({
-          workspacePersistence: {
-            phase: 'error',
-            message: `Workspace could not be saved: ${msg(error)}`,
-          },
-        });
-      }
-    },
+    reportWorkspaceFailure: (error: unknown) => persistence.reportFailure(error),
     dispose() {
       disposed = true;
+      persistence.dispose();
       // Close the ownership scope FIRST: every outstanding lease goes dead, so
       // a late settlement (even one whose cancel is never acknowledged) can no
       // longer write to the store. Then best-effort transport cleanup cancels
@@ -6000,13 +5730,7 @@ export function createAppRuntime(
       clearPositionHistoryTimer();
       pendingPositionSettle = null;
       pendingPositionReconciliation = null;
-      clearWorkspaceTimer();
-      workspaceSaveToken += 1;
       unsubscribeHistory();
-      unsubscribeWorkspace();
-      if (typeof document !== 'undefined') {
-        document.removeEventListener('visibilitychange', flushWorkspace);
-      }
       unsubscribe?.();
       unsubscribe = null;
       session?.dispose();

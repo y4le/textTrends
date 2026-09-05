@@ -1160,6 +1160,59 @@ describe('the session bridge', () => {
     }
   });
 
+  it('persists replacement corpus and notebook together after synchronous session publication', async () => {
+    const doc = { doc: 'replacement', library: `txt:${'a'.repeat(64)}`, meta: { title: 'Replacement', language: 'en', tags: [] } };
+    const durable = workspaceState({ corpus: { kind: 'library', order: [doc.doc], docs: [doc] } });
+    const data = await libraryProject(durable, new Map([[doc.library, {
+      id: doc.library, name: 'replacement.txt', format: 'txt' as const, size: 1, contentHash: 'a'.repeat(64),
+    }]]));
+    vi.useFakeTimers();
+    const workspace = new FakeWorkspaceStore();
+    const f = harness(undefined, { workspace, seed: true });
+    try {
+      await vi.advanceTimersByTimeAsync(1_500);
+      workspace.saves.length = 0;
+      vi.spyOn(f.port, 'replaceFiles').mockImplementation(() => {
+        f.port.emit(sessionState(null, { project: { data } }));
+      });
+      expect(f.store.getState().replaceInputsAndTerms([{
+        name: 'replacement.txt', size: 1, format: 'txt', library: doc.library,
+        contentHash: 'a'.repeat(64), arrayBuffer: async () => new Uint8Array([1]).buffer,
+      }])).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(workspace.saves).toHaveLength(1);
+      expect(workspace.saves[0]).toMatchObject({
+        corpus: { order: ['replacement'], docs: [{ doc: 'replacement' }] },
+        notebook: { groups: [] }, active: [],
+      });
+    } finally {
+      f.runtime.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it('fences pending save settlement and cancels scheduled writes on disposal', async () => {
+    vi.useFakeTimers();
+    const workspace = new FakeWorkspaceStore();
+    let finish!: () => void;
+    vi.spyOn(workspace, 'saveWorkspace').mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const f = harness(undefined, { workspace });
+    try {
+      f.store.getState().quickAdd('Watson');
+      await vi.advanceTimersByTimeAsync(1_500);
+      f.store.getState().quickAdd('Holmes');
+      f.runtime.dispose();
+      const phase = f.store.getState().workspacePersistence;
+      finish();
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(workspace.saveWorkspace).toHaveBeenCalledTimes(1);
+      expect(f.store.getState().workspacePersistence).toBe(phase);
+    } finally {
+      f.runtime.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it('surfaces a workspace write failure and retries the latest state', async () => {
     vi.useFakeTimers();
     try {
