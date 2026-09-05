@@ -314,6 +314,7 @@ class FakeSessionPort implements SessionPort {
   }
   start(): void { this.record('start', []); }
   appendFiles(files: readonly LocalLibraryFile[]): void { this.record('appendFiles', [files]); }
+  replaceFiles(files: readonly LocalLibraryFile[]): void { this.record('replaceFiles', [files]); }
   removeImport(doc: string): void { this.record('removeImport', [doc]); }
   removeDocument(doc: string): void { this.record('removeDocument', [doc]); }
   removeDocuments(docs: readonly string[]): void { this.record('removeDocuments', [docs]); }
@@ -1448,6 +1449,20 @@ describe('the session bridge', () => {
     expect(store.getState().mergeStarterTerms('Sauron')).toEqual({ added: 1, activated: 0, skipped: 0 });
     expect(store.getState().notebook.groups.map(groupTitle).at(-1)).toBe('Sauron');
     expect(store.getState().activeGroupIds.size).toBe(5);
+  });
+
+  it('preserves notebook and comparison when replacement admission fails', () => {
+    const { store, port } = harness(undefined, { seed: true });
+    const before = store.getState();
+    port.errors.replaceFiles = new SessionCommandError('replacement refused');
+    expect(store.getState().replaceInputsAndTerms([])).toBeNull();
+    expect(store.getState().notebook).toBe(before.notebook);
+    expect(store.getState().keynessView).toBe(before.keynessView);
+    expect(store.getState().commandError).toContain('replacement refused');
+    delete port.errors.replaceFiles;
+    expect(store.getState().replaceInputsAndTerms([])?.terms).toBe(2);
+    expect(store.getState().commandError).toBeNull();
+    expect(store.getState().notebook.groups).toHaveLength(0);
   });
 
   it('importFiles appends to the library-backed corpus', () => {

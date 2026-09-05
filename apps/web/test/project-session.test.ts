@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_INDEX_RECIPE, type SourceDescriptorV1 } from '@texttrends/core';
 import { canonicalRecipeHashes } from './support/spec-fixtures.ts';
 import type { GenerationDocSpecV4 } from '../src/shared/analysis-contract.ts';
@@ -173,6 +173,71 @@ async function finalizeImport(session: ProjectSession, client: FakeClient, files
 }
 
 describe('generation and source resolution', () => {
+  it('rejects replacement before mutation and fences old events on acceptance', async () => {
+    const original = libraryFile('original.txt', 10, 'a');
+    const replacement = libraryFile('replacement.txt', 11, 'b');
+    const { session, client, states } = makeSession(emptyProject(), [original, replacement]);
+    const old = await finalizeImport(session, client, [original]);
+    const before = session.getState();
+    const published = states.length;
+    expect(() => session.replaceFiles([{ ...replacement, name: 'unsupported.pdf' }])).toThrow(/unsupported/);
+    expect(session.getState()).toBe(before);
+    expect(states).toHaveLength(published);
+
+    session.replaceFiles([replacement]);
+    const accepted = session.getState();
+    expect(accepted.project.data.docs).toHaveLength(0);
+    expect(accepted.imports.map((item) => item.sourceName)).toEqual(['replacement.txt']);
+    expect(accepted.snapshot).toBeNull();
+    client.snapshot({ generation: old.open.generation, snapshot: 'late-old', readyDocs: old.docs, missingDocs: [] });
+    expect(session.getState()).toBe(accepted);
+    await settle();
+    expect(client.lastOpen().docs.map((doc) => doc.source?.expectedHash)).toEqual([replacement.contentHash]);
+    session.dispose();
+  });
+
+  it('reports failed import preparation and retries without discarding the admitted files', async () => {
+    const file = libraryFile('replacement.txt', 10, 'a');
+    const { session, client } = makeSession(emptyProject(), [file]);
+    const digest = vi.spyOn(crypto.subtle, 'digest').mockRejectedValueOnce(new Error('hash unavailable'));
+    try {
+      session.replaceFiles([file]);
+      await settle();
+      expect(session.getState().analysis).toEqual({ phase: 'error', message: 'failed to prepare imports: hash unavailable', fatal: false });
+      expect(session.getState().imports.map((item) => item.sourceName)).toEqual([file.name]);
+      session.start();
+      await settle();
+      expect(client.lastOpen().docs).toHaveLength(1);
+    } finally {
+      digest.mockRestore();
+      session.dispose();
+    }
+  });
+
+  it('opens and settles an empty replacement', async () => {
+    const file = libraryFile('original.txt', 10, 'a');
+    const { session, client } = makeSession(emptyProject(), [file]);
+    await finalizeImport(session, client, [file]);
+    session.replaceFiles([]);
+    const open = client.lastOpen();
+    expect(open.docs).toEqual([]);
+    open.resolve({ generation: open.generation, snapshot: null, readyDocs: [], missingDocs: [] });
+    await settle();
+    expect(session.getState().analysis).toEqual({ phase: 'ready' });
+    expect(session.getState().imports).toEqual([]);
+    session.dispose();
+  });
+
+  it('preserves the old corpus when replacement id allocation collides', async () => {
+    const file = libraryFile('original.txt', 10, 'a');
+    const { session, client } = makeSession(emptyProject(), [file], { newDocId: () => 'same-id' });
+    await finalizeImport(session, client, [file]);
+    const before = session.getState();
+    expect(() => session.replaceFiles([file])).toThrow(/duplicate document id/);
+    expect(session.getState()).toBe(before);
+    session.dispose();
+  });
+
   it('settles an emptied library generation without waiting for a snapshot event', async () => {
     const file = libraryFile('a.txt', 10, 'a');
     const { session, client, states } = makeSession(emptyProject(), [file]);

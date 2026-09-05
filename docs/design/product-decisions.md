@@ -617,9 +617,11 @@ allowlisted one-shot `?demo=` slugs for every named corpus (`sherlock`,
 `austen`, `bible`, `quran`/`koran`, `arguments`/`political`, `shakespeare`,
 `inaugurals`, `darwin`, `classics`, `lotr`, and `asoif`) boot
 parameters have deliberately different semantics: they are stripped before
-route writes, clear the active corpus and notebook without deleting saved
-library bytes, load the preset, and cannot repeat on reload or history
-navigation. This automatic replacement is the explicit contract of a shared
+route writes, fetch and save the preset, then replace the active corpus and
+notebook only after session admission succeeds, without deleting saved library
+bytes. A failure before admission preserves the current workspace; analysis
+failures after admission use ordinary import recovery. These parameters cannot
+repeat on reload or history navigation. This automatic replacement is the explicit contract of a shared
 preset URL, including for a nonempty workspace.
 
 ## 2026-08-17 — One explicit interaction mode and temporary corpus Find

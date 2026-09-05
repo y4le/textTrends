@@ -160,6 +160,13 @@ type ImportStaging =
   | { readonly phase: 'hashing' }
   | { readonly phase: 'ready'; readonly recipes: ImportRecipes };
 
+interface ImportPlan {
+  readonly doc: string;
+  readonly file: LocalLibraryFile;
+  readonly format: SourceFormat;
+  readonly importToken: number;
+}
+
 /** A staged import: an identity-incomplete document awaiting the two-fact join.
  *  Correlation is by (importToken, generation, doc, ingestJob) — a stale event
  *  never mutates the draft even if its hash happens to match. */
@@ -330,7 +337,12 @@ export class ProjectSession {
    *  restart; import and reorder reopen it internally. */
   start(): void {
     this.assertLive();
-    this.startGeneration();
+    const hashing = [...this.pending.values()].filter((entry) => entry.staging.phase === 'hashing');
+    if (hashing.length > 0) {
+      this.analysis = { phase: 'loading', detail: null };
+      this.publish();
+      void this.finishStaging(hashing);
+    } else this.startGeneration();
   }
 
   // ── Commands: import ────────────────────────────────────────────────────────
@@ -339,7 +351,17 @@ export class ProjectSession {
   appendFiles(files: readonly LocalLibraryFile[]): void {
     this.assertLive();
     this.preflightImport(files, /* fromEmpty */ false);
-    this.stage(files);
+    this.applyPlans(this.planImports(files));
+  }
+
+  /** Admit and allocate the new corpus before releasing the current one. */
+  replaceFiles(files: readonly LocalLibraryFile[]): void {
+    this.assertLive();
+    this.preflightImport(files, true);
+    const plans = this.planImports(files);
+    this.resetCorpus();
+    if (plans.length === 0) this.startGeneration();
+    else this.applyPlans(plans);
   }
 
   /** Drop a staged import (typically a failed one). Reopens the generation
@@ -713,10 +735,8 @@ export class ProjectSession {
     if (existingText + newBytes > CAPS.maxProjectTextUtf16) throw new SessionCommandError('import would exceed the project text cap');
   }
 
-  /** Apply a preflighted selection: allocate stable ids and stage each file. The
-   *  caller has already run `preflightImport`, so this performs no cap checks. */
-  private stage(files: readonly LocalLibraryFile[]): void {
-    if (files.length === 0) return;
+  /** Allocate and validate every identity before mutating the active corpus. */
+  private planImports(files: readonly LocalLibraryFile[]): readonly ImportPlan[] {
     // Allocate ids + tokens up front so each plan CARRIES its own importToken
     // (never reconstructed from `this.pending`, which a duplicate id would
     // corrupt). A collision from the injected allocator is a hard programming
@@ -731,6 +751,28 @@ export class ProjectSession {
     if (ids.size !== plans.length || plans.some((p) => this.order.includes(p.doc))) {
       throw new SessionCommandError('newDocId returned a duplicate document id');
     }
+    return plans;
+  }
+
+  private resetCorpus(): void {
+    this.scope.invalidate();
+    this.activeOpenCancel?.();
+    this.activeOpenCancel = null;
+    this.genAttempt++;
+    this.generation = null;
+    this.snapshot = null;
+    this.analysis = { phase: 'loading', detail: null };
+    this.order = [];
+    this.finalized.clear();
+    this.pending.clear();
+    this.attached.clear();
+    this.sourceStatus.clear();
+    this.extractionDiagnostics.clear();
+    this.data = this.materialize();
+  }
+
+  private applyPlans(plans: readonly ImportPlan[]): void {
+    if (plans.length === 0) return;
     for (const { doc, file, format, importToken } of plans) {
       this.order.push(doc);
       this.attached.set(doc, file);
@@ -763,37 +805,43 @@ export class ProjectSession {
    *  (a re-staged id) so stale staging work never mutates a newer pending entry. */
   private async finishStaging(staged: readonly { doc: string; importToken: number }[]): Promise<void> {
     const scopeLease = this.scope.lease();
-    // One default recipe per catalog format — select `byFormat[format]`, no
-    // per-format switch. Hash every catalog format (derived from
-    // SOURCE_FORMAT_IDS so a new format needs no edit here) plus index in parallel.
-    const byFormat = await defaultExtractionRecipes();
-    const [indexHash, formatHashes] = await Promise.all([
-      hashIndexRecipe(this.indexRecipe),
-      Promise.all(SOURCE_FORMAT_IDS.map((f) => hashExtractionRecipe(byFormat[f]))),
-    ]);
-    if (!scopeLease.isCurrent()) return;
-    const hashByFormat = Object.fromEntries(
-      SOURCE_FORMAT_IDS.map((f, i) => [f, formatHashes[i]!]),
-    ) as { readonly [F in SourceFormat]: string };
-    let matched = 0;
-    for (const { doc, importToken } of staged) {
-      const p = this.pending.get(doc);
-      if (!p || p.importToken !== importToken) continue; // a newer entry / removed
-      const chosen = { recipe: byFormat[p.format], hash: hashByFormat[p.format] };
-      const recipes: ImportRecipes = {
-        extraction: chosen.recipe,
-        extractionRecipeHash: chosen.hash,
-      };
-      this.pending.set(doc, { ...p, staging: { phase: 'ready', recipes } });
-      matched++;
+    try {
+      // One default recipe per catalog format — select `byFormat[format]`, no
+      // per-format switch. Hash every catalog format (derived from
+      // SOURCE_FORMAT_IDS so a new format needs no edit here) plus index in parallel.
+      const byFormat = await defaultExtractionRecipes();
+      const [indexHash, formatHashes] = await Promise.all([
+        hashIndexRecipe(this.indexRecipe),
+        Promise.all(SOURCE_FORMAT_IDS.map((f) => hashExtractionRecipe(byFormat[f]))),
+      ]);
+      if (!scopeLease.isCurrent()) return;
+      const hashByFormat = Object.fromEntries(
+        SOURCE_FORMAT_IDS.map((f, i) => [f, formatHashes[i]!]),
+      ) as { readonly [F in SourceFormat]: string };
+      let matched = 0;
+      for (const { doc, importToken } of staged) {
+        const p = this.pending.get(doc);
+        if (!p || p.importToken !== importToken) continue; // a newer entry / removed
+        const chosen = { recipe: byFormat[p.format], hash: hashByFormat[p.format] };
+        const recipes: ImportRecipes = {
+          extraction: chosen.recipe,
+          extractionRecipeHash: chosen.hash,
+        };
+        this.pending.set(doc, { ...p, staging: { phase: 'ready', recipes } });
+        matched++;
+      }
+      // If every staged import was removed/superseded meanwhile, this stale
+      // continuation must NOT reopen the generation or mutate current data.
+      if (matched === 0) return;
+      // Keep the index recipe hash consistent with the active recipe.
+      this.indexRecipeHash = indexHash;
+      this.data = this.materialize();
+      this.startGeneration();
+    } catch (error) {
+      if (!scopeLease.isCurrent() || !staged.some(({ doc, importToken }) => this.pending.get(doc)?.importToken === importToken)) return;
+      this.analysis = { phase: 'error', message: `failed to prepare imports: ${msg(error)}`, fatal: false };
+      this.publish();
     }
-    // If every staged import was removed/superseded meanwhile, this stale
-    // continuation must NOT reopen the generation or mutate current data.
-    if (matched === 0) return;
-    // Keep the index recipe hash consistent with the active recipe.
-    this.indexRecipeHash = indexHash;
-    this.data = this.materialize();
-    this.startGeneration();
   }
 
   // ── State materialization + publishing ──────────────────────────────────────

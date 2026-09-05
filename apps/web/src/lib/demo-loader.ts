@@ -79,7 +79,7 @@ function firstActivatedDocument(
 
 /** One acquisition authority for Inputs, Debug, and one-shot URL presets.
  * Replacement clears active research state only after the complete demo has
- * been fetched and verified, and never deletes reusable source bytes from the
+ * been fetched, verified, saved, and admitted for activation. It never deletes reusable source bytes from the
  * local library. */
 export async function loadDemoCorpus(
   id: BuiltinCorpusId,
@@ -100,15 +100,6 @@ export async function loadDemoCorpus(
     const demo = await fetchCorpus(id, signal);
     if (!operation.owns(lease)) throw new Error('The demo load was superseded.');
 
-    if (mode === 'replace') {
-      dependencies.getState().clearCommandError();
-      const cleared = dependencies.getState().clearActiveInputsAndTerms();
-      clearedTexts = cleared.texts;
-      clearedTerms = cleared.terms;
-      const refusal = dependencies.getState().commandError;
-      if (refusal !== null) throw new Error(refusal);
-    }
-
     const saved = await library.add(demo.files);
     if (!operation.owns(lease)) throw new Error('The demo load was superseded.');
 
@@ -116,7 +107,15 @@ export async function loadDemoCorpus(
     const acquired = saved.filter((result) => !active.has(result.item.id));
     const files = await Promise.all(acquired.map((result) => library.file(result.item.id)));
     if (!operation.owns(lease)) throw new Error('The demo load was superseded.');
-    if (files.length > 0 && !dependencies.getState().importFiles(files)) {
+    if (signal?.aborted) throw signal.reason ?? new Error('The demo load was aborted.');
+    if (mode === 'replace') {
+      const cleared = dependencies.getState().replaceInputsAndTerms(files);
+      if (cleared === null) {
+        throw new Error(dependencies.getState().commandError ?? 'The demo texts could not be activated.');
+      }
+      clearedTexts = cleared.texts;
+      clearedTerms = cleared.terms;
+    } else if (files.length > 0 && !dependencies.getState().importFiles(files)) {
       throw new Error(dependencies.getState().commandError ?? 'The demo texts could not be activated.');
     }
 

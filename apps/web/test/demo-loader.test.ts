@@ -17,7 +17,7 @@ function harness(fetchCorpus: () => Promise<LoadedDemoCorpus>) {
     projectSession: null,
     commandError: null,
     clearCommandError: vi.fn(),
-    clearActiveInputsAndTerms: vi.fn(() => ({ texts: 2, terms: 3 })),
+    replaceInputsAndTerms: vi.fn(() => ({ texts: 2, terms: 3 })),
     importFiles: vi.fn(() => true),
     resetKeynessComparison: vi.fn(),
     mergeStarterTerms: vi.fn(() => ({ added: 1, activated: 1, skipped: 0 })),
@@ -52,7 +52,7 @@ describe('demo loader', () => {
 
     await expect(loadDemoCorpus(BUILTIN_SHERLOCK_ID, 'replace', subject.dependencies))
       .rejects.toBe(failure);
-    expect(subject.state.clearActiveInputsAndTerms).not.toHaveBeenCalled();
+    expect(subject.state.replaceInputsAndTerms).not.toHaveBeenCalled();
     expect(subject.library.add).not.toHaveBeenCalled();
     expect(subject.operation.release).toHaveBeenCalledWith(subject.lease);
   });
@@ -63,7 +63,7 @@ describe('demo loader', () => {
     const subject = harness(() => fetched);
     const loading = loadDemoCorpus(BUILTIN_SHERLOCK_ID, 'replace', subject.dependencies);
 
-    expect(subject.state.clearActiveInputsAndTerms).not.toHaveBeenCalled();
+    expect(subject.state.replaceInputsAndTerms).not.toHaveBeenCalled();
     finishFetch({ option: builtinCorpusOption(BUILTIN_SHERLOCK_ID)!, files: [] });
 
     await expect(loading).resolves.toMatchObject({
@@ -71,8 +71,23 @@ describe('demo loader', () => {
       clearedTexts: 2,
       clearedTerms: 3,
     });
-    expect(subject.state.clearActiveInputsAndTerms).toHaveBeenCalledOnce();
+    expect(subject.state.replaceInputsAndTerms).toHaveBeenCalledOnce();
     expect(subject.library.add).toHaveBeenCalledOnce();
+    expect(subject.operation.release).toHaveBeenCalledWith(subject.lease);
+  });
+
+  it.each(['save', 'read', 'activation'])('preserves replacement state on %s failure', async (phase) => {
+    const subject = harness(async () => ({ option: builtinCorpusOption(BUILTIN_SHERLOCK_ID)!, files: [] }));
+    const failure = new Error('quota or read failure');
+    if (phase === 'save') subject.library.add.mockRejectedValue(failure);
+    if (phase === 'read') {
+      subject.library.add.mockResolvedValue([{ item: { id: 'saved' }, added: true }] as never);
+      subject.library.file.mockRejectedValue(failure);
+    }
+    if (phase === 'activation') vi.mocked(subject.state.replaceInputsAndTerms).mockReturnValue(null);
+    await expect(loadDemoCorpus(BUILTIN_SHERLOCK_ID, 'replace', subject.dependencies)).rejects.toThrow();
+    if (phase !== 'activation') expect(subject.state.replaceInputsAndTerms).not.toHaveBeenCalled();
+    expect(subject.state.mergeStarterTerms).not.toHaveBeenCalled();
     expect(subject.operation.release).toHaveBeenCalledWith(subject.lease);
   });
 

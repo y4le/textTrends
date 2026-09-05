@@ -302,6 +302,7 @@ export function ProjectPanel() {
       await refreshLibrary();
       setDemoNotice(demoLoadNotice(result, 'additive'));
     } catch (error) {
+      await refreshLibrary(false);
       setDemoError(error instanceof Error ? error.message : String(error));
     } finally {
       setDemoLoading(null);

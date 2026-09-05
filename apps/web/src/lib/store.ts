@@ -775,6 +775,7 @@ export interface SessionPort {
   dispose(): void;
   start(): void;
   appendFiles(files: readonly LocalLibraryFile[]): void;
+  replaceFiles(files: readonly LocalLibraryFile[]): void;
   removeImport(doc: string): void;
   removeDocument(doc: string): void;
   removeDocuments(docs: readonly string[]): void;
@@ -1068,6 +1069,7 @@ export interface AppState {
   /** True when the session accepted the batch; false when a command boundary
    *  refused it and published `commandError`. */
   importFiles(files: readonly LocalLibraryFile[]): boolean;
+  replaceInputsAndTerms(files: readonly LocalLibraryFile[]): { readonly texts: number; readonly terms: number } | null;
   removeImport(doc: string): void;
   removeDocument(doc: string): void;
   removeDocuments(docs: readonly string[]): void;
@@ -6081,6 +6083,28 @@ export function createAppRuntime(
           accepted = true;
         });
         return accepted;
+      },
+      replaceInputsAndTerms(files) {
+        set({ commandError: null });
+        const current = session?.getState();
+        const texts = current === undefined ? 0 : new Set([
+          ...current.project.data.order,
+          ...current.imports.map((item) => item.doc),
+        ]).size;
+        const terms = get().notebook.groups.length;
+        let accepted = false;
+        command((s) => {
+          s.replaceFiles(files);
+          accepted = true;
+        });
+        if (!accepted) return null;
+        adoptNotebook({
+          notebook: { schema: 'texttrends/query-notebook/3', groups: [] },
+          activeGroupIds: new Set(),
+          soloGroupId: null,
+        }, { reissue: true });
+        set({ removedGroups: [], inputError: null });
+        return { texts, terms };
       },
       removeImport(doc) {
         command((s) => s.removeImport(doc));
