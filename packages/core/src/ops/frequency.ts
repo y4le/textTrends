@@ -26,6 +26,16 @@ import {
   type StoplistSpecV1,
 } from './stoplist-contract.ts';
 
+let patternModule: Promise<typeof import('./frequency-pattern.ts')> | null = null;
+
+function loadPatternModule() {
+  patternModule ??= import('./frequency-pattern.ts').catch((error: unknown) => {
+    patternModule = null;
+    throw error;
+  });
+  return patternModule;
+}
+
 export const FREQUENCY_PAGE_MAX = 200;
 export const FREQUENCY_WINDOW_MAX = 5_000;
 export const FREQUENCY_FILTER_MAX_UNITS = 256;
@@ -289,7 +299,7 @@ export async function frequencyList(
     : partSizes.map((value) => value / totalTokens);
   const positiveShares = partShares.filter((value) => value > 0);
   const regex = request.filter.text?.mode === 'regex'
-    ? new RegExp(request.filter.text.query, 'u')
+    ? (await loadPatternModule()).compileFrequencyPattern(request.filter.text.query)
     : null;
   const literal = request.filter.text?.mode === 'literal'
     ? request.filter.text.query.toLowerCase()

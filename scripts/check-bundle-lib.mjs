@@ -97,6 +97,7 @@ export function checkBundle(files, catalogSource) {
   const workerPath = unique(files, /^assets\/index\.worker-[^/]+\.js$/, 'worker base', failures);
   const archivePath = unique(files, /^assets\/archive-[^/]+\.js$/, 'SE archive client', failures);
   const extractPath = unique(files, /^assets\/epub-reader-[^/]+\.js$/, 'epub reader', failures);
+  const patternPath = unique(files, /^assets\/frequency-pattern-[^/]+\.js$/, 'bounded regex engine', failures);
   const parse5Path = unique(files, /^assets\/dist-[^/]+\.js$/, 'html parser (parse5)', failures);
   const catalogPath = unique(files, /^assets\/standard-ebooks-catalog-[^/]+\.json$/, 'catalog asset', failures);
   const settingsSurfacePath = unique(files, /^assets\/SettingsPane-[^/]+\.js$/, 'Settings region', failures);
@@ -202,14 +203,18 @@ export function checkBundle(files, catalogSource) {
   }
 
   // ---- worker split --------------------------------------------------------
-  if (workerPath && extractPath && parse5Path) {
+  if (workerPath && extractPath && parse5Path && patternPath) {
     const workerText = files.get(workerPath).toString('utf8');
     const workerStatic = staticImports(workerText);
-    for (const [path, label] of [[extractPath, 'epub reader'], [parse5Path, 'html parser']]) {
+    for (const [path, label] of [[extractPath, 'epub reader'], [parse5Path, 'html parser'], [patternPath, 'regex engine']]) {
       const name = path.replace('assets/', '');
       if (workerStatic.has(name)) failures.push(`${workerPath}: statically imports ${name} — the ${label} must stay a lazy worker chunk`);
       else if (!references(workerText, name)) failures.push(`${workerPath}: no dynamic import of ${name} — the lazy ${label} edge is gone`);
     }
+  }
+
+  if (entryPath && patternPath && references(files.get(entryPath).toString('utf8'), patternPath.replace('assets/', ''))) {
+    failures.push(`${entryPath}: references the regex engine — it must load only through the worker`);
   }
 
   // ---- summary -------------------------------------------------------------

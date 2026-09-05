@@ -3,6 +3,7 @@
 // This package is environment-agnostic by contract: no DOM, no Worker, no
 // filesystem, no framework imports. Buffers and plain data in, typed results
 // out. The web app wraps it in a Web Worker; the CLI wraps it in Node.
+// Vocabulary regex filtering lazily loads the environment-agnostic RE2JS engine.
 //
 // The public surface is defined by the analysis contract
 // (docs/design/analysis-contract.md) and grows here as each part is

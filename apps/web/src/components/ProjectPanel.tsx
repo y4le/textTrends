@@ -87,16 +87,8 @@ export function ProjectPanel() {
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [libraryFilter, setLibraryFilter] = useState('');
   const filteredLibrary = useMemo(() => {
-    if (libraryFilter === '') return { items: library, invalid: false };
-    try {
-      const expression = new RegExp(libraryFilter, 'iu');
-      return {
-        items: library.filter((item) => expression.test(item.name)),
-        invalid: false,
-      };
-    } catch {
-      return { items: library, invalid: true };
-    }
+    const needle = libraryFilter.normalize('NFC').toLowerCase();
+    return library.filter((item) => item.name.normalize('NFC').toLowerCase().includes(needle));
   }, [library, libraryFilter]);
   const libraryBusy = useSyncExternalStore(
     libraryOperation.subscribe,
@@ -735,7 +727,7 @@ export function ProjectPanel() {
             </button>
           </div>
           <p className="input-card-help">
-            Drop files here to save them without activating them. Filter filenames with a case-insensitive regular expression.
+            Drop files here to save them without activating them. Search by filename.
           </p>
           {libraryError && <p role="alert" className="input-card-error">{libraryError}</p>}
           {damagedLibrary.length > 0 && (
@@ -752,16 +744,15 @@ export function ProjectPanel() {
           <p role="status" aria-live="polite" className="input-card-status">{libraryNotice ?? (libraryLoading ? 'loading saved texts…' : '')}</p>
           {!libraryLoading && library.length === 0 && <p className="input-card-empty">No saved texts yet.</p>}
           <div className="local-library-filter-row">
-            <label htmlFor="local-library-filter">filter (regex)</label>
+            <label htmlFor="local-library-filter">filter</label>
             <input
               id="local-library-filter"
               type="search"
               value={libraryFilter}
               disabled={libraryLoading || library.length === 0}
-              aria-invalid={filteredLibrary.invalid || undefined}
               aria-describedby="local-library-filter-status"
               aria-label="Filter saved texts by filename"
-              placeholder="filename pattern"
+              placeholder="filename contains"
               spellCheck={false}
               onChange={(event) => setLibraryFilter(event.target.value)}
             />
@@ -777,26 +768,23 @@ export function ProjectPanel() {
           </div>
           <p
             id="local-library-filter-status"
-            className={`local-library-filter-status${filteredLibrary.invalid ? ' local-library-filter-status-invalid' : ''}`}
+            className="local-library-filter-status"
             aria-live="polite"
           >
-            {filteredLibrary.invalid
-              ? `Invalid regular expression; showing all ${library.length} saved text${library.length === 1 ? '' : 's'}.`
-              : `${filteredLibrary.items.length} of ${library.length} saved text${library.length === 1 ? '' : 's'} shown.`}
+            {`${filteredLibrary.length} of ${library.length} saved text${library.length === 1 ? '' : 's'} shown.`}
           </p>
           {!libraryLoading
             && library.length > 0
-            && !filteredLibrary.invalid
-            && filteredLibrary.items.length === 0
-            && <p className="input-card-empty">No saved texts match this regular expression.</p>}
+            && filteredLibrary.length === 0
+            && <p className="input-card-empty">No saved texts match this filename.</p>}
           <div
             className="local-library-list-port"
             role="region"
             aria-label="Saved text results"
-            tabIndex={filteredLibrary.items.length > 0 ? 0 : undefined}
+            tabIndex={filteredLibrary.length > 0 ? 0 : undefined}
           >
             <ul aria-label="Saved texts" className="local-library-list">
-              {filteredLibrary.items.map((file) => (
+              {filteredLibrary.map((file) => (
                 <li
                   key={file.id}
                   draggable={!libraryBusy}

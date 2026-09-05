@@ -153,6 +153,13 @@ test('Vocabulary filters literally by default and keeps regex explicit', async (
 
   await filter.fill('^Al');
   await expect(page.locator('tr[data-frequency-row]')).not.toHaveCount(0);
+  const validBeforeUnsupported = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await filter.fill('(?=A)');
+  await expect(page.getByRole('alert', { name: 'Vocabulary query error' })).toContainText('Unsupported regular expression');
+  await filter.fill('^Al');
+  await expect(page.getByRole('alert', { name: 'Vocabulary query error' })).toHaveCount(0);
+  await expect(page.locator('tr[data-frequency-row]')).not.toHaveCount(0);
+  expect((await trace(page)).events.filter((event) => event.seq > validBeforeUnsupported && (event.t === 'begin-generation' || event.t === 'restart'))).toEqual([]);
   const priorRows = await page.locator('tr[data-frequency-row] .frequency-term-label').allInnerTexts();
 
   const invalidMark = (await trace(page)).events.at(-1)?.seq ?? -1;

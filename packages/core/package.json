@@ -15,5 +15,8 @@
   "devDependencies": {
     "typescript": "^5.9.0",
     "vitest": "^4.1.0"
+  },
+  "dependencies": {
+    "re2js": "2.8.6"
   }
 }

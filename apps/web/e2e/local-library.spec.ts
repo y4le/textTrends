@@ -207,7 +207,7 @@ test('local files persist, join active inputs, reorder accessibly, and delete in
   await expect(page.getByText('No saved texts yet.')).toBeVisible();
 });
 
-test('a large local library scrolls and filters filenames with regular expressions', async ({ page }) => {
+test('a large local library scrolls and searches filenames as literal text', async ({ page }) => {
   await page.goto('./');
   const local = page.getByRole('region', { name: 'Local library' });
   const names = Array.from({ length: 30 }, (_, index) =>
@@ -233,19 +233,18 @@ test('a large local library scrolls and filters filenames with regular expressio
   await expect(results).toBeFocused();
 
   const filter = local.getByRole('searchbox', { name: 'Filter saved texts by filename' });
-  await filter.fill('^chapter-(0[37]|1[24])\\.(txt|md)$');
-  await expect(saved.getByRole('listitem')).toHaveCount(4);
-  await expect(local.locator('#local-library-filter-status')).toHaveText('4 of 30 saved texts shown.');
+  await filter.fill('CHAPTER-0');
+  await expect(saved.getByRole('listitem')).toHaveCount(10);
+  await expect(local.locator('#local-library-filter-status')).toHaveText('10 of 30 saved texts shown.');
 
+  await filter.fill('.md');
+  await expect(saved.getByRole('listitem')).toHaveCount(15);
   await filter.fill('[');
-  await expect(filter).toHaveAttribute('aria-invalid', 'true');
-  await expect(saved.getByRole('listitem')).toHaveCount(30);
-  await expect(local.locator('#local-library-filter-status'))
-    .toHaveText('Invalid regular expression; showing all 30 saved texts.');
-
-  await filter.fill('^missing-file$');
+  await expect(filter).not.toHaveAttribute('aria-invalid', 'true');
   await expect(saved.getByRole('listitem')).toHaveCount(0);
-  await expect(local.getByText('No saved texts match this regular expression.', { exact: true })).toBeVisible();
+  await expect(local.getByText('No saved texts match this filename.', { exact: true })).toBeVisible();
+  await filter.fill('^(a+)+$');
+  await expect(saved.getByRole('listitem')).toHaveCount(0);
   await local.getByRole('button', { name: 'Clear library filter' }).click();
   await expect(saved.getByRole('listitem')).toHaveCount(30);
 });

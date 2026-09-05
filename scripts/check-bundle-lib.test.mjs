@@ -42,8 +42,9 @@ function syntheticDist() {
   put('assets/WorkbenchFooter-FFFF.js', 'export const WorkbenchFooter=1;');
   put('assets/local-library-LLLL.js', 'export const localLibrary=1;');
   put('assets/archive-RRRR.js', 'export const archive=1;');
-  put('assets/index.worker-WWWW.js', 'const epub=()=>import(`./epub-reader-EEEE.js`);const html=()=>import(`./dist-DDDD.js`);');
+  put('assets/index.worker-WWWW.js', 'const epub=()=>import(`./epub-reader-EEEE.js`);const html=()=>import(`./dist-DDDD.js`);const regex=()=>import(`./frequency-pattern-PPPP.js`);');
   put('assets/epub-reader-EEEE.js', 'export const extract=1;');
+  put('assets/frequency-pattern-PPPP.js', 'export const compileFrequencyPattern=1;');
   put('assets/dist-DDDD.js', 'export const parse5=1;');
   put('assets/standard-ebooks-catalog-JJJJ.json', catalogSource);
   return { files, put };
@@ -56,6 +57,15 @@ describe('bundle contract', () => {
     const { failures, report } = run(syntheticDist().files);
     assert.deepEqual(failures, []);
     assert.ok(report.some((l) => l.includes(`budget ${ENTRY_GZIP_BUDGET_BYTES} B`)));
+  });
+
+  it('keeps the bounded regex engine behind a lazy worker edge', () => {
+    const d = syntheticDist();
+    d.put('assets/index.worker-WWWW.js', d.files.get('assets/index.worker-WWWW.js').toString() + ';import "./frequency-pattern-PPPP.js";');
+    assert.ok(run(d.files).failures.some((failure) => failure.includes('regex engine must stay')));
+    const d2 = syntheticDist();
+    d2.put('assets/index-AAAA.js', d2.files.get('assets/index-AAAA.js').toString() + ';import("./frequency-pattern-PPPP.js");');
+    assert.ok(run(d2.files).failures.some((failure) => failure.includes('only through the worker')));
   });
 
   it('an entry over the gzip budget fails', () => {
@@ -239,13 +249,13 @@ describe('bundle contract', () => {
 
   it('a worker missing a lazy parser edge, or importing one statically, fails', () => {
     const d = syntheticDist();
-    d.put('assets/index.worker-WWWW.js', 'const html=()=>import(`./dist-DDDD.js`);');
+    d.put('assets/index.worker-WWWW.js', 'const html=()=>import(`./dist-DDDD.js`);const regex=()=>import(`./frequency-pattern-PPPP.js`);');
     assert.ok(run(d.files).failures.some((f) => f.includes('epub-reader-EEEE.js')));
     const d2 = syntheticDist();
-    d2.put('assets/index.worker-WWWW.js', 'import"./epub-reader-EEEE.js";const html=()=>import(`./dist-DDDD.js`);');
+    d2.put('assets/index.worker-WWWW.js', 'import"./epub-reader-EEEE.js";const html=()=>import(`./dist-DDDD.js`);const regex=()=>import(`./frequency-pattern-PPPP.js`);');
     assert.ok(run(d2.files).failures.some((f) => f.includes('statically imports epub-reader-EEEE.js')));
     const d3 = syntheticDist();
-    d3.put('assets/index.worker-WWWW.js', "import'./epub-reader-EEEE.js';const html=()=>import(`./dist-DDDD.js`);");
+    d3.put('assets/index.worker-WWWW.js', "import'./epub-reader-EEEE.js';const html=()=>import(`./dist-DDDD.js`);const regex=()=>import(`./frequency-pattern-PPPP.js`);");
     assert.ok(run(d3.files).failures.some((f) => f.includes('statically imports epub-reader-EEEE.js')));
   });
 

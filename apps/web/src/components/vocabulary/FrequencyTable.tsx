@@ -735,7 +735,7 @@ export function FrequencyTable({
             maxLength={FREQUENCY_FILTER_MAX_UNITS}
             aria-invalid={filterError !== null || undefined}
             aria-describedby={filterDraft.mode === 'regex'
-              ? 'vocabulary-regex-note vocabulary-filter-status'
+              ? 'vocabulary-regex-note vocabulary-regex-help vocabulary-filter-status'
               : 'vocabulary-filter-status'}
             placeholder="filter"
             spellCheck={false}
@@ -777,7 +777,7 @@ export function FrequencyTable({
             type="checkbox"
             checked={filterDraft.mode === 'regex'}
             aria-label="regex"
-            aria-describedby={filterDraft.mode === 'regex' ? 'vocabulary-regex-note' : undefined}
+            aria-describedby={filterDraft.mode === 'regex' ? 'vocabulary-regex-note vocabulary-regex-help' : undefined}
             onKeyDown={() => {
               refocusFilterAfterModeChangeRef.current = false;
             }}
@@ -819,9 +819,14 @@ export function FrequencyTable({
               : `${readyResult?.total ?? 0} matching vocabulary rows.`)}
         </span>
       </form>
+      {filterDraft.mode === 'regex' && (
+        <p id="vocabulary-regex-help" className="frequency-filter-status">
+          Lookaround and backreferences are not supported. Unicode properties are supported; {'\\s'} matches ASCII whitespace.
+        </p>
+      )}
       {state?.state.status === 'pending' && readyResult === null && <p>ranking vocabulary…</p>}
       {state?.state.status === 'error' && (
-        <p style={{ color: 'var(--accent-text)' }}>{state.state.message}</p>
+        <p role="alert" aria-label="Vocabulary query error" style={{ color: 'var(--accent-text)' }}>{state.state.message}</p>
       )}
       {readyResult !== null && readyResult.total === 0 && (
         <p className="frequency-empty-state">
