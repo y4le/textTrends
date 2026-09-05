@@ -618,7 +618,7 @@ export function ProjectPanel() {
             {acquisitionExpanded && (
               <p className="input-sample-copy">
                 <strong>{inputCount === 0 ? 'Start with your text' : 'Add more of your text'}</strong>
-                <span>Choose text, Markdown, HTML, EPUB, or PDF files to save locally and analyze now.</span>
+                <span>Choose {SOURCE_FILE_ACCEPT.split(',').join(', ')} files to save locally and analyze now.</span>
               </p>
             )}
             <label className="input-file-label input-file-label-primary" data-disabled={libraryBusy || undefined}>

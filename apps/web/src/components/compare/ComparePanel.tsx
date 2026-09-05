@@ -290,11 +290,10 @@ export function ComparePanel() {
                 className="compare-reverse"
                 type="button"
                 onClick={reverseRankings}
-                aria-label="Swap — Reverse both rankings"
                 title="Reverse ranking directions"
                 disabled={!hasComparison}
               >
-                Swap
+                Reverse rankings
               </button>
               <label data-side="a">
                 {sideControl('a')}

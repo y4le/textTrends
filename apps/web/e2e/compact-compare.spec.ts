@@ -125,9 +125,8 @@ test('side selectors support a rest comparison and prevent duplicate texts', asy
   const right = page.getByLabel('Right comparison input');
   const leftInitial = await left.inputValue();
   const rightInitial = await right.inputValue();
-  const reverse = page.getByRole('button', { name: 'Reverse both rankings' });
-  await expect(reverse).toHaveText('Swap');
-  await expect(reverse).toHaveAttribute('aria-label', /^Swap\b/);
+  const reverse = page.getByRole('button', { name: 'Reverse rankings', exact: true });
+  await expect(reverse).toHaveText('Reverse rankings');
   const reverseBox = await reverse.boundingBox();
   const leftBox = await left.boundingBox();
   expect(reverseBox?.x).toBeLessThan(leftBox?.x ?? 0);
