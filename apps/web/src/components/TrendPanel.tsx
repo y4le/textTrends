@@ -1,5 +1,5 @@
 /**
- * Trend comparison — two views over the same declared-sequence results:
+ * Trend comparison — three views over the same declared-sequence results:
  *
  * - 'series' (primary): one axis, books concatenated in declared reading
  *   order with token-proportional widths (sequenceBases + docTokenCount).

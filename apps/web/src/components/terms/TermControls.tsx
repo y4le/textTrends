@@ -1,3 +1,5 @@
+/** Term buttons, long-press gestures, and actions; QuerySurface owns the rail and editor. */
+
 import {
   useEffect,
   useLayoutEffect,

@@ -1,3 +1,9 @@
+/**
+ * Deferred capability: tested result/provenance formatters with no production
+ * export surface. Keep this module outside the application runtime until an
+ * export workflow defines completeness, method disclosure, and source handling.
+ */
+
 import type {
   CompanyResultV1,
   DestinationsResultV1,
