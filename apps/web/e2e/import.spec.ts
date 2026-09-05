@@ -65,6 +65,7 @@ test('catalog import restores from the library and active deletion cascades', as
   await gotoPlace(page, 'inputs');
   await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible();
 
+  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: `Delete ${DOC_NAME} from local library` }).click();
   await expect(page.getByLabel('Saved texts').getByText(DOC_NAME)).toHaveCount(0);
   await expect(page.getByLabel('Active input order').getByText('smoke-doc')).toHaveCount(0);

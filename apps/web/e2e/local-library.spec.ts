@@ -177,6 +177,10 @@ test('local files persist, join active inputs, reorder accessibly, and delete in
   const reopened = page.getByRole('list', { name: 'Saved texts' });
   await expect(reopened.getByRole('listitem')).toHaveCount(DOC_COUNT + 2);
 
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await reopened.getByRole('button', { name: 'Delete alpha.txt from local library' }).click();
+  await expect(reopened.getByRole('listitem')).toHaveCount(DOC_COUNT + 2);
+  page.once('dialog', (dialog) => dialog.accept());
   await reopened.getByRole('button', { name: 'Delete alpha.txt from local library' }).click();
   await expect(reopened.getByRole('listitem')).toHaveCount(DOC_COUNT + 1);
   page.once('dialog', (dialog) => dialog.accept());

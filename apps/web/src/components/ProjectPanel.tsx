@@ -351,6 +351,12 @@ export function ProjectPanel() {
       .filter((doc) => doc.library === id)
       .map((doc) => doc.doc)
       .concat(pendingImports.filter((item) => item.library === id).map((item) => item.doc));
+    const name = library.find((item) => item.id === id)?.name ?? 'this saved text';
+    const activeEffect = liveDocuments.length > 0 ? ' It will also be removed from Active inputs.' : '';
+    if (!window.confirm(`Delete “${name}” from the local library?${activeEffect} You can import the file again later.`)) {
+      releaseLibrary(lease);
+      return;
+    }
     try {
       const result = await localLibrary.delete(id);
       const removed = [...new Set([...liveDocuments, ...result.removedDocuments])];
