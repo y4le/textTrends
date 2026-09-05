@@ -1,0 +1,1196 @@
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
+import { useApp } from '../../lib/store-instance.ts';
+import { occurrenceNavigationText } from '../../lib/store.ts';
+import {
+  advanceFooterShuttle,
+  corpusProgress,
+  FOOTER_SHUTTLE_DEFAULT_VISIBLE_TOKENS,
+  footerShuttleRate,
+  footerStatusText,
+  nextPassageToken,
+  type FooterGeometry,
+  type PassageWindowV1,
+} from '../../lib/footer-view.ts';
+import {
+  seriesTokenFromX,
+  seriesDocFromGlobal,
+  seriesXFromToken,
+  seriesXFromTokenEdge,
+  stepAlongSequence,
+  type SequenceLayout,
+} from '../../lib/trend-geometry.ts';
+import { projectedBarcodeSnapIndexes } from '../../lib/trend-stage.ts';
+import {
+  barcodeReaderTarget,
+  captureBarcodePointerTarget,
+  resolveCapturedBarcodeTarget,
+  type BarcodeTrackVM,
+  type CapturedBarcodeTarget,
+} from '../../lib/barcode-view.ts';
+import { usePresentation } from '../PresentationProvider.tsx';
+import { FooterPassage } from '../FooterPassage.tsx';
+import { rootShortcutAllowed, shortcutAria, shortcutMatches } from '../../lib/shortcuts.ts';
+import { pointerIntentFor, type PointerIntent } from '../../lib/pointer-capability.ts';
+import { commitRange, selectionTokenCount, type SelectionPoint } from '../../lib/selection.ts';
+import {
+  beginFooterTouchGesture,
+  footerTouchCancel,
+  footerTouchDown,
+  footerTouchMove,
+  footerTouchUp,
+  resetFooterTouchGesture,
+  type FooterTouchTransition,
+} from '../../lib/footer-touch-gesture.ts';
+import {
+  footerRangeDown,
+  footerRangeMove,
+  footerRangeUp,
+  footerStripZone,
+  idleFooterRangeGesture,
+  primeFooterRangeGesture,
+  resetFooterRangeGesture,
+  type FooterRangeEffect,
+  type FooterRangeGesture,
+} from '../../lib/footer-range-gesture.ts';
+import {
+  RANGE_CLEAR_SUPPRESSION_MS,
+  SYNTHESIZED_CLICK_WINDOW_MS,
+  rangeClearDecision,
+} from '../../lib/range-clear-gesture.ts';
+
+const FOOTER_HOVER_DWELL_MS = 120;
+
+const FOOTER_SHUTTLE_ARIA_INTERVAL_MS = 1_000;
+
+type FooterKeyboardEvent = KeyboardEvent<HTMLDivElement> | globalThis.KeyboardEvent;
+
+interface FooterRangePreview {
+  readonly mode: 'pointer' | 'keyboard';
+  readonly origin: SelectionPoint;
+  readonly head: SelectionPoint;
+}
+
+function nativeEnterTarget(target: EventTarget | null): boolean {
+  const element = target as (EventTarget & { closest?: (selector: string) => unknown }) | null;
+  return typeof element?.closest === 'function'
+    && element.closest('button, a[href], [role="button"], [role="link"]') !== null;
+}
+
+function keyboardReturnFocusId(target: EventTarget | null): string {
+  const element = target as (EventTarget & { id?: string }) | null;
+  return element?.id || 'place-trends-heading';
+}
+
+export function FooterInteractive({
+  docs,
+  titles,
+  layout,
+  width,
+  geometry,
+  tracks,
+  trackCount,
+  pending,
+  failed,
+  partial,
+  strip,
+  containerRef,
+  globalShortcuts,
+  showStatus,
+  showPassage,
+  foregroundBarcodeOverlay,
+}: {
+  readonly docs: readonly string[];
+  readonly titles: ReadonlyMap<string, string>;
+  readonly layout: SequenceLayout;
+  readonly width: number;
+  readonly geometry: FooterGeometry;
+  readonly tracks: readonly BarcodeTrackVM[];
+  readonly trackCount: number;
+  readonly pending: boolean;
+  readonly failed: number;
+  readonly partial: boolean;
+  readonly strip: ReactNode;
+  readonly containerRef: (element: HTMLDivElement | null) => void;
+  readonly globalShortcuts: boolean;
+  readonly showStatus: boolean;
+  readonly showPassage: boolean;
+  readonly foregroundBarcodeOverlay: boolean;
+}) {
+  const presentation = usePresentation();
+  const scrub = useApp((state) => state.scrub);
+  const passage = useApp((state) => state.footerPassage);
+  const snapshot = useApp((state) => state.snapshot);
+  const setScrub = useApp((state) => state.setScrub);
+  const linkedSelection = useApp((state) => state.linkedSelection);
+  const setLinkedSelection = useApp((state) => state.setLinkedSelection);
+  const setFooterPassageMargin = useApp((state) => state.setFooterPassageMargin);
+  const centerKwicAt = useApp((state) => state.centerKwicAt);
+  const openReader = useApp((state) => state.openReader);
+  const occurrenceNavigation = useApp((state) => state.occurrenceNavigation);
+  const stepOccurrence = useApp((state) => state.stepOccurrence);
+  const sliderRef = useRef<HTMLDivElement | null>(null);
+  const keyHandlerRef = useRef<(event: FooterKeyboardEvent) => void>(() => undefined);
+  const docsRef = useRef(docs);
+  const layoutRef = useRef(layout);
+  docsRef.current = docs;
+  layoutRef.current = layout;
+  const pointerSample = useRef<{ readonly doc: string; readonly token: number } | null>(null);
+  const frame = useRef<number | null>(null);
+  const shuttleFrame = useRef<number | null>(null);
+  const suppressDoubleClickUntil = useRef(0);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverReady = useRef(false);
+  const lastPointerIntent = useRef<PointerIntent>('direct');
+  const lastDirectPointerAt = useRef(0);
+  const snapIndexCache = useRef<{
+    readonly tracks: readonly BarcodeTrackVM[];
+    readonly indexes: ReturnType<typeof projectedBarcodeSnapIndexes>;
+  } | null>(null);
+  const [visiblePassageTokens, setVisiblePassageTokens] = useState(
+    FOOTER_SHUTTLE_DEFAULT_VISIBLE_TOKENS,
+  );
+  const visiblePassageTokensRef = useRef(visiblePassageTokens);
+  visiblePassageTokensRef.current = visiblePassageTokens;
+  const [shuttleOffsetPx, setShuttleOffsetPx] = useState<number | null>(null);
+  const shuttleRate = shuttleOffsetPx === null
+    ? null
+    : footerShuttleRate(shuttleOffsetPx, visiblePassageTokens);
+  const ariaScrubLatest = useRef(scrub);
+  const ariaScrubTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ariaShuttleActive = useRef(false);
+  const [ariaScrub, setAriaScrub] = useState(scrub);
+  const passageWindow = useRef<PassageWindowV1 | null>(null);
+  const queuedPageDirection = useRef<1 | -1 | null>(null);
+  const [keyboardStatus, setKeyboardStatus] = useState('');
+  const [rangePreview, setRangePreview] = useState<FooterRangePreview | null>(null);
+  const [rangeAnnouncement, setRangeAnnouncement] = useState('');
+  const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation);
+  const footerTouch = useRef(beginFooterTouchGesture());
+  const footerRange = useRef<FooterRangeGesture>(idleFooterRangeGesture());
+  const [touchScrubbing, setTouchScrubbing] = useState(false);
+  const pointerTap = useRef<{
+    readonly pointerId: number;
+    readonly pointerType: string;
+    readonly x: number;
+    readonly y: number;
+    readonly barcode: CapturedBarcodeTarget | null;
+    readonly anchorTarget: { readonly doc: string; readonly token: number } | null;
+    readonly zone: 'graph' | 'barcode';
+    readonly primeRange: boolean;
+    moved: boolean;
+    mode: 'tap' | 'shuttle';
+    offsetPx: number;
+    position: number | null;
+    lastFrameAt: number | null;
+  } | null>(null);
+  const docOrdinal = scrub ? docs.indexOf(scrub.doc) : -1;
+  const progress = scrub && docOrdinal >= 0
+    ? corpusProgress(layout, docOrdinal, scrub.token)
+    : null;
+  const crosshairX = progress && scrub && docOrdinal >= 0
+    ? seriesXFromToken(docOrdinal, scrub.token, width, layout)
+    : null;
+  const title = scrub ? titles.get(scrub.doc) ?? scrub.doc : '';
+  const announcedScrub = shuttleRate === null ? scrub : (ariaScrub ?? scrub);
+  const ariaDocOrdinal = announcedScrub ? docs.indexOf(announcedScrub.doc) : -1;
+  const ariaProgress = announcedScrub && ariaDocOrdinal >= 0
+    ? corpusProgress(layout, ariaDocOrdinal, announcedScrub.token)
+    : null;
+  const ariaTitle = announcedScrub
+    ? titles.get(announcedScrub.doc) ?? announcedScrub.doc
+    : '';
+  const baseStatus = footerStatusText(progress && scrub ? {
+    compact: presentation.width === 'compact',
+    partial,
+    title,
+    token: scrub.token,
+    docTokenCount: layout.tokenCounts[docOrdinal] ?? 0,
+    percent: progress.percent,
+    pending: pending || passage?.state.status === 'pending',
+    failed,
+  } : null);
+  const shuttleStatus = shuttleRate === null
+    ? ''
+    : Math.abs(shuttleRate) < 0.05
+      ? ' · reading paused · drag farther to set pace'
+      : ` · reading ${shuttleRate > 0 ? '→' : '←'} ${Math.abs(shuttleRate).toFixed(1)} tokens/s · release to pause`;
+  const status = `${baseStatus}${shuttleStatus}${keyboardStatus ? ` · ${keyboardStatus}` : ''}${occurrenceStatus ? ` · ${occurrenceStatus}` : ''}`;
+  const honestyQualifier = [
+    partial ? 'partial corpus' : '',
+    pending ? 'computing' : failed > 0
+      ? `${failed} ${failed === 1 ? 'query failed' : 'queries failed'}`
+      : '',
+  ].filter(Boolean).join(' · ');
+  const stripVisualHeight = geometry.seriesHeight
+    + (trackCount > 0
+      ? geometry.barcodeBandGap
+        + trackCount * (geometry.barcodeTrackHeight + geometry.barcodeTrackGap)
+      : 0);
+  const stripHeight = Math.max(geometry.stripMinHeight, stripVisualHeight);
+  const stripTop = stripHeight - stripVisualHeight;
+
+  const setAbsoluteScrub = useCallback((target: { readonly doc: string; readonly token: number }) => {
+    queuedPageDirection.current = null;
+    setKeyboardStatus('');
+    setScrub(target);
+  }, [setScrub]);
+
+  useEffect(() => {
+    passageWindow.current = null;
+    queuedPageDirection.current = null;
+    setKeyboardStatus('');
+    setRangeAnnouncement('');
+    setRangePreview(null);
+    footerRange.current = idleFooterRangeGesture();
+    footerTouch.current = resetFooterTouchGesture().state;
+    setTouchScrubbing(false);
+  }, [snapshot?.snapshot]);
+
+  useEffect(() => {
+    if (occurrenceNavigation?.state.status !== 'ready') return;
+    passageWindow.current = null;
+    queuedPageDirection.current = null;
+    setKeyboardStatus('');
+  }, [occurrenceNavigation]);
+
+  const schedule = useCallback((target: { readonly doc: string; readonly token: number }) => {
+    pointerSample.current = target;
+    frame.current ??= requestAnimationFrame(() => {
+      frame.current = null;
+      if (pointerSample.current) setAbsoluteScrub(pointerSample.current);
+    });
+  }, [setAbsoluteScrub]);
+
+  const applyFooterTouchTransition = (transition: FooterTouchTransition) => {
+    footerTouch.current = transition.state;
+    const scrubbing = transition.state.phase === 'scrubbing';
+    setTouchScrubbing((current) => current === scrubbing ? current : scrubbing);
+    if (transition.state.phase === 'spent') {
+      pointerSample.current = null;
+      if (frame.current !== null) {
+        cancelAnimationFrame(frame.current);
+        frame.current = null;
+      }
+    }
+    if (transition.effect.kind === 'jump') setAbsoluteScrub(transition.effect.point);
+    else if (transition.effect.kind === 'scrub') schedule(transition.effect.point);
+  };
+
+  useEffect(() => {
+    ariaScrubLatest.current = scrub;
+    if (shuttleRate === null) {
+      if (ariaScrubTimer.current !== null) {
+        clearTimeout(ariaScrubTimer.current);
+        ariaScrubTimer.current = null;
+      }
+      if (ariaShuttleActive.current) setAriaScrub(scrub);
+      ariaShuttleActive.current = false;
+      return;
+    }
+    if (!ariaShuttleActive.current) setAriaScrub(scrub);
+    ariaShuttleActive.current = true;
+    ariaScrubTimer.current ??= setTimeout(() => {
+      ariaScrubTimer.current = null;
+      setAriaScrub(ariaScrubLatest.current);
+    }, FOOTER_SHUTTLE_ARIA_INTERVAL_MS);
+  }, [scrub, shuttleRate]);
+
+  const stopShuttle = useCallback(() => {
+    if (shuttleFrame.current !== null) {
+      cancelAnimationFrame(shuttleFrame.current);
+      shuttleFrame.current = null;
+    }
+    setShuttleOffsetPx(null);
+  }, []);
+
+  const runShuttle = useCallback(() => {
+    if (shuttleFrame.current !== null) return;
+    const tick = (at: number) => {
+      shuttleFrame.current = null;
+      const tap = pointerTap.current;
+      if (!tap || tap.mode !== 'shuttle' || tap.position === null) return;
+      const rate = footerShuttleRate(tap.offsetPx, visiblePassageTokensRef.current);
+      const firstFrame = tap.lastFrameAt === null;
+      const elapsed = firstFrame ? 0 : at - tap.lastFrameAt!;
+      tap.lastFrameAt = at;
+      const previousPosition = tap.position;
+      const next = advanceFooterShuttle(layoutRef.current, tap.position, rate, elapsed);
+      if (next) {
+        tap.position = next.position;
+        const doc = docsRef.current[next.docOrdinal];
+        const current = useApp.getState().scrub;
+        if (doc && (current?.doc !== doc || current.token !== next.token)) {
+          setAbsoluteScrub({ doc, token: next.token });
+        }
+      }
+      if (
+        rate !== 0
+        && (firstFrame || next?.position !== previousPosition)
+        && pointerTap.current?.mode === 'shuttle'
+      ) {
+        shuttleFrame.current = requestAnimationFrame(tick);
+      }
+    };
+    shuttleFrame.current = requestAnimationFrame(tick);
+  }, [setAbsoluteScrub]);
+
+  useEffect(() => () => {
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    if (shuttleFrame.current !== null) cancelAnimationFrame(shuttleFrame.current);
+    if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
+    if (ariaScrubTimer.current !== null) clearTimeout(ariaScrubTimer.current);
+  }, []);
+  const attachSlider = useCallback((element: HTMLDivElement | null) => {
+    sliderRef.current = element;
+    containerRef(element);
+  }, [containerRef]);
+
+  const localPoint = (
+    event: MouseEvent<HTMLDivElement> | ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    const box = sliderRef.current?.getBoundingClientRect();
+    if (!box || box.width <= 0) return null;
+    return {
+      x: Math.max(0, Math.min(box.width - 0.001, event.clientX - box.left)),
+      y: event.clientY - box.top,
+    };
+  };
+  const rawTarget = (x: number) => {
+    const at = seriesTokenFromX(x, width, layout);
+    const doc = at ? docs[at.d] : undefined;
+    return at && doc ? { ...at, doc } : null;
+  };
+  const stripZoneAt = (y: number) => footerStripZone(y, {
+    stripHeight,
+    stripTop,
+    seriesHeight: geometry.seriesHeight,
+    barcodeBandGap: geometry.barcodeBandGap,
+    trackCount,
+  });
+  const commitFooterRange = (origin: SelectionPoint, head: SelectionPoint) => {
+    const selection = snapshot
+      ? commitRange(snapshot.snapshot, origin, head, docs, layout.tokenCounts)
+      : null;
+    if (!selection) {
+      setRangePreview(null);
+      setRangeAnnouncement('Range selection cancelled.');
+      return;
+    }
+    setLinkedSelection(selection);
+    setRangePreview(null);
+    const tokens = selectionTokenCount(selection);
+    setRangeAnnouncement(
+      `Range applied: ${tokens.toLocaleString()} token${tokens === 1 ? '' : 's'}.`,
+    );
+  };
+  const applyFooterRangeEffect = (effect: FooterRangeEffect) => {
+    switch (effect.kind) {
+      case 'none': return;
+      case 'clear':
+        setRangePreview(null);
+        setLinkedSelection(null);
+        setRangeAnnouncement('Range cleared.');
+        return;
+      case 'preview':
+        if (effect.clearsCommitted) setLinkedSelection(null);
+        setRangePreview({
+          mode: 'pointer',
+          origin: effect.origin,
+          head: effect.head,
+        });
+        return;
+      case 'commit':
+        commitFooterRange(effect.origin, effect.head);
+        return;
+      case 'cancel':
+        setRangePreview(null);
+        setRangeAnnouncement('Range selection cancelled.');
+        return;
+      default: {
+        const exhaustive: never = effect;
+        return exhaustive;
+      }
+    }
+  };
+  const captureBarcodeAt = (
+    x: number,
+    y: number,
+    allowExactSnap: boolean,
+  ): CapturedBarcodeTarget | null => {
+    const barcodeY = y - stripTop - geometry.seriesHeight - geometry.barcodeBandGap;
+    const stride = geometry.barcodeTrackHeight + geometry.barcodeTrackGap;
+    const overlayHit = foregroundBarcodeOverlay
+      && tracks.length > 0
+      && barcodeY >= 0
+      && barcodeY < trackCount * stride;
+    const row = overlayHit ? 0 : stride > 0 ? Math.floor(barcodeY / stride) : -1;
+    const rowOffset = stride > 0 ? barcodeY - row * stride : -1;
+    const target = rawTarget(x);
+    const track = row >= 0 ? tracks[row] : undefined;
+    if (
+      !target
+      || !track
+      || barcodeY < 0
+      || (!overlayHit && (rowOffset < 0 || rowOffset >= geometry.barcodeTrackHeight))
+    ) return null;
+    let exactIndexes: ReturnType<typeof projectedBarcodeSnapIndexes> = [];
+    if (allowExactSnap && track.representation === 'exact') {
+      const cached = snapIndexCache.current;
+      if (cached?.tracks === tracks) {
+        exactIndexes = cached.indexes;
+      } else {
+        exactIndexes = projectedBarcodeSnapIndexes(tracks);
+        snapIndexCache.current = { tracks, indexes: exactIndexes };
+      }
+    }
+    return captureBarcodePointerTarget(
+      tracks,
+      exactIndexes,
+      {
+        trackRow: row,
+        docOrdinal: target.d,
+        doc: target.doc,
+        rawToken: target.token,
+        px: x,
+      },
+      (d, token) => seriesXFromTokenEdge(d, token, width, layout),
+      allowExactSnap,
+    );
+  };
+  const pointerTargetAt = (
+    x: number,
+    y: number,
+    allowExactSnap: boolean,
+  ) => {
+    const raw = rawTarget(x);
+    if (!raw) return null;
+    const captured = captureBarcodeAt(x, y, allowExactSnap);
+    const snapped = captured?.exactActivation;
+    return snapped ? { ...raw, doc: snapped.doc, token: snapped.token } : raw;
+  };
+  const observePrecisePointer = (pointerType: string): boolean => {
+    const intent = pointerIntentFor(pointerType);
+    lastPointerIntent.current = intent;
+    return intent === 'precise';
+  };
+
+  const advancePassagePage = useCallback((window: PassageWindowV1, direction: 1 | -1) => {
+    const live = useApp.getState();
+    const current = live.scrub;
+    if (
+      !current
+      || live.snapshot?.snapshot !== window.snapshot
+      || current.doc !== window.doc
+      || current.token !== window.forToken
+    ) return false;
+    const currentOrdinal = docsRef.current.indexOf(current.doc);
+    if (currentOrdinal < 0) return false;
+    const proposal = nextPassageToken(window, direction);
+    const next = stepAlongSequence(
+      currentOrdinal,
+      current.token,
+      proposal - current.token,
+      layoutRef.current,
+    );
+    const doc = next ? docsRef.current[next.d] : undefined;
+    if (!next || !doc || (doc === current.doc && next.token === current.token)) {
+      setKeyboardStatus(direction === 1 ? 'end of corpus' : 'start of corpus');
+      return true;
+    }
+    setKeyboardStatus('');
+    setScrub({ doc, token: next.token });
+    return true;
+  }, [setScrub]);
+
+  const stepPassagePage = useCallback((direction: 1 | -1) => {
+    const window = passageWindow.current;
+    if (window && advancePassagePage(window, direction)) return;
+    if (!useApp.getState().scrub) {
+      const seed = seriesDocFromGlobal(
+        direction === 1 ? 0 : layoutRef.current.totalTokens - 1,
+        layoutRef.current,
+      );
+      const doc = seed ? docsRef.current[seed.d] : undefined;
+      if (seed && doc) setAbsoluteScrub({ doc, token: seed.token });
+      return;
+    }
+    queuedPageDirection.current = direction;
+  }, [advancePassagePage, setAbsoluteScrub]);
+
+  const publishPassageWindow = useCallback((window: PassageWindowV1 | null) => {
+    passageWindow.current = window;
+    const queued = queuedPageDirection.current;
+    if (!window || queued === null) return;
+    if (advancePassagePage(window, queued)) queuedPageDirection.current = null;
+  }, [advancePassagePage]);
+
+  const passageCrosshairX = useCallback((doc: string, token: number) => {
+    const ordinal = docsRef.current.indexOf(doc);
+    return ordinal >= 0
+      ? seriesXFromToken(ordinal, token, width, layoutRef.current)
+      : null;
+  }, [layout, width]);
+
+  const onKeyDown = (event: FooterKeyboardEvent) => {
+    const current = scrub && docOrdinal >= 0
+      ? { d: docOrdinal, token: scrub.token }
+      : stepAlongSequence(0, 0, 0, layout);
+    if (!current) return;
+    const eventTarget = event.target as (EventTarget & {
+      closest?: (selector: string) => unknown;
+    }) | null;
+    const footerFocused = Boolean(eventTarget?.closest?.('#corpus-footer-position'));
+    if (
+      footerFocused
+      && shortcutMatches(event, 'footer-selection-start')
+      && rangePreview === null
+    ) {
+      const doc = docs[current.d];
+      if (!doc) return;
+      event.preventDefault();
+      setRangePreview({
+        mode: 'keyboard',
+        origin: { doc, token: current.token },
+        head: { doc, token: current.token },
+      });
+      setRangeAnnouncement('Keyboard range started.');
+      return;
+    }
+    if (footerFocused && rangePreview?.mode === 'keyboard') {
+      const headOrdinal = docs.indexOf(rangePreview.head.doc);
+      const previous = shortcutMatches(event, 'footer-token-previous')
+        || shortcutMatches(event, 'footer-page-previous');
+      const next = shortcutMatches(event, 'footer-token-next')
+        || shortcutMatches(event, 'footer-page-next');
+      let head = rangePreview.head;
+      if (previous || next) {
+        const stepped = stepAlongSequence(
+          headOrdinal,
+          rangePreview.head.token,
+          previous ? -1 : 1,
+          layout,
+        );
+        if (stepped) head = { doc: docs[stepped.d]!, token: stepped.token };
+      } else if (shortcutMatches(event, 'footer-corpus-start')) {
+        const first = seriesDocFromGlobal(0, layout);
+        if (first) head = { doc: docs[first.d]!, token: first.token };
+      } else if (shortcutMatches(event, 'footer-corpus-end')) {
+        const last = seriesDocFromGlobal(layout.totalTokens - 1, layout);
+        if (last) head = { doc: docs[last.d]!, token: last.token };
+      } else if (shortcutMatches(event, 'trend-selection-commit')) {
+        event.preventDefault();
+        commitFooterRange(rangePreview.origin, rangePreview.head);
+        return;
+      } else if (shortcutMatches(event, 'trend-selection-cancel')) {
+        event.preventDefault();
+        setRangePreview(null);
+        setRangeAnnouncement('Range selection cancelled.');
+        return;
+      } else {
+        return;
+      }
+      event.preventDefault();
+      setRangePreview({ ...rangePreview, head });
+      return;
+    }
+    if (
+      footerFocused
+      && rangePreview === null
+      && linkedSelection !== null
+      && shortcutMatches(event, 'trend-selection-cancel')
+    ) {
+      event.preventDefault();
+      setLinkedSelection(null);
+      setRangeAnnouncement('Range cleared.');
+      return;
+    }
+    if (
+      shortcutMatches(event, 'footer-occurrence-next')
+      || shortcutMatches(event, 'footer-occurrence-previous')
+    ) {
+      event.preventDefault();
+      setKeyboardStatus('');
+      stepOccurrence(shortcutMatches(event, 'footer-occurrence-next') ? 1 : -1);
+      return;
+    }
+    const fineDirection = shortcutMatches(event, 'footer-token-previous')
+      ? -1
+      : shortcutMatches(event, 'footer-token-next')
+        ? 1
+        : null;
+    if (fineDirection !== null) {
+      event.preventDefault();
+      const next = stepAlongSequence(current.d, current.token, fineDirection, layout);
+      const doc = next ? docs[next.d] : undefined;
+      if (!next || !doc || (next.d === current.d && next.token === current.token)) {
+        setKeyboardStatus(fineDirection === 1 ? 'end of corpus' : 'start of corpus');
+      } else {
+        setAbsoluteScrub({ doc, token: next.token });
+      }
+      return;
+    }
+    if (showPassage && shortcutMatches(event, 'footer-page-previous')) {
+      event.preventDefault();
+      stepPassagePage(-1);
+      return;
+    }
+    if (showPassage && shortcutMatches(event, 'footer-page-next')) {
+      event.preventDefault();
+      stepPassagePage(1);
+      return;
+    }
+    if (shortcutMatches(event, 'footer-corpus-start')) {
+      const next = seriesDocFromGlobal(0, layout);
+      const doc = next ? docs[next.d] : undefined;
+      event.preventDefault();
+      if (next && doc) setAbsoluteScrub({ doc, token: next.token });
+      return;
+    }
+    if (shortcutMatches(event, 'footer-corpus-end')) {
+      const next = seriesDocFromGlobal(layout.totalTokens - 1, layout);
+      const doc = next ? docs[next.d] : undefined;
+      event.preventDefault();
+      if (next && doc) setAbsoluteScrub({ doc, token: next.token });
+      return;
+    }
+    if (shortcutMatches(event, 'footer-open-reader')) {
+      if (event.repeat || snapshot === null) return;
+      event.preventDefault();
+      const doc = docs[current.d];
+      if (!doc) return;
+      openReader({
+        snapshot: snapshot.snapshot,
+        doc,
+        token: current.token,
+        from: 'footer',
+        anchor: 'position',
+      }, keyboardReturnFocusId(event.target));
+    }
+  };
+  keyHandlerRef.current = onKeyDown;
+
+  useEffect(() => {
+    if (!globalShortcuts) return undefined;
+    const onDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (!rootShortcutAllowed(event)) return;
+      const target = event.target as (EventTarget & {
+        closest?: (selector: string) => unknown;
+      }) | null;
+      if (target?.closest?.('[data-shortcut-context="footer"]')) return;
+      // Enter remains the native activation key for links and buttons. The
+      // Trends scrubber is a div slider, so Enter can still open Reader when
+      // no keyboard range is consuming it locally.
+      if (event.key === 'Enter' && nativeEnterTarget(event.target)) return;
+      keyHandlerRef.current(event);
+    };
+    document.addEventListener('keydown', onDocumentKeyDown);
+    return () => document.removeEventListener('keydown', onDocumentKeyDown);
+  }, [globalShortcuts]);
+
+  const previewSelection = rangePreview && snapshot
+    ? commitRange(
+        snapshot.snapshot,
+        rangePreview.origin,
+        rangePreview.head,
+        docs,
+        layout.tokenCounts,
+      )
+    : null;
+  const previewFirst = previewSelection?.ranges[0] ?? null;
+  const previewLast = previewSelection?.ranges.at(-1) ?? null;
+  const previewFirstOrdinal = previewFirst ? docs.indexOf(previewFirst.doc) : -1;
+  const previewLastOrdinal = previewLast ? docs.indexOf(previewLast.doc) : -1;
+  const previewLeft = previewFirst && previewFirstOrdinal >= 0
+    ? seriesXFromTokenEdge(previewFirstOrdinal, previewFirst.tokens.start, width, layout)
+    : null;
+  const previewRight = previewLast && previewLastOrdinal >= 0
+    ? seriesXFromTokenEdge(previewLastOrdinal, previewLast.tokens.end, width, layout)
+    : null;
+  const ariaTarget = rangePreview?.head ?? announcedScrub;
+  const ariaTargetOrdinal = ariaTarget ? docs.indexOf(ariaTarget.doc) : -1;
+  const ariaTargetProgress = ariaTarget && ariaTargetOrdinal >= 0
+    ? corpusProgress(layout, ariaTargetOrdinal, ariaTarget.token)
+    : null;
+  const ariaTargetTitle = ariaTarget
+    ? titles.get(ariaTarget.doc) ?? ariaTarget.doc
+    : '';
+  const committedRangeTokens = linkedSelection
+    ? selectionTokenCount(linkedSelection)
+    : null;
+  const ariaValueText = rangePreview
+    ? `${ariaTargetTitle} · selection head token ${((ariaTarget?.token ?? 0) + 1).toLocaleString()}`
+    : ariaProgress && announcedScrub
+      ? `${ariaTitle} · token ${(announcedScrub.token + 1).toLocaleString()} of ${(layout.tokenCounts[ariaDocOrdinal] ?? 0).toLocaleString()} · ${ariaProgress.percent}% of corpus${honestyQualifier ? ` · ${honestyQualifier}` : ''}${shuttleRate === null ? '' : ` · reading ${shuttleRate >= 0 ? 'forward' : 'backward'} at ${Math.abs(shuttleRate).toFixed(1)} tokens per second`}${committedRangeTokens === null ? '' : ` · range: ${committedRangeTokens.toLocaleString()} tokens`}`
+      : 'no position';
+
+  return (
+    <div
+      className="footer-interactive"
+      data-passage={showPassage || undefined}
+      data-status={showStatus || undefined}
+      data-shortcut-context="footer"
+      onDoubleClick={(event) => {
+        const now = Date.now();
+        const point = localPoint(event);
+        if (!point || snapshot === null) return;
+        const decision = rangeClearDecision({
+          zone: stripZoneAt(point.y),
+          interactiveTarget: event.target instanceof Element
+            && event.target.closest('button, a, [role="button"]') !== null,
+          now,
+          suppressedUntil: suppressDoubleClickUntil.current,
+          lastDirectPointerAt: lastDirectPointerAt.current,
+        });
+        if (decision.kind === 'ignore' && decision.reason === 'suppressed') {
+          event.preventDefault();
+          return;
+        }
+        if (decision.kind === 'clear') {
+          event.preventDefault();
+          footerRange.current = idleFooterRangeGesture();
+          setRangePreview(null);
+          setLinkedSelection(null);
+          setRangeAnnouncement('Range cleared.');
+          suppressDoubleClickUntil.current = now + RANGE_CLEAR_SUPPRESSION_MS;
+          return;
+        }
+        if (decision.reason !== 'not-graph') return;
+        const captured = captureBarcodeAt(
+          point.x,
+          point.y,
+          lastPointerIntent.current === 'precise',
+        );
+        const resolution = captured
+          ? resolveCapturedBarcodeTarget(tracks, captured)
+          : null;
+        const raw = rawTarget(point.x);
+        const target = barcodeReaderTarget(resolution, raw);
+        if (!target) return;
+        event.preventDefault();
+        if (
+          resolution?.kind === 'activation'
+          && resolution.activation.kind === 'bucket'
+        ) {
+          // Supersede the two constituent click activations: the Reader and
+          // Matches should settle on the same honest raw corpus point.
+          centerKwicAt(resolution.track.seriesId, target.doc, target.token, {
+            kind: 'bucket',
+            count: resolution.activation.bucketCount ?? 0,
+          });
+        }
+        openReader({
+          snapshot: snapshot.snapshot,
+          doc: target.doc,
+          token: target.token,
+          from: 'footer',
+          anchor: resolution?.kind === 'activation'
+            && resolution.activation.kind === 'occurrence'
+            ? 'occurrence'
+            : 'position',
+        }, 'corpus-footer-position');
+      }}
+    >
+      {showPassage && (
+        <FooterPassage
+          passage={passage}
+          scrub={scrub}
+          snapshot={snapshot?.snapshot ?? ''}
+          title={title}
+          crosshairXForToken={passageCrosshairX}
+          coarse={presentation.coarseAvailable}
+          widthClass={presentation.width}
+          onPassageMarginChange={setFooterPassageMargin}
+          onVisibleTokensChange={setVisiblePassageTokens}
+          onPassageWindowChange={publishPassageWindow}
+        />
+      )}
+      {showStatus && (
+        <div
+          className="footer-reading-status"
+          aria-hidden="true"
+        >
+          {status}
+        </div>
+      )}
+      <span className="visually-hidden" role="status" aria-live="polite">
+        {[keyboardStatus, occurrenceStatus, rangeAnnouncement].filter(Boolean).join(' · ')}
+      </span>
+      <div
+        id="corpus-footer-position"
+        ref={attachSlider}
+        className="footer-strip"
+        title={showStatus ? undefined : status}
+        role="slider"
+        aria-roledescription="corpus reading position"
+        aria-keyshortcuts={shortcutAria([
+          'footer-page-previous',
+          'footer-page-next',
+          'footer-token-previous',
+          'footer-token-next',
+          'footer-occurrence-previous',
+          'footer-occurrence-next',
+          'footer-corpus-start',
+          'footer-corpus-end',
+          'footer-selection-start',
+          'trend-selection-commit',
+          'trend-selection-cancel',
+          'footer-open-reader',
+        ])}
+        tabIndex={0}
+        aria-label="Corpus footer position"
+        aria-valuemin={0}
+        aria-valuemax={Math.max(0, layout.totalTokens - 1)}
+        aria-valuenow={ariaTargetProgress?.globalToken ?? 0}
+        aria-valuetext={ariaValueText}
+        data-shuttling={shuttleRate === null ? undefined : 'true'}
+        data-touch-scrubbing={touchScrubbing || undefined}
+        data-range-armed={footerRange.current.phase === 'armed' || undefined}
+        data-range-brushing={footerRange.current.phase === 'brushing' || undefined}
+        style={{ height: stripHeight }}
+        onKeyDown={onKeyDown}
+        onPointerEnter={(event) => {
+          if (!observePrecisePointer(event.pointerType)) return;
+          hoverReady.current = false;
+          if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
+          const point = localPoint(event);
+          const target = point ? pointerTargetAt(point.x, point.y, true) : null;
+          pointerSample.current = target ? { doc: target.doc, token: target.token } : null;
+          hoverTimer.current = setTimeout(() => {
+            hoverTimer.current = null;
+            hoverReady.current = true;
+            if (pointerSample.current) schedule(pointerSample.current);
+          }, FOOTER_HOVER_DWELL_MS);
+        }}
+        onPointerLeave={() => {
+          hoverReady.current = false;
+          pointerSample.current = null;
+          if (hoverTimer.current !== null) {
+            clearTimeout(hoverTimer.current);
+            hoverTimer.current = null;
+          }
+          if (frame.current !== null) {
+            cancelAnimationFrame(frame.current);
+            frame.current = null;
+          }
+        }}
+        onPointerMove={(event) => {
+          if (event.pointerType === 'touch') {
+            const point = localPoint(event);
+            applyFooterTouchTransition(footerTouchMove(footerTouch.current, {
+              pointerId: event.pointerId,
+              point: point ? pointerTargetAt(point.x, point.y, true) : null,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            }));
+            return;
+          }
+          const range = footerRange.current;
+          if (range.phase === 'armed' || range.phase === 'brushing') {
+            const point = localPoint(event);
+            const transition = footerRangeMove(range, {
+              pointerId: event.pointerId,
+              point: point ? rawTarget(point.x) : null,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            });
+            footerRange.current = transition.state;
+            if (transition.effect.kind === 'preview' && transition.effect.clearsCommitted) {
+              pointerTap.current = null;
+              suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
+            }
+            applyFooterRangeEffect(transition.effect);
+            event.preventDefault();
+            return;
+          }
+          const precise = observePrecisePointer(event.pointerType);
+          const tap = pointerTap.current;
+          if (tap?.pointerId === event.pointerId) {
+            if (Math.hypot(event.clientX - tap.x, event.clientY - tap.y) >= 4) {
+              tap.moved = true;
+            }
+            if (
+              tap.moved
+              && tap.pointerType === 'mouse'
+              && tap.anchorTarget !== null
+            ) {
+              if (tap.mode === 'tap') {
+                tap.mode = 'shuttle';
+                const d = docs.indexOf(tap.anchorTarget.doc);
+                tap.position = d >= 0
+                  ? (layout.bases[d] ?? 0) + tap.anchorTarget.token + 0.5
+                  : null;
+                tap.lastFrameAt = null;
+                pointerSample.current = null;
+                if (frame.current !== null) {
+                  cancelAnimationFrame(frame.current);
+                  frame.current = null;
+                }
+                setAbsoluteScrub(tap.anchorTarget);
+              }
+              tap.offsetPx = event.clientX - tap.x;
+              setShuttleOffsetPx(tap.offsetPx);
+              runShuttle();
+              event.preventDefault();
+            }
+            if (tap.moved && tap.pointerType === 'pen') {
+              const point = localPoint(event);
+              const target = point ? rawTarget(point.x) : null;
+              if (target) schedule(target);
+              event.preventDefault();
+            }
+            return;
+          }
+          if (!precise || event.buttons !== 0) return;
+          const point = localPoint(event);
+          const target = point
+            ? pointerTargetAt(point.x, point.y, true)
+            : null;
+          if (!target) return;
+          const sample = { doc: target.doc, token: target.token };
+          if (hoverReady.current) schedule(sample);
+          else pointerSample.current = sample;
+        }}
+        onPointerDown={(event) => {
+          if (event.pointerType === 'touch') {
+            lastPointerIntent.current = 'direct';
+            lastDirectPointerAt.current = Date.now();
+            const point = localPoint(event);
+            const target = point ? pointerTargetAt(point.x, point.y, true) : null;
+            if (!target) return;
+            applyFooterTouchTransition(footerTouchDown(footerTouch.current, {
+              pointerId: event.pointerId,
+              point: target,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            }));
+            return;
+          }
+          if (!event.isPrimary || event.button !== 0) return;
+          const precise = observePrecisePointer(event.pointerType);
+          const point = localPoint(event);
+          const zone = point ? stripZoneAt(point.y) : 'outside';
+          const now = Date.now();
+          const range = footerRangeDown(footerRange.current, {
+            zone,
+            pointerId: event.pointerId,
+            point: point ? rawTarget(point.x) : null,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            at: now,
+            suppressed: now < suppressDoubleClickUntil.current,
+            recentDirectPointer:
+              now - lastDirectPointerAt.current < SYNTHESIZED_CLICK_WINDOW_MS,
+          });
+          footerRange.current = range.state;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          if (range.effect.kind === 'clear') {
+            pointerTap.current = null;
+            suppressDoubleClickUntil.current = now + RANGE_CLEAR_SUPPRESSION_MS;
+            applyFooterRangeEffect(range.effect);
+            event.preventDefault();
+            return;
+          }
+          pointerTap.current = {
+            pointerId: event.pointerId,
+            pointerType: event.pointerType,
+            x: event.clientX,
+            y: event.clientY,
+            barcode: point && precise
+              ? captureBarcodeAt(point.x, point.y, true)
+              : null,
+            anchorTarget: point ? rawTarget(point.x) : null,
+            zone: zone === 'graph' ? 'graph' : 'barcode',
+            primeRange: zone !== 'outside'
+              && now >= suppressDoubleClickUntil.current
+              && now - lastDirectPointerAt.current >= SYNTHESIZED_CLICK_WINDOW_MS,
+            moved: false,
+            mode: 'tap',
+            offsetPx: 0,
+            position: null,
+            lastFrameAt: null,
+          };
+        }}
+        onPointerUp={(event) => {
+          if (event.pointerType === 'touch') {
+            const point = localPoint(event);
+            applyFooterTouchTransition(footerTouchUp(footerTouch.current, {
+              pointerId: event.pointerId,
+              point: point ? pointerTargetAt(point.x, point.y, true) : null,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            }));
+            return;
+          }
+          const range = footerRange.current;
+          if (
+            (range.phase === 'armed' || range.phase === 'brushing')
+            && range.pointerId === event.pointerId
+          ) {
+            const transition = footerRangeUp(range, event.pointerId);
+            footerRange.current = transition.state;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+            if (range.phase === 'brushing') {
+              suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
+              applyFooterRangeEffect(transition.effect);
+              event.preventDefault();
+              return;
+            }
+          }
+          const tap = pointerTap.current;
+          if (!tap || tap.pointerId !== event.pointerId) return;
+          pointerTap.current = null;
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+          if (tap.mode === 'shuttle') {
+            footerRange.current = idleFooterRangeGesture();
+            stopShuttle();
+            suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
+            event.preventDefault();
+            return;
+          }
+          if (tap.moved) return;
+          footerRange.current = tap.primeRange
+            ? primeFooterRangeGesture(Date.now(), tap.x, tap.y)
+            : idleFooterRangeGesture();
+          const resolution = tap.barcode
+            ? resolveCapturedBarcodeTarget(tracks, tap.barcode)
+            : null;
+          if (resolution?.kind === 'activation') {
+            const { activation, track } = resolution;
+            queuedPageDirection.current = null;
+            setKeyboardStatus('');
+            centerKwicAt(
+              track.seriesId,
+              activation.doc,
+              activation.token,
+              activation.kind === 'bucket'
+                ? { kind: 'bucket', count: activation.bucketCount ?? 0 }
+                : { kind: 'occurrence', groupId: track.groupId },
+            );
+            return;
+          }
+          if (resolution?.kind === 'scrub') {
+            setAbsoluteScrub({ doc: resolution.doc, token: resolution.token });
+            return;
+          }
+          const point = localPoint(event);
+          if (!point) return;
+          const target = rawTarget(point.x);
+          if (target) setAbsoluteScrub({ doc: target.doc, token: target.token });
+        }}
+        onPointerCancel={(event) => {
+          if (event.pointerType === 'touch') {
+            applyFooterTouchTransition(footerTouchCancel(
+              footerTouch.current,
+              event.pointerId,
+            ));
+            pointerSample.current = null;
+            if (frame.current !== null) {
+              cancelAnimationFrame(frame.current);
+              frame.current = null;
+            }
+            return;
+          }
+          const range = footerRange.current;
+          if (
+            (range.phase === 'armed' || range.phase === 'brushing')
+            && range.pointerId === event.pointerId
+          ) {
+            const reset = resetFooterRangeGesture(range);
+            footerRange.current = reset.state;
+            applyFooterRangeEffect(reset.effect);
+          }
+          if (pointerTap.current?.pointerId === event.pointerId) {
+            pointerTap.current = null;
+            stopShuttle();
+          }
+          hoverReady.current = false;
+          pointerSample.current = null;
+          if (hoverTimer.current !== null) {
+            clearTimeout(hoverTimer.current);
+            hoverTimer.current = null;
+          }
+          if (frame.current !== null) {
+            cancelAnimationFrame(frame.current);
+            frame.current = null;
+          }
+        }}
+        onLostPointerCapture={(event) => {
+          if (event.pointerType === 'touch') {
+            applyFooterTouchTransition(footerTouchCancel(
+              footerTouch.current,
+              event.pointerId,
+            ));
+            return;
+          }
+          const range = footerRange.current;
+          if (
+            (range.phase === 'armed' || range.phase === 'brushing')
+            && range.pointerId === event.pointerId
+          ) {
+            const reset = resetFooterRangeGesture(range);
+            footerRange.current = reset.state;
+            applyFooterRangeEffect(reset.effect);
+          }
+          if (pointerTap.current?.pointerId === event.pointerId) {
+            pointerTap.current = null;
+            stopShuttle();
+          }
+        }}
+      >
+        {strip}
+        {previewLeft !== null && previewRight !== null && (
+          <span
+            className="footer-range"
+            data-footer-range="preview"
+            data-testid="footer-selection-preview"
+            aria-hidden="true"
+            style={{
+              left: previewLeft,
+              width: Math.max(1, previewRight - previewLeft),
+              top: stripTop,
+              bottom: 'auto',
+              height: stripVisualHeight,
+            }}
+          />
+        )}
+        <div
+          className="footer-progress-track"
+          aria-hidden="true"
+          style={{ top: stripTop }}
+        >
+          <div
+            data-testid="footer-progress"
+            data-progress={progress?.percent ?? 0}
+            className="footer-progress-fill"
+            style={{ transform: `scaleX(${progress?.ratio ?? 0})` }}
+          />
+        </div>
+        {crosshairX !== null && (
+          <div
+            data-testid="footer-cursor"
+            className="footer-cursor"
+            aria-hidden="true"
+            style={{
+              top: stripTop,
+              height: stripVisualHeight,
+              transform: `translate3d(${crosshairX}px, 0, 0)`,
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
