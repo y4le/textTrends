@@ -24,6 +24,9 @@ function resolveArchivePath(baseFile: string, relativeReference: string): string
   } catch (error) {
     throw new EpubError('INVALID_EPUB', `Invalid percent escape in ${relativeReference}`, { cause: error });
   }
+  if (decoded.startsWith('/') || decoded.includes('\\') || /^[a-z][a-z0-9+.-]*:/iu.test(decoded)) {
+    throw new EpubError('INVALID_EPUB', `Path is not relative to the EPUB root: ${relativeReference}`);
+  }
   const segments = baseFile.split('/');
   segments.pop();
   for (const segment of decoded.split('/')) {
@@ -54,51 +57,55 @@ export function parseEpub(bytes: Uint8Array, maximumExtractedBytes: number): Par
     throw new RangeError('maximumExtractedBytes must be a positive safe integer');
   }
 
-  let files: Record<string, Uint8Array>;
+  const files: Record<string, Uint8Array> = Object.create(null);
   let declaredExtractedSize = 0;
-  try {
-    files = unzipSync(bytes, {
-      filter: (file) => {
-        const selected =
-          file.name === 'META-INF/container.xml'
-          || file.name.endsWith('.opf')
-          || file.name.endsWith('.xhtml');
-        if (!selected) return false;
-        declaredExtractedSize += file.originalSize;
-        if (declaredExtractedSize > maximumExtractedBytes) {
-          throw new EpubError(
-            'CAP_EXCEEDED',
-            `EPUB text exceeds the ${maximumExtractedBytes}-byte extraction limit`,
-          );
-        }
-        return true;
-      },
-    });
-  } catch (error) {
-    if (error instanceof EpubError) throw error;
-    throw new EpubError('INVALID_EPUB', 'Could not decompress EPUB', { cause: error });
-  }
-  const totalSize = Object.values(files).reduce((sum, file) => sum + file.byteLength, 0);
-  if (totalSize > maximumExtractedBytes) {
-    throw new EpubError(
-      'CAP_EXCEEDED',
-      `Extracted EPUB text is ${totalSize} bytes; the limit is ${maximumExtractedBytes} bytes`,
-    );
-  }
+  let actualExtractedSize = 0;
+  const extract = (requested: ReadonlySet<string>): void => {
+    // Skip entries extracted in earlier passes. Within this pass every selected
+    // ZIP entry is charged, including duplicate names (fflate keeps the last).
+    const alreadyExtracted = new Set(Object.keys(files));
+    let extracted: Record<string, Uint8Array>;
+    try {
+      extracted = unzipSync(bytes, {
+        filter: (file) => {
+          if (!requested.has(file.name) || alreadyExtracted.has(file.name)) return false;
+          declaredExtractedSize += file.originalSize;
+          if (declaredExtractedSize > maximumExtractedBytes) {
+            throw new EpubError('CAP_EXCEEDED', `EPUB text exceeds the ${maximumExtractedBytes}-byte extraction limit`);
+          }
+          return true;
+        },
+      });
+    } catch (error) {
+      if (error instanceof EpubError) throw error;
+      throw new EpubError('INVALID_EPUB', 'Could not decompress EPUB', { cause: error });
+    }
+    for (const [name, file] of Object.entries(extracted)) {
+      actualExtractedSize += file.byteLength;
+      if (actualExtractedSize > maximumExtractedBytes) {
+        throw new EpubError('CAP_EXCEEDED', `Extracted EPUB text exceeds the ${maximumExtractedBytes}-byte extraction limit`);
+      }
+      files[name] = file;
+    }
+  };
 
+  extract(new Set(['META-INF/container.xml']));
   const containerXml = decodeUtf8(
     requiredFile(files, 'META-INF/container.xml', 'container descriptor'),
     'EPUB container descriptor',
   );
   const container = parseXml(containerXml, 'EPUB container descriptor');
   const rootfile = firstDescendant(container, 'rootfile');
-  const packagePath = rootfile?.getAttribute('full-path');
-  if (packagePath === null || packagePath === undefined || packagePath === '') {
+  const packageReference = rootfile?.getAttribute('full-path');
+  if (packageReference === null || packageReference === undefined || packageReference === '') {
     throw new EpubError('INVALID_EPUB', 'EPUB container has no root package path');
   }
 
+  const packagePath = resolveArchivePath('', packageReference);
+  extract(new Set([packagePath]));
   const packageXml = decodeUtf8(requiredFile(files, packagePath, 'package document'), 'EPUB package');
   const parsedPackage = parsePackage(packageXml, 'EPUB package');
+  extract(new Set(parsedPackage.spine.map((item) => resolveArchivePath(packagePath, item.item.href))));
   const documents = parsedPackage.spine.map((spineItem) => {
     const archivePath = resolveArchivePath(packagePath, spineItem.item.href);
     return {
