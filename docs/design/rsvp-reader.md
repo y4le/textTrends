@@ -1,652 +1,208 @@
-# Speed Reader (RSVP)
+# Speed reader
 
-**STATUS: IMPLEMENTED; VISIBLE ENTRY AND MOBILE UX AMENDED (2026-09-01).**
-This record supersedes the RSVP
-recommendations in [interaction-modes-plan.md](interaction-modes-plan.md) where
-they differ. It describes the shipped interaction, package, and pacing
-contracts.
+Speed presents authenticated Read text as paced word frames. The private
+`@texttrends/rsvp` package owns pure framing, pacing, source adaptation, and
+playback planning; the web host owns effects and Reader integration. A reusable
+domain is already available without an independent package-release process.
 
-**Accepted amendment, pending implementation:** Speed will replace the
-analytical footer and inline frame/rhythm disclosure with the dedicated
-active-text progress rail, consolidated controls, and overlay settings sheet
-defined in [reader-chrome-spike.md](reader-chrome-spike.md). Until those commits
-land, the layout and acceptance clauses below continue to describe shipped
-behavior.
+[Reader](spatial-reader.md) owns chrome and source navigation.
+[Workbench reference](../reference.md#speed) owns control ranges and defaults.
+Speed is a focus-reading aid; pace is scheduled throughput including rests,
+not a comprehension guarantee.
 
-The decision was informed by repository inspection, direct inspection of
-[Appnull](https://www.appnull.com/), primary-source web research, and an
-explicitly pinned Claude Opus research consultation through Parley (request
-`req_rsvp_research_001`, artifact
-`art_sha256_a436b176d70103db8570da4b5e1fab4d653a7c6307a589f8b6882d1eed2e0efb`),
-followed by a pinned Opus design consultation (request
-`req_rsvp_design_002`, artifact
-`art_sha256_e7704df07238fd40c52143c12c4529002ffb08ffd684d3f0382033b410997983`)
-and a targeted window-continuity correction (request
-`req_rsvp_design_followup_001`, artifact
-`art_sha256_1ea7639e5ac1ca920587717b1c4dd573312cfd6c97cd36a0782c67e76d5c3a84`).
-The tweakable rhythm model was decided in a further pinned Opus consultation
-(request `req_consult_03af216bd1d38185`, artifact
-`art_sha256_0db71c5ff6052266713531ae920071cc06d0ae953c0d58db59eb73585ddb13d8`).
-The phrase-aware frame amendment followed a focused product/research review
-and a decision pass by the same explicitly pinned Opus planner (request
-`req_consult_7a5b33ad6ce0e175`, artifact
-`art_sha256_ca674f91e5847e40f6c387304acdfe1cc1d58e0e6e48fc190ff0f9a69605feac`).
-The honest-WPM follow-up was hammered out with that pinned Opus planner after
-the shipped mode exposed visually collapsed frame joins and slower-than-stated
-throughput (request `req_consult_14f52f6a9c7da913`, artifact
-`art_sha256_c2f63db45f8913d946d9d089a0e24473d53c4ce47be969da81b1802f39fed3c6`).
-The standalone-foundation and 2,000 WPM amendment was then decided with the
-same pinned Opus planner (request `req_consult_89a758dc12ea553f`, artifact
-`art_sha256_45fb556a3f68f8419da0cf7d1f94be683f2de7859e13fa3664da900cd5353515`).
-The user-configurable frame character limit followed a further pinned Opus UX
-consultation (request `req_consult_55b1d4b5abb562c6`, artifact
-`art_sha256_4ebc24e0e7ff89af0f19929952c72a5259cdfbe31bb2bb7ea76a3f6912dc196a`).
-The visible-entry, reading-cursor, explicit-exit, and mobile amendment followed
-another explicitly pinned Opus architecture consultation (request
-`req_consult_fcfee050efafba2e`, artifact
-`art_sha256_5fc634b6622b6730a4358d00800602637b95be7731e2c90a817d56ca4f796294`).
-The Reader/Speed chrome consolidation was then accepted through pinned Opus
-product and architecture passes (requests `req_consult_86ac172427f1f02a` and
-`req_consult_afb03055ab855c51`; architecture artifact
-`art_sha256_6689ccad74b18e884b597fcd2917145275841a318e9ae0244e04362768fb853c`).
+## Interaction and state
 
-## Outcome
+Entry requires an authenticated ready Read source, never Atlas or a pending
+page. Visible Speed enters paused; Shift+S enters playing unless reduced motion
+requests paused entry. Start precedence is explicit selected token, authenticated
+source anchor, then fitted-page start. Space or a stable primary stage tap
+toggles once. Holds, drags, nested controls, background taps, and cancelled or
+secondary pointers do not toggle or exit.
 
-Add RSVP as a visible, secondary presentation mode inside the existing
-full-screen Reader. It is not a new browser-history layer. The analytical
-Reader footer follows the displayed token. In compact portrait it collapses to
-the progress line; in a viewport at most 520 CSS pixels tall it is temporarily
-suppressed so the focal stage owns the scarce height, without overwriting the
-user's remembered footer size.
+Return to Reader, Escape, and Shift+S exit at the displayed frame's first token.
+The store's primary-interaction union owns Speed and suspends the settled
+`none` or Find interaction it replaced. All query/presentation consumers obtain
+Find through `findScope`; exit restores that same interaction. Pending Find
+seeks settle to idle before suspension. Escape unwinds Speed, then restored
+Find if present, then Reader through their respective owners.
 
-RSVP is framed as a focus-reading aid with a configurable **pace**, not as a
-promise that comprehension remains unchanged at the displayed WPM. The pace
-is an honest scheduled-throughput contract that includes integration rests.
-The mode defaults to one fixed focal word, with an optional two- or three-word
-frame and a stable anchor glyph in its first word whose index is left of centre,
-an adjustable absolute character ceiling for multi-word frames, deterministic
-word-length timing, and explicit integration rests at sentence and paragraph
-boundaries.
+Prose paging, Home/End, lowercase occurrence navigation, and Find-open commands
+cannot replace Speed's source. Shift+W pauses and focuses the pace input.
+Enter accepts a valid pace and restores its prior playing state; Escape exits.
+Native text/caret and button behavior wins over global nudges and Space.
 
-Do not add Bionic Reading prefixes, randomized pacing, automatic speed ramps,
-or a lexical/readability “complexity” score. Bionic prefixes have not shown a
-reading-speed benefit in controlled tests and have no useful eye-guidance role
-when one word is already fixed at the point of gaze. Appnull's randomized
-“chaos mode” is not evidence-backed. Its long-word anchor calculation is a
-different product convention. Neither is copied.
+Single arrows move one word. Double arrows page across the authenticated
+paused-context span, landing at the first unseen token with no source skipped.
+Passage reversal retraces a bounded uninterrupted passage history; word moves,
+playback, or direct seeking starts a new chain. Navigation pauses and publishes
+the destination immediately, using ordinary bounded source fetch when needed.
+The pure previous-frame helper remains a package capability, not the meaning
+of the visible Previous word control.
 
-## Interaction contract
+Read/Speed have no analytical dock. Speed's transport, pace, frame count, and
+rhythm preset keep stable reserved space. Advanced frame/rhythm tuning overlays
+the stage. Utility entry, hidden document, or source failure pauses and never
+auto-resumes. Source failure retains retry; document end pauses with a completed
+state rather than crossing to another text. Corpus replacement invalidates the
+snapshot-bound mode.
 
-Entry is deliberately available only while the full Reader is open. `S` and
-`W` require the physical Shift modifier (`explicitShift` in the shortcut
-registry), matching the existing semi-hidden Debug chord and keeping the
-lowercase Vim row unambiguous.
+Device-local pacing uses only the exact current `texttrends/rsvp-rhythm/3`
+record with bounded integer fields. Unsupported records are ignored as a whole;
+there is no compatibility translator or clamping of malformed stored values.
+Rhythm presets do not change frame preferences; reset preserves them.
 
-| Input | Ordinary Reader | RSVP Reader |
-|---|---|---|
-| visible **Speed** control | Enter paused at the selected word or current reading position | — |
-| `S` | Enter playing at the selected word or current reading position | Exit to prose at the displayed token |
-| `Esc` | Close Reader | Exit to prose at the displayed token |
-| `W` | Existing Reader behavior is unchanged | Pause and focus the WPM number input |
-| `h` / `←` | Previous prose page | Reduce pace by 25 WPM |
-| `l` / `→` | Next prose page | Increase pace by 25 WPM |
-| `Space` | No Reader command | Pause or resume RSVP |
-| stable pointer tap on the focal stage | Select the tapped source token | Pause or resume RSVP |
-| pointer outside the focal stage | Existing Reader behavior | No mode action |
+## Framing
 
-Lowercase `w` and `b`, PageUp/PageDown, Home/End, and the prose paging commands
-are suppressed while RSVP owns the Reader; they never replace its source from
-under the live cursor. `/` and Ctrl/Cmd-F are also suppressed until RSVP is
-exited and consumed rather than passed to browser Find, so they cannot discard
-the suspended interaction. Uppercase `W` avoids
-the ordinary lowercase `w` collision. RSVP's handlers run before Reader
-handlers. One Escape exits RSVP; if it suspended Find, the next Escape closes
-Find and a third closes Reader. Without suspended Find, the second Escape
-closes Reader.
+The fixed anchor is a product heuristic over bare-word Unicode graphemes:
 
-Explicit keyboard entry starts playback immediately. If
-`prefers-reduced-motion: reduce` matches, entry starts paused instead and
-requires an explicit Space or Play activation. Opening the WPM editor pauses;
-Enter accepts the bounded value and restores the prior play state. Escape
-always exits RSVP, including while the editor is focused. `h`, `l`, Left, and
-Right nudge pace while RSVP owns non-editing focus. While the number input is
-focused, normal text editing and caret keys take priority; only Enter and
-Escape plus the mode-exit `Shift+S` chord have mode-specific meanings.
+| Grapheme count | Anchor index |
+| --- | ---: |
+| 1 | 0 |
+| 2–5 | 1 |
+| 6–9 | 2 |
+| 10–13 | 3 |
+| 14+ | 4 |
 
-Document-level Space handling ignores buttons and other editing/control
-targets. RSVP controls handle their native Space activation locally and stop
-it from reaching the document shortcut, so Play/Pause toggles exactly once
-and Slower/Faster perform only their labelled action.
+Attached punctuation does not move it. Before/anchor/after spans preserve one
+collapsed source-whitespace space at flex joins. The anchor has a guide and
+underline as well as color. Its x-position is fixed within each frame size;
+larger frames place it farther left. There is no tween, fade, or blank frame.
 
-The single-arrow controls move by one word. The double-arrow controls move by
-one complete authenticated passage—the token span shown in the paused context
-above the transport—and pause. Passage paging lands on the first previously
-unseen token across the selected edge, so adjacent views may overlap but no
-authenticated text is skipped. Reversing direction retraces uninterrupted
-passage-navigation history exactly; word movement, playback, or direct seeking
-starts a new passage chain. The control disables when its visible edge already
-reaches a document endpoint and uses the ordinary bounded source request when
-the destination leaves the resident window. Movement publishes the new token
-immediately, so Return to Reader and every other exit remain exact.
+Frames greedily take up to the effective word count and rendered-grapheme
+ceiling, including spaces and punctuation. The first word always stays whole.
+Sentence, paragraph, served-window end, or a trailing clause mark stops a frame
+after its owning word. Clause marks are exactly comma (`, 、 ，`), semicolon
+and colon (`; : ； ：`), en/em dash, `…`, and closing brackets (`) ] } ）`).
+Any listed grapheme in the trailing punctuation run qualifies. ASCII dots,
+full stops, question/exclamation marks remain the authored sentence segmenter's
+responsibility; the browser does not invent extra punctuation families.
 
-The bounded WPM contract is:
+Only after three members are admitted, if the third is not a hard stop and the
+next word is, the builder drops that third member. This avoids an unnecessary
+`3+1` when `2+2` fits. Character-limit-shortened frames are never expanded or
+rebalanced; two-word mode keeps an unavoidable `2+1`.
 
-- default: 300 WPM;
-- minimum: 100 WPM;
-- maximum: 2,000 WPM; and
-- keyboard/button step: 25 WPM.
+Framing is stateless in authenticated source, start token, effective count, and
+character limit. A continuation may change grouping at a formerly truncated
+window edge, but restarts at the live token and cannot skip/repeat source.
+The exact source slice supplies text and attached punctuation, with whitespace
+collapsed only for display. Compact presentation limits three words to two
+without changing the authored count or character limit. At 320px, a long frame
+may clip at the Reader pane edge but never wraps, splits its first word in
+frame data, or creates page-level overflow.
 
-The complete pacing preference survives browser sessions in device-local
-storage. It remains a reading preference, never project, URL, or history state.
-Only the exact current `texttrends/rsvp-rhythm/3` record is read; pre-alpha
-records are ignored, and a successful current save removes the retired local
-rhythm record.
+Paused context is the enclosing resident sentence, capped to forty tokens per
+side with explicit truncation. It highlights the frame in exact source, retains
+the focal position, is focusable, and is not live content. It disappears during
+playback. The prior-frame helper replays the same forward partition from the
+previous hard stop/window start and chooses the greatest frame start below
+the live cursor; it does not invent reverse grouping.
 
-The active mode is visually unmistakable. It
-shows the existing Reader title and position idiom, a central focal frame, and
-visible 44px Back, Play/Pause, Slower, pace, Faster, words-at-once,
-rhythm-disclosure, and Reader controls. The shortcuts surface switches to an
-RSVP-specific context after entry; Read Help advertises the same Shift+S toggle
-exposed by the visible control.
+## Timing
 
-The Read ruler is present for both one-text and multi-text corpora and ends in
-a visible **Speed** control. Before an explicit prose tap, it enters paused at
-the authenticated source anchor or fitted-page start. After a tap, its
-accessible name identifies the selected source word and entry starts exactly
-there without issuing a worker or footer-passage query. Shift+S uses the same
-start-token precedence but preserves immediate playback unless reduced motion
-is requested.
-
-Stable primary taps on the focal stage pause or resume. Movement beyond eight
-CSS pixels, holds over 500ms, pointer cancellation, secondary pointers, and
-gestures starting or ending on a nested control do nothing. Header and footer
-backgrounds no longer exit. Return to Reader, Escape, and Shift+S are the
-explicit exits, and each restores the exact displayed token as the visible
-prose reading cursor after the fitted page reloads.
-
-Entry is available only from an authenticated ready Reader source. While the
-source is pending or errored, `S` is consumed without entering RSVP; the
-Reader's existing loading, retry, or error state remains visible.
-
-## Presentation and pacing
-
-### Fixed anchor
-
-The focal letter uses a deterministic, Spritz-compatible left-of-centre
-heuristic over Unicode grapheme clusters in the bare word token:
+The planning span is the complete sentence containing the cursor, clamped to
+the resident source and paragraph bounds. Boundaries come from the index;
+React does not infer them from displayed punctuation. A window-truncated span
+has no synthetic rest. For `n` words:
 
 ```text
-1 cluster      -> index 0
-2–5 clusters   -> index 1
-6–9 clusters   -> index 2
-10–13 clusters -> index 3
-14+ clusters   -> index 4
+targetMs = round(n × 60,000 / paceWpm)
+weight   = 1 + (lengthEmphasis / 100) × (clamp(graphemes/4.7, 0.75, 1.75) − 1)
+restMs   = min(configuredRestMs, floor(targetMs × 0.25), targetMs − n × 30)
+wordPool = targetMs − restMs
 ```
 
-The index never lies beyond the right-middle grapheme and stays left of centre
-for longer words. Attached punctuation is displayed but does not move the
-anchor. Before/anchor/after spans use symmetric flex space,
-`white-space: pre`, and visible overflow, so the anchor glyph stays fixed at
-the stage guide without measuring proportional text, including for long
-words. Frame construction collapses every source-whitespace run to one ordinary
-space before those spans render; preserving it at the split flex-item join
-therefore cannot introduce a newline or double-width gap. The before span is
-right-aligned and the after span left-aligned. The anchor has both accent color
-and an underline/guide; color is not its only cue. Words do not tween, fade, or
-insert blank frames.
+`lengthEmphasis` is the stored percentage (0–100). Water-filling distributes the
+pool by length weights with a 30ms floor per word. Largest-remainder
+apportionment gives deterministic integer milliseconds,
+with token-order ties, summing exactly to the pool. At zero length emphasis,
+exposure differs only by rounding. Paragraph rest replaces sentence rest at a
+shared boundary; the maxima reallocate time rather than extend the span.
 
-### Timing and rhythm controls
+The 30ms floor derives the 2,000-WPM ceiling. At that ceiling all words receive
+30ms, rests are zero, and length emphasis has no spare budget. For an 18-word
+sentence with a 350ms configured rest, effective rests at 300/900/1200/1500/2000
+WPM are 350/300/225/180/0ms. Rest caps preserve at least 75% of nominal span time
+for words until the stricter exposure floor takes over.
 
-Pacing is budgeted over a stable resident **span**: the complete sentence
-containing the cursor, clamped to the current source window. The span starts at
-the greatest sentence or paragraph bound at or before the cursor, or the
-window start when that authored start is not resident. It ends at the least
-sentence or paragraph bound after the cursor, or the window end. A
-window-truncated span has no synthetic rest.
+Frame word time is the sum of member exposures. Only its final boundary frame
+emits the span rest, so total scheduled time is identical across one-, two-,
+and three-word presentation. The final frame stays fully emphasized during
+word exposure, then visibly muted for effective rests of at least 150ms;
+it is never blank and has no transition. Configured/effective rest is disclosed.
 
-For a span of `n` words, the scheduled budget is exact:
+Playback follows planned deadlines. At most 25ms of callback lateness can be
+absorbed by the next word phase, never below 30ms times its member count.
+Larger delays are forgiven; pause, seek, regression, and timing edits re-anchor.
+There is no unbounded pace debt or catch-up burst. At 2,000 WPM no catch-up
+headroom remains. On a 60Hz display, 30ms is only 1.8 refresh intervals;
+scheduling exactness does not imply identical painted exposure for every word.
 
-```text
-targetMs = round(n * 60,000 / paceWpm)
-weight   = 1 + lengthEmphasis *
-                 (clamp(wordGraphemeCount / 4.7, 0.75, 1.75) - 1)
-restMs   = min(configuredRestMs, floor(targetMs * 0.25),
-               targetMs - n * 30)
-wordPool = targetMs - restMs
-```
+## Package and source boundary
 
-The word pool is distributed proportionally to the length weights with a 30ms
-floor per word. Water-filling protects words that reach the floor, then
-largest-remainder apportionment produces deterministic integer milliseconds
-whose sum equals the pool exactly, with ties broken in token order. At 0%
-length emphasis, exposures are equal within the unavoidable one-millisecond
-rounding residue. At 100%, the original length weighting remains, but it
-redistributes a fixed span budget rather than silently extending it.
-The load-bearing 30ms exposure floor derives the maximum pace and replaces the
-previously shipped 50ms floor.
+The package imports no workspace package, React, DOM, storage, fetch, worker,
+or filesystem API and typechecks without DOM libraries. Root exports are pure
+functions and frozen data. Hosts supply the structural `RsvpSource` from
+`packages/rsvp/src/rsvp.ts`, extended with document token count for playback.
 
-The rest caps establish a deliberate priority: no word drops below 30ms; the
-planned span total always matches the displayed pace; and the configured rest
-is kept where that budget permits. The 25% cap guarantees that words retain at
-least 75% of a span's nominal time, especially for very short sentences. The
-absolute floor cap takes over above 1,500 WPM. Because the maximum pace is
-derived as `60,000 / 30 = 2,000 WPM`, an impossible span budget is not
-reachable. At exactly 2,000 WPM every word receives 30ms, every rest is zero,
-and length emphasis has no room to operate. For an eighteen-word sentence with
-a configured 350ms rest, the effective rest is 350ms at 300 WPM, 300ms at
-900 WPM, 225ms at 1,200 WPM, 180ms at the 1,500 WPM cap crossover, and zero at
-2,000 WPM.
+Source token indices are document-global; UTF-16 starts/ends and sentence/
+paragraph bounds are local to the resident text. Token arrays match the served
+token count and contain ordered, non-overlapping positive spans. Unit bounds
+are sorted, deduplicated local token indices. Terminal bounds are optional for
+package callers; source edges are the fallback. The web boundary proves
+`ReaderPageResultV1` is structurally assignable instead of casting it.
 
-Playback advances against the planned deadline rather than re-anchoring every
-new frame to a late `setTimeout` callback. At most 25ms of callback lateness is
-absorbed by the next word phase, never below 30ms times that frame's word
-count; any larger delay is forgiven instead of becoming unbounded pace debt.
-Pausing, editing pace or rhythm, seeking, and explicit regression re-anchor the
-deadline. This bounded correction addresses ordinary browser timer jitter
-without making a word's plan depend on playback history or creating catch-up
-bursts. At 2,000 WPM no exposure headroom remains, so bounded catch-up
-self-disables rather than cutting a frame below its floor.
+`@texttrends/rsvp/source` offers `createRsvpSource(text, options?)` for standalone
+hosts. It uses word-like `Intl.Segmenter` output, sentence mapping, and paragraph
+breaks at a Unicode paragraph separator or two line terminators (CRLF counts
+as one). This is its own policy, not promised parity with the app indexer.
+The root does not import that subpath and the web app does not use it.
 
-A 30ms one-word exposure spans only 1.8 refresh intervals on a 60Hz display.
-The scheduled elapsed throughput remains exact, but an individual word may be
-painted for one or two refreshes. This physical display limit is why the UI
-factually suggests two or three words at once above 1,200 WPM: the same honest
-word throughput then produces a longer-lived visual frame. Above 1,500 WPM it
-also states that boundary rests may be capped by the 30ms word floor; the
-current span continues to disclose its exact effective rest. At 2,000 WPM the
-note states the exact outcome that boundary rests are zero. These are
-explanations of the active timing model, not comprehension claims, warnings,
-or confirmation gates.
+The web host uses the full bounded Reader slice while prose fitting is absent.
+`publishRsvpPosition` updates canonical scrub without a redundant footer-passage
+query, Reader walk, or navigation update. It stays valid during continuation
+and clears stale occurrence/reveal work. Late pre-entry results cannot replace
+the live Speed source. Pause and exit flush the live component token.
 
-The final frame remains fully emphasized for its planned word time, then
-enters a visibly muted rest phase for the effective boundary time. The frame is
-never blank. Rest has no fade or other transition and is only shown for
-effective rests of at least 150ms. This makes the boundary rest read as a rest
-rather than as extra time needed to recognize the final word.
+With roughly three seconds of runway left, `rsvpSeek` requests forward source
+from the live token using the same budget as the resident slice. This retains
+its suffix and supports adoption without skipping while the current frame
+remains available. Exhaustion pauses honestly; a failed continuation never
+claims to advance. `exitRsvp` restores suspended interaction, then opens prose
+from the live token even if continuation is pending. Source and snapshot
+validation do not depend on a currently ready replacement page.
 
-A paragraph rest replaces the sentence rest at the same boundary rather than
-stacking with it, and the preference model enforces paragraph rest greater
-than or equal to sentence rest. Both configured values are maxima taken from
-the enclosing span's time, not additive delays. Sentence and paragraph
-boundaries are index-authored: `sentenceBounds` come from the Intl sentence
-segmenter with the indexer's conservative English prefix-title correction, and
-`paragraphBounds` from the indexer's paragraph rules. The RSVP
-browser view does not guess either from the displayed punctuation. A
-comma/clause pause remains an unbuilt seam because no RSVP experiment in the
-reviewed evidence isolates it.
+## Accessibility and verification
 
-Masson (1983) found that a fixed inter-sentence pause improved RSVP
-comprehension while keeping word exposure unchanged. The product retains the
-integration-rest direction but deliberately diverges from that manipulation:
-it holds total span time fixed, so a rest reallocates rather than adds time.
-The 350ms and 700ms maxima are product choices, not experimentally isolated
-values. The Study preset retains the previously shipped 500ms and 900ms
-maxima. When a maximum is capped for the current span, the surface discloses
-both the configured and effective values.
+Controls retain native keyboard behavior and focus containment; rapidly
+changing frames are never `aria-live`. Stable mode/status, paused context,
+pace controls, and immediate Return to Reader provide an accessible recovery
+path. Utilities pause before taking focus and return to paused Speed.
+Reduced-motion entry remains explicit.
 
-The control model deliberately stays small:
-
-| Control | Default | Range | Step |
-|---|---:|---:|---:|
-| pace | 300 WPM | 100–2,000 | 25 WPM |
-| words at once | 1 | 1–3 | 1 |
-| sentence rest | 350ms | 0–800ms | 50ms |
-| paragraph rest | 700ms | 0–1500ms | 100ms |
-| length emphasis | 100% | 0–100% | 25% |
-
-Pace and **words at once** remain in the primary control row. The pace helper
-states “words per minute, including rests.” Rest helpers state “at most, taken
-from this sentence's time,” so increasing a rest is not presented as extending
-the total. Words at once
-is a native radio group labelled as an upper bound: phrases may break early at
-punctuation or the internal width guard. It is a display preference rather
-than part of `RsvpRhythm`; choosing two or three words therefore does not turn
-an otherwise Natural rhythm into Custom, and reset does not erase the choice.
-On compact viewports an authored three-word setting is presented as two words
-at once, while the authored preference is retained for the next wider
-viewport. The radio fieldset divides its three choices evenly. Compact
-transport now uses two rows: Back, Play/Pause,
-Slower, and Faster share the first; pace and the words-at-once choices share the
-second. Every visible entrance and transport target remains at least 44 CSS
-pixels even in short landscape.
-
-The remaining settings live behind a native **frame & rhythm** disclosure;
-opening it pauses playback and closing it never auto-resumes. Its separate
-frame group exposes an absolute 12–40-character frame limit as a number input,
-defaulting to thirty with a step of two. The input is visibly retained and
-remains focusable with `aria-disabled="true"` when the effective words-at-once
-value is one, where the limit cannot affect output. In that state it ignores
-edits while its `aria-describedby` help remains reachable. The help states that
-spaces and punctuation count and that one long word is always kept whole. The
-rhythm group retains the preset, rests, length emphasis, and reset. Selections
-commit immediately; numeric edits commit
-on Enter or blur. Changes affect the next frame after playback resumes. No new
-global shortcuts are introduced. Every focusable control participates in the
-RSVP focus trap and keeps its native Space and arrow-key behavior from reaching
-the document shortcuts; the aria-disabled input does not act on those keys.
-
-Presets change rhythm without moving pace or either frame preference: **Even**
-has no length emphasis or rests; **Natural** is the default timing row above; **Study**
-uses 100% emphasis, 500ms sentence rests, and 900ms paragraph rests. Any timing
-divergence selects **Custom**. Reset restores Natural timing and 300 WPM while
-preserving words at once and the character limit. Character-limit changes do
-not turn an otherwise matching rhythm into Custom. The current device-local
-record has an exact key set and in-range integer fields; there is no durable
-compatibility translator. Every integer from twelve through forty is valid for
-the character limit—the step of two is a UI increment, not a storage
-constraint—and a malformed or out-of-range record is rejected as a whole
-rather than clamped.
-
-### Multi-word frames
-
-Two- and three-word display is a presentation preference, not a speed claim.
-A frame starts at the live cursor and greedily takes up to the configured
-number of consecutive tokens. Sentence end, paragraph end, served-window end,
-and a trailing clause mark are hard stops after their owning word. The closed
-clause-mark list is exactly comma (`,`, `、`, `，`), semicolon/colon (`;`, `:`,
-`；`, `：`), en/em dash (`–`, `—`), the single-glyph ellipsis (`…`), and closing
-brackets (`)`, `]`, `}`, `）`). A trailing punctuation run is a stop when it
-contains any listed grapheme, so `said,"` stops on its comma even though the
-quote follows it. ASCII dots, full stops, question marks, and exclamation marks
-remain exclusively the authored sentence segmenter's responsibility so
-abbreviations and `...` are not split. Quotes and all unlisted bracket forms
-are not clause marks; quotes frequently close a quotation inside a larger
-clause, and the browser does not infer new families beyond the enumerated set.
-
-The configured word count and absolute character limit are independent upper
-bounds. A candidate after the first member is accepted only when the exact
-rendered frame, including collapsed internal whitespace and attached
-punctuation, remains within the configured Unicode-grapheme limit. The UI calls
-these user-perceived units “characters.” The default is thirty, the supported
-range is twelve through forty, and compact presentation does not rewrite the
-authored limit when it clamps three words to two. Forty is an option for wider
-Readers, not a promise that every admitted frame fits at the narrowest width.
-At 320 CSS pixels, frames remain one unwrapped row with a stable anchor and
-cannot create page-level horizontal overflow; the fixed Reader pane may clip
-excess at its edge. The first word is unconditional, so pathological source
-tokens remain whole in frame data and single-line rendering even when that pane
-clips visible excess.
-
-Character-limit admission happens while greedily adding members and therefore
-precedes orphan handling. Only when three members were admitted, the third did not end
-on a hard stop, and the immediately following word is itself a hard stop does
-the builder drop the already-admissible third member. That normally produces
-`2 + 2` rather than `3 + 1`; a following frame shortened by its own character
-limit may instead produce `2 + 1 + 1`. A limit-shortened frame is never
-expanded or rebalanced. The rule performs one look-ahead only. Two-word mode
-keeps an unavoidable `2 + 1` rather than merely moving the singleton.
-
-The builder remains stateless in the authenticated page, live start token,
-effective count, and character limit. Entering mid-sentence and re-entering
-with the same inputs therefore reproduce the same forward partition without a
-whole-sentence parser. A continuation source can change grouping at the former
-served-window edge because window end is a hard stop and new look-ahead becomes available.
-The live cursor remains authoritative and the replacement partition starts
-from it, so the changed grouping still cannot skip or repeat a token. Frame
-display is the exact authenticated source slice with internal whitespace
-collapsed, preserving attached punctuation without synthetic spaces.
-
-The fixed anchor remains the first member word's ORP grapheme; later words
-extend to its right. The anchor column is authored once per frame size and the
-word-row shift is derived from that value, so the visible guide and focal
-grapheme cannot drift apart. One-, two-, and three-word columns are
-monotonically farther left while the focal x-coordinate stays invariant within
-each size. Type continues to ramp down by size; the character limit and type
-ramp bound different parts of the layout.
-
-The frame word time is the sum of its members' planned exposures. Its boundary
-rest comes from the enclosing span and is emitted only after the final frame.
-Because both planning inputs are independent of frame size, a span takes
-identical total scheduled time at one, two, or three words per frame, including
-rests. The live cursor and exact-token exit position are always the first token
-of the displayed frame, and the next cursor advances by the number of words
-actually shown. Frames never skip, repeat, or cross a sentence or paragraph
-boundary.
-
-### Paused context
-
-Pausing reserves the focal word's position and reveals a static, labelled
-context strip containing the enclosing resident sentence. The exact current
-frame is highlighted inside an exact source slice; at most forty authenticated
-tokens of context are retained on either side, with a plain ellipsis when the
-resident sentence or cap truncates the slice. It is never an `aria-live`
-region and never appears while playback is running. The strip is focusable and
-participates in the RSVP focus trap, giving visual and assistive-technology
-users a stable recovery path without a second changing stream or a new fetch.
-
-Back-one-frame derives the prior start by replaying the same pure forward frame
-partition from the token after the nearest resident hard stop before the live
-cursor, or from the window start when none exists. When a hard stop immediately
-precedes the live cursor, the search continues past it to the preceding stop so
-regression can cross that boundary; only the resident window's first token has
-no prior frame. When mid-sentence entry is not itself a start in the replay,
-regression chooses the greatest replayed frame start strictly below the live
-cursor. It never invents a reverse grouping algorithm, never leaves the
-resident source, pauses before moving, and publishes the regressed cursor
-immediately. A dedicated regression key, backward source fetching, context
-while playing, and a clause rest remain explicitly deferred.
-
-## Standalone engine boundary
-
-The reusable RSVP domain belongs in a private workspace package named
-`@texttrends/rsvp`. Private status is deliberate: a publishable package would
-also need compiled output, versioning, licensing, and a release contract. None
-is necessary to prove the dependency boundary or to host a second application.
-The package has no imports from another workspace package and does not depend
-on React, DOM APIs, storage, fetch, workers, or filesystem APIs. Its TypeScript
-configuration does not add the DOM library, making part of that boundary
-compiler-enforced. It exports pure functions and frozen data; each host owns
-playback state and side effects.
-
-The root package surface owns framing, pacing, span planning, paused context,
-cursor stepping, continuation decisions, and bounded-deadline helpers. It
-accepts two structural source types:
-
-```ts
-interface RsvpSource {
-  readonly text: string;
-  readonly tokens: { readonly start: number; readonly end: number };
-  readonly tokenStartsUtf16: readonly number[];
-  readonly tokenEndsUtf16: readonly number[];
-  readonly sentenceBounds: readonly number[];
-  readonly paragraphBounds: readonly number[];
-}
-
-interface RsvpPlaybackSource extends RsvpSource {
-  readonly docTokenCount: number;
-}
-```
-
-Framing does not need to know where a document ends, so `docTokenCount` appears
-only in the playback extension. `tokens` are global document indices; the
-UTF-16 offsets and unit bounds are local to `text`. The start and end arrays
-have `tokens.end - tokens.start` members. Token spans are strictly increasing,
-non-overlapping, and satisfy `0 <= start < end <= text.length`. Sentence and
-paragraph bounds are ascending, deduplicated local token indices in
-`[0, tokenCount]`. Terminal bounds are optional to package consumers; planning
-falls back to the source edges when they are absent.
-
-TextTrends' `ReaderPageResultV1` satisfies `RsvpPlaybackSource` structurally.
-A compile-time assertion at the web boundary pins that relationship so drift
-requires a deliberate adapter rather than a cast. The DOM input id, React
-presentation, local preference persistence, source fetching, and windowed
-reader integration remain in the web host.
-
-The separate `@texttrends/rsvp/source` subpath owns one convenient standalone
-adapter, `createRsvpSource(text, options?)`. It creates a whole-document
-`RsvpPlaybackSource` with `Intl.Segmenter`: word-like word segments, sentence
-segments mapped onto emitted tokens, and a documented paragraph policy based
-on blank-line gaps and Unicode paragraph separators. A paragraph begins after
-two line terminators, with CRLF treated as one terminator, or one Unicode
-paragraph separator. This is deliberately the builder's own policy rather than
-a claim of parity with TextTrends' indexer. The builder includes source terminal
-bounds. Consumers with another tokenizer or authenticated index construct the
-structural source directly; that data boundary is the injection seam, so there
-is no speculative segmentation interface or exported validator. The root
-surface never imports the source-builder subpath, and TextTrends does not import
-it, keeping unused segmentation policy out of the app bundle.
-
-## State and source ownership
-
-RSVP extends the store's one-primary-interaction union; it does not add an
-independent component mode or an `rsvp` layer. Its snapshot-bound interaction
-state owns playing/paused and pace. It also suspends the exact `none` or
-Find interaction it displaced. All presentation and query consumers use one
-`findScope(interaction)` derivation to obtain the effective Find state through
-that suspended value. Exiting RSVP restores the identical settled interaction,
-so entering speed mode cannot silently swap a Find footer, query marks, or
-navigation back to durable Terms. A Find seek that is pending at entry is
-cancelled and settled to idle before that Find interaction is suspended; its
-query and resident analytical state are retained. The canonical
-corpus scrub owns the displayed position, while the component owns only its
-timer and current index within the authenticated source slice.
-
-`reader-page/1` gains page-relative sentence and paragraph boundary arrays,
-projected from the index in the numeric plan and re-projected by
-`sliceReaderPage`. RSVP uses the worker's full bounded source slice rather
-than running browser prose fitting while prose is absent. Token offsets remain
-the authority for the bare word and attached punctuation; source text is never
-retokenized in React.
-
-RSVP begins at the Reader's currently published reading position: the fitted
-page's first visible token, except that an around-token source retains its
-exact anchor. This rule also applies after a backward (`before`) page turn; it
-never starts at that source's ending cursor.
-
-A narrow `publishRsvpPosition(liveToken)` store action updates the canonical
-scrub position without scheduling the footer's redundant passage query. It is
-valid while a continuation source is pending and touches neither
-`readerWalk` nor `readerNavigation`. Broadcasts may be throttled for footer
-rendering, but pause and exit always flush the live component cursor. Entry
-supersedes any ordinary occurrence-navigation request already in flight, and
-`publishRsvpPosition` clears stale `occurrenceNavigation` and `matchesReveal`
-state without issuing a passage request. A late pre-entry result therefore
-cannot call `openReader` or replace RSVP's authenticated source.
-
-On exit, a narrow `exitRsvp(liveToken)` store action restores the suspended
-interaction first and then replaces Reader at `{ kind: 'from', token:
-liveToken }`. It validates the active RSVP document and corpus token count but
-does not depend on a currently ready page, so exiting during a continuation
-fetch is exact. Normal browser fitting then resumes with the displayed word at
-the start of the prose page.
-
-When a source has less than about three seconds of runway, a narrow
-`rsvpSeek(liveToken)` action requests a fresh forward source **from the current
-token**, not from the old slice end. The forward-slice token and text caps
-guarantee that the new source includes the retained suffix, so it can be
-adopted without skipping words while the current frame remains available
-during the request, provided continuation uses the same `maxTokens` budget as
-the source it replaces. If look-ahead proves troublesome, the same action may be
-deferred to exhaustion; a boundary occurs only once per 4,096-token source
-budget. At the end of the current document RSVP pauses with an explicit
-completed state; crossing into another document remains a deliberate
-prose/footer action. RSVP never blanks, repeats a stale word while claiming to
-advance, or requires a second worker lane.
-
-Changing tabs or hiding the document pauses playback. Source failure also
-pauses and exposes the existing retry path. Neither condition auto-resumes. A
-corpus snapshot replacement follows the existing store reset: it ends RSVP
-and does not restore interaction state from the replaced snapshot.
-
-On keyboard entry, focus remains inside the Reader and moves to the RSVP
-Play/Pause control; exit restores focus to the Reader region. Rapid word
-replacement is not exposed through `aria-live` because announcing up to 15
-words per second is unusable. Assistive technology instead receives a stable
-mode/status label and the labelled pace and playback controls, with an
-immediate Return to Reader action providing the non-RSVP reading path.
-Keyboard focus is contained within those RSVP controls while the mode is
-active; the retained analytical footer remains visible but leaves the tab
-order until RSVP exits.
-
-Opening Help, Settings, or Debug from an RSVP keyboard command pauses playback
-before the utility pane takes focus and retains RSVP beneath it. Closing the
-pane returns to RSVP still paused; playback never resumes merely because the
-utility pane closed. These command sites do not exit or overwrite the
-suspended Find interaction.
-
-## Acceptance
-
-The retained Speed capability must continue to satisfy:
-
-- sentence/paragraph bounds survive `reader-page/1` planning, materialization,
-  wire transport, and browser slicing;
-- NFC/NFD, astral characters, punctuation, and long tokens never split the
-  focal grapheme or move the anchor beyond the right-middle grapheme;
-- every resident span's plan totals `round(words * 60,000 / WPM)`, every word
-  retains at least 30ms, configured rests are capped at 25% of the span and by
-  the word floor, and impossible budgets are excluded by the derived 2,000 WPM
-  ceiling;
-- effective rests of at least 150ms appear as a distinct muted phase after
-  word exposure, while any capped rest discloses configured and effective time;
-- one-, two-, and three-word frames partition the source without crossing a
-  sentence, paragraph, clause, or served-window boundary, respect the rendered
-  character limit and orphan rule, and take identical aggregate span time
-  including rests;
-- timer jitter correction carries the planned deadline across frames, absorbs
-  no more than 25ms without violating the per-frame word floor, and never banks
-  unbounded pace debt;
-- the engine package typechecks without DOM libraries or other workspace
-  dependencies, and `ReaderPageResultV1` remains structurally assignable to
-  its playback source contract;
-- the plain-text source builder returns exact UTF-16 token slices and sorted,
-  deduplicated terminal sentence/paragraph bounds for empty, punctuation-only,
-  Unicode, and mixed-line-ending sources;
-- at 2,000 WPM every word receives exactly 30ms, rests collapse to zero,
-  length emphasis has no residual budget, and timer catch-up cannot reduce an
-  exposure;
-- the first member's anchor stays on the pixel guide for every frame size;
-- exact current local-storage preference validation, pre-alpha-record
-  rejection, rhythm-only presets, compact word clamping, and
-  frame-preference-preserving reset behavior are covered;
-- the character limit is absolute, counts rendered graphemes including spaces
-  and punctuation, preserves a whole first word, remains authored across the
-  compact clamp, is aria-disabled only when one effective word makes it inert,
-  and keeps its explanation keyboard- and screen-reader-reachable;
-- at 320 CSS pixels a forty-character frame stays on one anchored row and does
-  not create page-level horizontal overflow, with Reader-pane edge clipping an
-  explicit upper-range tradeoff;
-- paused context is an exact resident sentence slice, does not move the focal
-  row or update while playing, is pointer-exempt, and is exposed as focusable,
-  trapped, stable non-live content;
-- back-one-frame pauses, stays within the resident source, follows the forward
-  partition across an immediately preceding hard stop to the greatest start
-  strictly below the live cursor, is inert only at the window start, and
-  preserves exact exit position;
-- visible paused entry, selected-word precedence, `S`, `W`, the WPM nudges,
-  Space, nested Escape, explicit Return, reduced motion, and typing-focus
-  priority are covered;
-- stage taps toggle exactly once while drags, nested controls, header taps, and
-  footer taps remain inert;
-- 390×844 preserves a 44px two-row transport and progress-only dock, while
-  844×390 removes the dock and its reservation without page overflow or
-  mutating the resident dock size;
-- Space on a focused RSVP button activates exactly one action, and the WPM
-  editor retains ordinary text/caret editing;
-- entering RSVP with active Find leaves the footer, graph, marks, and query
-  state unchanged through `findScope`, then restores the identical settled
-  Find interaction on exit;
-- PageUp/PageDown, Home/End, lowercase occurrence navigation, and Find-open
-  commands cannot replace the RSVP source;
-- an occurrence or Find result already in flight at entry is cancelled or
-  settled without moving the live RSVP cursor or replacing its source;
-- opening Help, Settings, or Debug pauses RSVP before hiding its controls and
-  returns to the mode still paused;
-- exiting returns prose and the footer to the exact displayed token;
-- per-word position publication changes neither Reader walk history nor
-  navigation state and remains valid during a continuation fetch;
-- source and document boundaries never show a false advancing state;
-- the anchor glyph remains at the same pixel guide across short and long words; and
-- the normal Reader's page/occurrence shortcuts and fitted-page behavior do
-  not regress.
+Package fixtures pin grapheme anchors, punctuation stops, orphan/width rules,
+exact source slices, span-budget conservation, floors, rest caps, rounding,
+previous-frame replay, and deadline correction. Browser checks cover selected-
+word entry, nested Find suspension, exact exit during continuation, stale
+navigation cancellation, stage taps, native Space, compact 44px controls,
+overlay geometry, long tokens, and document-end/source-failure pause.
 
 ## Research basis
 
-- [Rayner et al. (2016), *So Much to Read, So Little Time*](https://doi.org/10.1177/1529100615623267): speed and comprehension trade off; RSVP removes useful regressions.
-- [Masson (1983), *Conceptual processing of text during skimming and rapid sequential reading*](https://doi.org/10.3758/BF03196973): fixed sentence pauses improved RSVP comprehension without changing word exposure; this product adopts the integration-rest direction but instead reallocates a fixed span budget to keep displayed WPM honest.
-- [Rahman & Muter (1999), *Designing an interface to optimize reading with small display windows*](https://pubmed.ncbi.nlm.nih.gov/10354807/): self-pacing, regressions, sentence pauses, and completion meters improve the usable RSVP interface.
-- [Cocklin et al. (1984), *Factors influencing readability of rapidly presented text segments*](https://doi.org/10.3758/BF03198304): comprehension peaked around twelve-character segments and was better for short idea units than random segments of equal average length; the product uses this as support for bounded, punctuation-shaped frames rather than as a literal modern CSS width.
-- [Benedetto et al. (2015), *Rapid serial visual presentation in reading: The case of Spritz*](https://doi.org/10.1016/j.chb.2014.12.043): Spritz produced worse literal comprehension, no speed advantage, and more visual fatigue than traditional reading.
-- [Di Nocera, Ricciardi & Juola (2018), RSVP comprehension by speed](https://doi.org/10.1504/IJHFE.2018.096118): comprehension held at 250–350 WPM in their experiment and declined above that band.
-- [O'Regan et al. (1984), convenient fixation location in isolated words](https://doi.org/10.1037/0096-1523.10.2.250): word recognition is best slightly left of center; applying that position to fixed RSVP alignment remains a product extrapolation.
-- [Spear et al. (2025), boldface letters and eye movements](https://doi.org/10.3758/s13414-025-03067-w) and [Snell (2024), *No, Bionic Reading does not work*](https://doi.org/10.1016/j.actpsy.2024.104304): Bionic-style initial bolding did not improve reading and could impose costs.
-- [W3C, Pause, Stop, Hide](https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html) and [Animation from Interactions](https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html): continuously changing content needs an immediate control and motion-sensitive users need an opt-out.
+The retained design basis distinguishes experimental findings from product
+choices. [Masson (1983)](https://doi.org/10.3758/BF03196973) studied fixed
+sentence pauses with unchanged word exposure; Speed instead reallocates a
+fixed span budget. Its rest maxima are product defaults, not isolated
+experimental optima. [Cocklin et al. (1984)](https://doi.org/10.3758/BF03198304)
+informed short, punctuation-shaped frames;
+[O'Regan et al. (1984)](https://doi.org/10.1037/0096-1523.10.2.250) informed the
+left-of-centre anchor, applied here as a heuristic.
+
+The broader reading tradeoff is documented by
+[Rayner et al. (2016)](https://doi.org/10.1177/1529100615623267),
+[Rahman and Muter (1999)](https://pubmed.ncbi.nlm.nih.gov/10354807/),
+[Benedetto et al. (2015)](https://doi.org/10.1016/j.chb.2014.12.043), and
+[Di Nocera et al. (2018)](https://doi.org/10.1504/IJHFE.2018.096118).
+Bionic prefixes and randomized/complexity pacing remain excluded; the prior
+review included [Snell (2024)](https://doi.org/10.1016/j.actpsy.2024.104304) and
+[Spear et al. (2025)](https://doi.org/10.3758/s13414-025-03067-w).

@@ -1,7 +1,8 @@
 # Analysis contract
 
 This document describes the current semantic boundary. The TypeScript types
-and validators in `packages/core` and `apps/web/src/shared` are the executable
+and validators in [core](../../packages/core/src/index.ts) and
+[the shared analysis contract](../../apps/web/src/shared/analysis-contract.ts) are the executable
 authority when this summary and the code disagree.
 
 ## Product boundary
@@ -51,16 +52,18 @@ Supported inputs are TXT, Markdown, HTML/XHTML, and EPUB.
 - EPUB follows the pinned reading-order and partition policy, extracts the
   selected XHTML bodies, and joins their text into one document. The source
   descriptor may report how many container documents were read, but this is
-  extraction provenance rather than an analyzable hierarchy.
+  extraction provenance rather than an analyzable hierarchy. Chapter admission
+  follows declared manifest paths, with one shared OPF/XHTML extraction budget.
 
 Extraction produces one `texttrends/extraction/1` artifact containing source,
 recipe, text, descriptor, length, and decode evidence. The canonical text is a
 separate storage value keyed by its text hash.
 
-Decoder behavior is deterministic: BOM-declared Unicode wins, otherwise
+TXT/Markdown/HTML decoder behavior is deterministic: BOM-declared Unicode wins, otherwise
 strict UTF-8 is attempted before the pinned Windows-1252 fallback. Ill-formed
 UTF-16 and decoder replacement output are rejected. Newline normalization is
-currently disabled and therefore part of the recipe identity.
+currently disabled and therefore part of the recipe identity. EPUB uses its
+own XML/UTF-8 extraction path and shared inflated-byte budget.
 
 ## Index and coordinates
 
@@ -121,27 +124,27 @@ only bounded operation-local numeric scratch and emit fresh plain values.
 
 The wire protocol has a closed query union:
 
-- `trend` — equal-token-bin counts or rates for one term group;
-- `dispersion` — bounded exact positions or honest density buckets for shown
+- `trend`; equal-token-bin counts or rates for one term group;
+- `dispersion`; bounded exact positions or honest density buckets for shown
   groups;
-- `matches-window` — exact bounded windows plus an optional sparse rank
+- `matches-window`; exact bounded windows plus an optional sparse rank
   axis over enabled tracks in canonical full-corpus reading order;
-- `company` (`company/1`) — exact directional nearest-peer span-gap
+- `company` (`company/1`); exact directional nearest-peer span-gap
   histograms, same-document absence counts, and overlap/direction evidence for
   every unordered pair of two through five tracked groups;
-- `destinations` (`destinations/1`) — at most twelve deterministically ranked
+- `destinations` (`destinations/1`); at most twelve deterministically ranked
   full-corpus reading windows for one through five tracked groups, optionally
   requiring a strict pair, with bounded excerpts, marks, and one exact Reader
   anchor per result;
-- `inventory` — corpus and per-document measurements plus sentence rhythm;
-- `freq-list` (`freq-list/2`) — bounded frequency, document-frequency,
+- `inventory`; corpus and per-document measurements plus sentence rhythm;
+- `freq-list` (`freq-list/2`); bounded frequency, document-frequency,
   dispersion, and lexical diversity ranking;
-- `keyness` — explicit disjoint A/B comparison using log ratio and G²; the
+- `keyness`; explicit disjoint A/B comparison using log ratio and G²; the
   browser may resolve a linked range and its exact corpus complement into the
   two explicit sides; and
-- `reader-page` — bounded directional source slices with occurrence marks;
+- `reader-page`; bounded directional source slices with occurrence marks;
   the browser derives visual pages from actual layout; and
-- `occurrence-step` — one exact previous/next full-corpus occurrence stop.
+- `occurrence-step`; one exact previous/next full-corpus occurrence stop.
 
 Each operation owns a versioned method record, exact runtime validation,
 bounded output, deterministic tie rules, explicit missing-document behavior,
@@ -156,7 +159,8 @@ Persistence has two owners:
    current workspace. File deletion and workspace reconciliation share an
    atomic transaction, so deleting an active source removes every document
    backed by it. Workspace writes are last-write-wins; there is no multi-tab
-   edit or conflict model.
+   edit or conflict model. IndexedDB v2 separates file metadata from source
+   bodies; its atomic upgrade preserves original records on failure.
 2. `texttrends-artifacts-provisional-db3` stores disposable verified text and
    document indexes. It can always be discarded and rebuilt from library or
    bundled source bytes.
@@ -177,12 +181,19 @@ cleanly instead of being silently upgraded or partially interpreted.
   mutable cache authority.
 - Cached artifacts are shallow-checked by storage adapters and deeply admitted
   by the engine or core validator.
-- Missing library sources are reconciled before a workspace opens. Artifact
-  persistence failures degrade analysis safely and surface bounded warnings.
+- Library listing returns healthy records with damaged-item diagnostics. Saved
+  unavailable document references survive workspace editing and autosave until
+  repaired by reimport or explicitly removed. Source use still verifies bytes.
+- Artifact persistence failures degrade analysis safely and surface bounded
+  warnings; workspace-save failure/retry remains visible across places and Reader.
 
 ## Change rule
 
 Any change that alters extracted text, token geometry, query meaning, durable
 shape, or result ordering must change the responsible recipe, method, schema,
 or database identity. Presentation-only changes must not issue analysis work
-or mutate the durable workspace.
+or mutate the durable workspace. Source navigation may request the ordinary
+bounded Reader slice; it does not constitute a new analysis lane.
+
+[Application composition](architecture/application-composition.md) owns lifecycle
+implementation; [statistics](statistics.md) owns numerical methods.

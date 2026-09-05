@@ -1,101 +1,78 @@
-# Current roadmap
+# Roadmap
 
-This is the reconciliation index for the current tree as of 2026-09-02. The
-[analysis contract](analysis-contract.md) remains the semantic authority;
-the other retained design documents record current product decisions,
-measurement gates, and method contracts.
+The current tree has one browser-local library/workspace, bounded worker
+analysis, five workbench places, full-corpus Matches, Read/Atlas/Speed, guided
+learning, and CI-backed Pages deployment. Source acquisition, workspace-save
+feedback, damaged-record recovery, and Reader chrome consolidation are
+implemented.
+The [design index](README.md) owns their current contracts; this page contains
+only remaining work and explicit deferrals (reconciled September 5, 2026).
 
-## Shipped
+## Publication and validation
 
-- **One browser-local workspace pipeline:** TXT, Markdown, HTML/XHTML, and EPUB
-  extraction feed one versioned snapshot/index engine (`packages/core`,
-  `packages/epub`, `packages/extractors`, and `apps/web/src/worker`). Generic
-  EPUB extraction is provider-neutral; Standard Ebooks owns only its catalog,
-  download, and source-archive policy. One content-addressed local library and
-  one last-write-wins workspace own durable browser state. The durable parser
-  accepts only the current exact workspace and query-notebook shapes.
-- **Five reachable workbench places:** Inputs, Trends, Matches,
-  Vocabulary, and Compare (`apps/web/src/places`). They cover local file and
-  active-corpus management, term groups, linked selections, frequency,
-  keyness, workspace restore, and method surfaces.
-- **Inputs as a first-class composition surface:** empty workspaces open Inputs;
-  non-empty workspaces open Trends. A three-card composition area shares one
-  local-library ownership lane; its empty Active inputs state leads with user
-  files and offers rights-documented prepared corpora as secondary samples. Samples become ordinary
-  local texts, and stable full-corpus text details report every active term. See the
-  [Inputs workspace proposal and decision record](inputs-workspace.md).
-- **Direct reading paths:** all workbench places share a transient corpus-order
-  footer with current source, all-book trends, progress, and adaptive
-  dispersion. The full-viewport Reader now has two explicit scales: Read keeps
-  browser-fitted highlighted prose, while Atlas lays every ready text out in
-  declared order for horizontally pannable whole-text comparison. Equal and
-  To-scale normalization, exact-versus-density evidence, contextual text
-  rulers, scale-aware keyboard/Help behavior, compact/coarse controls, and
-  bounded canvas residency are shipped. Reader retains its Terms, trend,
-  progress, and dispersion lanes in a compressed default while omitting the
-  redundant footer source line and prose highlights legend. Conditional
-  notices still disclose capped marks and marks retained from a superseded
-  query. The footer, KWIC, Read, and Atlas share authored token geometry. See
-  the [spatial Reader contract and decision](spatial-reader.md).
-- **Reusable Speed engine:** `@texttrends/rsvp` is a framework-free package for
-  framing, pacing, source adaptation, and playback planning. The web app keeps
-  Speed as a first-class Reader mode while depending on that extraction seam;
-  publishing it independently remains optional rather than required.
-- **Guided learning:** a seven-card tour teaches one round trip from a resident
-  analytical mark to canonical source text and back. Four pull-only contextual
-  notes live in Help, useful empty states explain their own next action, and a
-  once-per-version in-flow invitation offers discovery without autostart. The
-  system writes no durable research state, performs no guide-specific analysis,
-  and passed the full accessibility, history, compact-layout,
-  no-durable-write, bundle, and browser gates. See the
-  [guided-learning authority](guided-learning.md) and
-  [shipped implementation plan](guided-learning-execution.md).
-- **Bounded analysis results:** occurrence construction now has typed hard
-  caps, the worker cache has simultaneous entry/byte ceilings, and publishing
-  a new snapshot releases old occurrence entries. Cap failures remain visible
-  and recoverable.
-- **Responsive presentation:** compact/coarse-pointer behavior, viewport-safe
-  sheets, keyboard-accessible overflow regions, and live color-scheme repaint
-  of canvas marks are covered by browser tests.
-- **Discoverable debug and recovery surface:** `Shift+D`, or the visible Debug
-  action in Help, opens sanitized runtime, worker, analysis-lane, storage, and
-  presentation diagnostics. The pane owns additive private demo loaders,
-  explicit cache eviction, full browser-data reset, worker/retry actions, and a
-  metadata-only copy report. Allowlisted one-shot demo links cover the public
-  corpus shelf plus private `lotr` and `asoif`; they replace active research
-  state while preserving reusable local-library bytes.
-- **Hermetic builds and deployment:** every workspace package, including the
-  EPUB reader, Standard Ebooks client, and Speed engine, lives in this
-  repository. Pull requests run the full CI suite; successful pushes to
-  `master` build and deploy the production bundle to GitHub Pages.
+- Resolve the [publication inventory](corpus-inventory.md): choose clean public
+  export or history rewrite, exclude private sources and generated derivatives,
+  update dependent builds/tests, and add repository licensing and notices.
+  No publication cut or license choice is implied by documentation cleanup.
+- Measure the formal 1M/10M/50M-token tiers and worker transient/retained memory.
+  Current local browser and 66-text Atlas evidence does not establish those
+  tiers. Larger-scale residency needs measurements before architecture claims.
+- Validate the tour with new readers and perform physical-device and
+  screen-reader checks. Automated compact WebKit coverage is narrower evidence.
 
-## In progress
+## Product opportunities
 
-- **Publication hardening:** corpus rights/provenance and repository licensing
-  still need an owner-led publication cut. These are tracked in
-  [the backlog](backlog.md).
-- **Large-corpus validation:** the checked-in browser benchmark is below the
-  formal 10M/50M-token tiers. The 66-text Bible Atlas now has a five-exact-track
-  canvas-residency and 100ms long-task gate, but the larger token tiers must be
-  measured before making stronger general residency or performance claims.
+These are candidates for scoped work, not shipped behavior or a delivery order.
 
-## Deferred with the reason
+| Opportunity | Required decision or evidence |
+| --- | --- |
+| Result export | Choose complete-result versus displayed-row scope; include methods, filters, document ids/titles, corpus identity, and completeness. Tested provenance formatters have no production consumer. |
+| Workspace backup/restore | Decide source-byte inclusion and portable restoration separately from result export. |
+| First-use simplification | Reduce competing acquisition choices; offer explicit Track a term and Read paths after import. Preserve returning-user access. |
+| Visible measurement captions | Reflect active bins/denominator/smoothing; label Compare's log₂ scale and independent rankings. |
+| Compact results | Test a smaller initial destination list with Show more and clearer Company filtering; simplify initial Vocabulary columns without losing analytical access. |
+| Large Inputs/library management | Extend existing literal library search with active-text search, sort, multiselect, and bulk activation/deactivation; expose selection counts. Temporary sort must not rewrite declared order. |
+| Storage feedback | Add per-acquisition phase progress, quota pressure, and diagnostic filters while retaining the single lease and recoverable partial saves. |
+| Input summaries | Resident term cells can yield document frequency; cumulative growth can yield order-dependent new types. Do not call either text-exclusive vocabulary. |
+| Query suggestions | Add a bounded corpus-aware vocabulary query before suggestions or precommit hit estimates. Quote-to-phrase behavior needs tokenizer semantics. |
+| Additional guides | Build a corpus, Matches/source, Compare two texts, Vocabulary filters, Read/Atlas, and Speed; prioritize from observed need. |
+| Second-tab feedback | Discuss notice/write ownership within the existing last-write-wins model before adding conflict or multi-workspace semantics. |
 
-- **Streaming/folding occurrence architecture:** deferred because the new
-  construction cap removes unbounded growth and the corrected 2026-08-03
-  Linux benchmark measured both a successful 199,920-occurrence construction
-  and a cap rejection below the written latency and phase-local RSS promotion
-  thresholds. A streaming change would also have to redesign the shared
-  trend/KWIC/dispersion/Reader cache contract; see
-  [benchmarks.md](benchmarks.md#occurrence-streaming-promotion-gate).
-- **Reader-as-dialog:** rejected for the current one-destination UI. The
-  workbench is unmounted while reading, so modal semantics, inert background,
-  and a focus trap would add machinery for a background that does not exist.
-- **Continuous and side-by-side prose:** deferred until a document-scale source
-  window, stable measurement compensation, deep-jump anchoring, cross-window
-  selection, and residency baselines exist. Atlas intentionally compares
-  whole-text evidence rather than rendering microscopic prose; a future
-  reference view is asymmetric and follows Continuous Read.
-- **Moving barcode interaction into the store:** deferred until a second
-  consumer needs that policy. Gesture ownership remains in the trend stage;
-  persisted navigation state does not absorb transient pointer mechanics.
+## Architecture follow-ups
+
+Reader and vocabulary/query controllers remain candidates for extraction from
+the composed runtime. Preserve initialization, lease ownership, identity fences,
+and explicit disposal. Distinct query lanes have distinct product policies;
+a generic registry solely to shorten a file is not a design goal.
+
+Measure hidden-table work during import and range changes before altering eager
+scheduling. Compare work avoided, first-result time, and tab-switch latency.
+Current local gates passed; they do not demonstrate an optimization need.
+
+Treat small normalization/locality cleanup and recurring UI primitives as
+in-path work when a feature touches their owners. Do not preserve old helper
+names as an unverified task list. Keep tests on behavior and boundaries rather
+than incidental component names or exact CSS strings.
+
+## Deferred designs
+
+| Design | Gate or deciding reason |
+| --- | --- |
+| Streaming/folding occurrences | Promote only when the [written latency/RSS/cap gates](benchmarks.md#occurrence-streaming-promotion-gate) fail; redesign the shared consumer/cache contract together. |
+| WASM or native core | Requires profiled budget failure and representative end-to-end improvement under the [promotion gate](benchmarks.md#wasm-promotion-gate). |
+| Continuous Read | Decide paragraph outline versus estimated height; establish deep-jump, resize-anchor, memory, long-task, cross-window selection, and native-find baselines. Keep fitted Read until the replacement passes. |
+| Reference prose | Follows Continuous Read and a residency benchmark; active text alone publishes the cursor, reference does not follow by locked scrolling, and two readable measures must fit. |
+| Dedicated Atlas query | Only if resident density/residency fails the Reader gates; use bounded visible-document projection, not invented main-thread detail. |
+| Cursor pinning, colon commands, footer RSVP | Earlier proposals remain unimplemented; justify a visible pointer/keyboard/touch contract before adding modes. Reader Speed already has its own domain. |
+| Further Speed behavior | Clause rests, dedicated regression keys, context during playback, and alternative pacing require separate evidence and source/interaction decisions. |
+| Independent Speed package release | The reusable seam exists; publishing needs versioning, compiled output, licensing, and a release contract. |
+| New inventory fields | Token-length distributions, sentence quartiles, per-text growth, and shared/exclusive types require bounded versioned evidence and fixtures; they cannot be inferred from current totals. |
+| New statistical methods | Syllable readability needs a language resource and error profile; Delta/Cosine Delta and Poisson bursts need method fixtures and query contracts. Unit-based collocation kernels exist without a collocation operation/UI. |
+| Lexical overlap/density and language suggestions | Compare each text with the rest; name method/resource/token-class policy. Resolve common-word provenance before using it as method evidence; never silently retokenize from a language guess. |
+
+Reader is a full-page destination with the workbench unmounted; dialog
+semantics and a focus trap for a nonexistent background remain rejected.
+Barcode gesture ownership stays in the trend surface until a second consumer
+needs shared policy. Dynamic-programming destination selection is unnecessary
+for an independently ranked reading list; reconsider if the objective becomes
+set-level coverage, variable windows, or a shared token budget.

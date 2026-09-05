@@ -11,13 +11,14 @@ policy. Provider-neutral EPUB parsing belongs to `@texttrends/epub`, which this
 client uses for both releases and repository source. Other packages consume only
 the export map in `package.json` (`.` and `./archive`); `src` is private.
 
-## Install
+## Workspace use
 
-```sh
-pnpm add @texttrends/standard-ebooks
-```
+This package is private and lives in this monorepo. From the repository root,
+run `pnpm install` and `pnpm build:packages`; consume its declared exports from
+another workspace package. No registry installation or independent release is
+promised.
 
-## Quick start
+## Download a book
 
 ```ts
 import { StandardEbooksClient } from '@texttrends/standard-ebooks';
@@ -66,7 +67,7 @@ UTF-16 range in `book.text`; excluded sections have a `null` range. Inspect `boo
 Use `{ source: 'repository' }` only when current, unreleased source is required. It makes one
 request per spine document and is substantially more expensive than downloading the EPUB.
 
-## Responsible use
+## Network use
 
 - Cache catalog pages and extracted books; refresh on user action instead of polling.
 - Prefer `catalogPages()` and stop when enough results have loaded.
@@ -77,8 +78,8 @@ request per spine document and is substantially more expensive than downloading 
   authenticated server-side proxy.
 - Use `AbortSignal` to cancel obsolete searches and downloads.
 
-Standard Ebooks states that its editorial work is CC0 and its source texts are in the U.S.
-public domain. Preserve `book.metadata.rights` and evaluate copyright in the user's country.
+Preserve `book.metadata.rights`. Repository distribution constraints are recorded
+in the [publication inventory](../../docs/design/corpus-inventory.md).
 
 ## Errors and development
 
@@ -88,6 +89,10 @@ failures are `EpubError` instances from `@texttrends/epub`.
 
 ```sh
 pnpm install
-pnpm check
-pnpm test:live # Opt-in live Frankenstein integration test
+pnpm --filter @texttrends/standard-ebooks check
+pnpm --filter @texttrends/standard-ebooks test:live # Opt-in network test
 ```
+
+The browser app uses a baked catalog and the `./archive` download path; the
+client example above describes the package API, not the app's request sequence.
+See [development](../../docs/development.md) for repository-wide checks.

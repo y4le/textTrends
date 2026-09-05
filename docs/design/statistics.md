@@ -1,440 +1,271 @@
-# Statistical methods — specification and test vectors
+# Statistical methods
 
-*Phase 0 method spec, implemented incrementally: a method is either **implemented**
-(a pure function in `packages/core/src/stats/` with these worked examples as
-executable fixtures) or **specified-only** (marked below; no export exists yet).
-Nothing is exported without fixtures. Currently implemented: keyness (G², log-ratio,
-and a log-ratio confidence interval), Jensen–Shannon divergence, logDice, PMI,
-t-score, DP/DPnorm, MATTR, MTLD, and the character-based readability indices
-(ARI and Coleman–Liau). Specified-only: Delta/Cosine Delta, bursts, and the
-syllable-based Flesch family. Every fixture is hand-computed and numerically
-verified, so it is inspectable, not trusted from memory; these numbers are the
-product's meaning, and any change is a contract change.
-Each method carries an id + version (e.g. `keyness-g2-2x2/1`) referenced by QueryOps
-and provenance.*
+This is the formula and fixture reference for implemented kernels and query
+methods. `packages/core/src/stats/`, `packages/core/src/ops/`, and their tests
+are executable authority. A kernel export does not imply a worker operation
+or visible product feature. Interpretation belongs in
+[the user explanation](../explanation.md); unimplemented methods belong in
+[the roadmap](current-roadmap.md#deferred-designs).
 
-Notation: `ln` natural log, `log2` binary log. All counts are raw integers from the
-positional index; all rates use explicitly named denominators.
+`ln` denotes natural logarithm; `log2` denotes base 2. Counts are raw integers;
+rates name their denominators. Changes to meaning, bounds, or deterministic
+ordering require the responsible method version to change.
+
+| Capability | Implemented boundary |
+| --- | --- |
+| Trend, Company, Destinations, frequency, inventory, keyness | Bounded worker operations and browser surfaces |
+| G², log ratio and interval, JSD, DP/DPnorm, MATTR | Pure kernels used by analysis operations |
+| MTLD, logDice, PMI, t-score, ARI, Coleman–Liau | Pure exported kernels; not separate worker operations or visible score panels |
+| Syllable readability, Delta/Cosine Delta, Poisson bursts | Unimplemented |
 
 ## Vocabulary
 
-A `freq-list/2` Vocabulary term must contain at least one Unicode letter or
-number. Punctuation and symbols may remain within a term, but punctuation-only
-and symbol-only keys are excluded before denominators, ranking, and paging.
-This includes symbol-category enclosed alphanumerics that have no Unicode
-letter or number property. The rule is specific to Vocabulary: Inventory
-measures every selected token, while Compare measures every selected token in
-its enabled classes.
+`freq-list/2` admits terms containing at least one Unicode letter or number.
+Punctuation/symbol-only keys, including enclosed alphanumerics without those
+properties, are excluded before denominators, ranking, and paging. Inventory
+counts every selected token; Compare counts selected tokens in enabled classes.
 
-## Shared Vocabulary and Compare row filter
-
-Compare and Vocabulary may apply the versioned `english-common-words/1`
-common-word row filter. The resource contains the first 2,000 matchable lexical
-types from the locked 6,690-entry English common-word ranking. Entries are
-NFC-normalized, apostrophe-normalized, and lowercased under English.
-A selected common-word top-N prefix removes matching rows before ranking and
-paging. It does not remove tokens from the selection: counts, rates, dispersion,
-log ratio, G², confidence intervals, and Jensen–Shannon divergence keep their
-unfiltered denominators and values.
+The `english-common-words/1` row filter is the first 2,000 matchable lexical
+types from the locked 6,690-entry ranking, NFC/apostrophe-normalized and
+lowercased under English. A top-N prefix removes matching rows before ranking
+and paging. It never removes tokens from the selection or changes surviving
+counts, rates, DP, log ratio, G², intervals, or JSD. The source's
+[publication status](corpus-inventory.md) also covers this derivative.
 
 ## Keyness
 
-### Log-likelihood G² (evidence)
+`keyness-g2-2x2/1` compares explicit disjoint selections. Let `a` and `b` be a
+term's counts in sides of `N1` and `N2` tokens.
 
-For term frequency `a` in corpus A (size `N1` tokens) vs `b` in corpus B (size `N2`),
-the **full 2×2 likelihood-ratio statistic** over all four cells (term/non-term ×
-corpus), with `E1 = N1·(a+b)/(N1+N2)`, `E2 = N2·(a+b)/(N1+N2)`:
+### G²
 
-```
-G² = 2 · ( a·ln(a/E1) + b·ln(b/E2)
-         + (N1−a)·ln((N1−a)/(N1−E1)) + (N2−b)·ln((N2−b)/(N2−E2)) )
-// cells with zero observed count contribute 0
-```
+The full 2×2 term/non-term × side likelihood-ratio statistic is:
 
-Signed by direction: positive when `a/N1 > b/N2`. Note: this is the complete 2×2 G²
-(Dunning 1993), **not** the two-cell Rayson–Garside shorthand, which understates the
-statistic (12.7806 vs 12.8349 on the vector below) — caught in contract review.
-
-**Test vector**: `a=10, N1=1000, b=2, N2=2000` → `E1=4, E2=8` → `G² = 12.8349`
-(±1e-3), sign positive.
-
-### Log-ratio (effect size)
-
-With 0.5 continuity correction added to all four cells (so each corpus's adjusted
-total is `N+1`):
-
-```
-LR = log2( ((a+0.5)/(N1+1)) / ((b+0.5)/(N2+1)) )
+```text
+E1 = N1 × (a+b)/(N1+N2)
+E2 = N2 × (a+b)/(N1+N2)
+G² = 2 × [a ln(a/E1) + b ln(b/E2)
+          + (N1−a) ln((N1−a)/(N1−E1))
+          + (N2−b) ln((N2−b)/(N2−E2))]
 ```
 
-**Test vector**: same inputs → `LR = log2( (10.5/1001)/(2.5/2001) ) = 3.0697` (±1e-3).
+Zero observed cells contribute zero. Direction is positive when `a/N1 > b/N2`.
+The two-cell shorthand is not this method: for `a=10, N1=1000, b=2, N2=2000`,
+the complete statistic is `12.8349` (±0.001), with `E1=4`, `E2=8` and positive
+direction; the shorthand gives `12.7806`.
 
-Display contract: rank by LR (effect) by default, with the lower 95% bound as
-an optional precision-aware sort; show G² (evidence), raw counts, and range.
-Optional Benjamini–Hochberg q-values never drive ranking.
+### Log ratio and interval
 
-### Log-ratio confidence interval
+Add 0.5 to all four cells, so each adjusted side total is `N+1`:
 
-A Wald interval on the same corrected quantity. The variance is the standard
-log-risk-ratio form carrying the same 0.5/1 correction, so the point estimate and
-interval describe one estimand:
-
-```
-Var(ln ratio) = 1/(a+0.5) − 1/(N1+1) + 1/(b+0.5) − 1/(N2+1)
-CI         = LR ± z · sqrt(Var) / ln(2)          // z = 1.959963984540054 at 95%
+```text
+LR = log2(((a+0.5)/(N1+1)) / ((b+0.5)/(N2+1)))
+V  = 1/(a+0.5) − 1/(N1+1) + 1/(b+0.5) − 1/(N2+1)
+CI = LR ± 1.959963984540054 × sqrt(V) / ln(2)
 ```
 
-Each pair is non-negative because `a ≤ N1` forces `a+0.5 < N1+1`, so the variance
-cannot go negative on a valid table.
+Each variance pair is nonnegative for a valid table. Point and interval describe
+one corrected estimand. Default ranking uses effect size; the lower 95% bound,
+evidence, and counts are available sorts. Intervals appear in term detail;
+optional whiskers are hidden by default. There is no table-wide interval filter
+or implemented q-value correction.
 
-**Test vector**: `a=10, N1=1000, b=2, N2=2000` → `CI = (1.0828, 5.0565)` (±1e-3).
+| `(a, N1, b, N2)` | LR | 95% interval |
+| --- | ---: | --- |
+| `(10, 1000, 2, 2000)` | 3.0697 | (1.0828, 5.0565) |
+| `(3, 1000, 0, 1000)` | 2.807 | (−1.466, 7.080) |
+| `(3000, 100000, 200, 100000)` | 3.904 | (3.698, 4.109) |
 
-**Discrimination vector** (the reason the interval exists — effect size alone
-cannot separate these): `a=3, N1=1000, b=0, N2=1000` → `LR = 2.807`, interval
-`(−1.466, 7.080)` spans zero; `a=3000, N1=100000, b=200, N2=100000` →
-`LR = 3.904`, interval `(3.698, 4.109)`.
+The interval is per-term, without multiplicity correction. Independent token
+draws are a model assumption; running-text burstiness can make it too narrow.
+Per-side DP exposes concentration but does not correct the interval.
 
-Display contract: the interval is a **per-term** precision statement carrying no
-multiplicity correction. It is shown in a term's expanded detail, and it
-never becomes a table-wide filter — keeping only the terms whose intervals
-exclude zero is precisely the selection effect a correction would exist for.
-The Wald model also treats token draws as independent. Running-text burstiness
-violates that assumption and can make the interval too narrow; the per-side DP
-values help expose concentration but do not repair the interval.
-
-### Row dispersion inside `keyness-g2-2x2/1`
-
-Keyness rows carry Gries' DP (see §Dispersion) per side, folded over the same
-sparse per-document vectors in one extra pass — no dense type×document matrix.
-Parts are that side's selected documents.
-
-**Deviation from `dispersion-dp/1`**: where that method publishes `DP = 0` below
-two positive-token parts, a keyness row publishes **null**. A row column showing
-"0" would read as "perfectly even" for a measurement that is undefined — a
-single-document side has no between-document proportions to deviate. Null is
-also published for a term absent from that side. `KeynessSideTotalsV1.positiveParts`
-carries the part count the decision was made on.
+Keyness rows fold per-side DP over sparse per-document vectors. Below two
+positive-token parts, or when the term is absent on that side, row DP is null.
+This differs deliberately from the standalone dispersion kernel's `DP=0`
+small-part convention. `positiveParts` records the basis; null must not render
+as “perfectly even.”
 
 ## Distributional divergence
 
-### Jensen–Shannon divergence (`jsd-log2/1`)
+`jsd-log2/1` uses relative frequencies `p`, `q` over one shared type space:
 
-Over two relative-frequency distributions `p`, `q` on a shared type space, with
-`m = (p+q)/2`:
-
-```
-JSD = 0.5 · ( Σ pᵢ·log2(pᵢ/mᵢ) + Σ qᵢ·log2(qᵢ/mᵢ) )      // 0 ≤ JSD ≤ 1
-// a zero share contributes 0 (the x·log(x/m) limit as x → 0)
+```text
+m_i = (p_i + q_i)/2
+JSD = 0.5 × [Σ p_i log2(p_i/m_i) + Σ q_i log2(q_i/m_i)]
 ```
 
-Base-2 logs bound it in [0, 1] bits. Unlike KL it is symmetric and stays finite
-when a type is absent from one side, so a two-selection comparison needs neither
-smoothing nor a reference corpus.
+Zero shares contribute zero. The symmetric result is finite in [0,1] bits,
+including types absent on one side. Keyness computes it over every merged type
+before count filters, side projection, and paging, and publishes its type count.
 
-**Test vectors**: identical distributions → `0`; disjoint (`[1,0]` vs `[0,1]`) →
-`1` exactly; half-shared (`[0.5,0.5,0]` vs `[0,0.5,0.5]`) → `0.5` exactly;
-`[0.9,0.1]` vs `[0.1,0.9]` → `0.5310` (±1e-4).
+Fixtures: identical distributions → 0; `[1,0]` vs `[0,1]` → 1;
+`[0.5,0.5,0]` vs `[0,0.5,0.5]` → 0.5;
+`[0.9,0.1]` vs `[0.1,0.9]` → 0.5310 (±0.0001).
 
-Computed inside the keyness merge over **every** merged type, before the count
-filter, before side projection, and before paging — so it describes the two
-distributions and not the visible table. It is published with the type count it
-summed over, because the number is meaningless apart from its domain.
+## Collocation kernels
 
-## Collocation
+The exported association functions use unit counts: `fx` units contain the
+node, `fy` the collocate, `fxy` both, and `n` is total units. The intended
+`collocates/1` event unit is a sentence. There is no collocation query or UI.
+A future counting operation must define selected sentence units and complete
+phrase containment before using these kernels.
 
-### Event space (`collocates/1`) — unit-based
-
-Round-2 review correctly showed that *no* pair-based counting can respect Dice's
-bound (one node with two in-window collocates gives `fxy=2, fx=1, fy=2` →
-`2fxy/(fx+fy) = 4/3 > 1`). Dice-family scores require a **unit event space**, so:
-
-- The counting unit is the **sentence** (within the bound selection; sentences are
-  index-canonical). `fx` = units containing the node, `fy` = units containing the
-  collocate, `fxy` = units containing both, `n` = total units. By construction
-  `fxy ≤ min(fx, fy)` and every score below is well-defined and bounded.
-- Multi-token (phrase) nodes: a unit contains the node iff a full phrase match lies
-  within it.
-- Self-collocation (`y` = a node type) is excluded — `fxy` would equal `fx` by
-  definition and carry no information in unit space.
-- The **L5…R5 positional profile** is a separate *descriptive* output computed from
-  token offsets around each node occurrence (clipped at sentence/document bounds);
-  it decorates the ranked table but plays no role in association scores.
-- Filters: minimum `fxy` (default 3) and minimum `fy` (default 5); op parameters,
-  echoed in provenance. Ranking ties break by higher `fxy`, then vocabulary key
-  order (deterministic).
-- A token-window *proximity* method may arrive later as `collocates-window/1` with
-  its own coherent event space; it does not retrofit onto these scores.
-
-### log-Dice (default association score)
-
-```
-logDice = 14 + log2( 2·fxy / (fx + fy) )     // ≤ 14, guaranteed by fxy ≤ min(fx,fy);
-                                             // implementations REJECT fxy > min(fx,fy)
+```text
+logDice = 14 + log2(2 fxy / (fx+fy))
+PMI     = log2(fxy n / (fx fy))
+t       = (fxy − fx fy/n) / sqrt(fxy)
 ```
 
-**Test vector**: `fxy=5, fx=20, fy=30` → `14 + log2(0.2) = 11.678` (±1e-3).
-**Bound vector**: `fxy=10, fx=10, fy=10` → exactly `14`.
+Counts are nonnegative integers; marginals must be positive; `fxy` cannot exceed
+either marginal; marginals cannot exceed `n` where supplied. Zero joint count
+gives negative infinity for logDice/PMI and is rejected by t-score. Unit space
+bounds logDice at 14. Pair-based token-window counting cannot replace it:
+one node with two nearby collocates can yield `2fxy/(fx+fy) > 1`.
 
-### PMI and t-score (secondary; MI's rare-pair attraction is labeled in the UI)
-
-```
-PMI = log2( fxy·n / (fx·fy) )
-t   = ( fxy − fx·fy/n ) / √fxy
-```
-
-**Test vectors** (`fxy=4, fx=10, fy=20, n=1000`): `PMI = log2(20) = 4.3219` (±1e-3);
-`t = (4 − 0.2)/2 = 1.9000` (±1e-4).
+Fixtures: logDice `(5,20,30)` → 11.678 (±0.001); `(10,10,10)` → 14 exactly.
+For `(fxy,fx,fy,n)=(4,10,20,1000)`, PMI → 4.3219 (±0.001) and
+t → 1.9000 (±0.0001).
+Any positional L5…R5 profile would be descriptive, separate from these scores.
 
 ## Dispersion
 
-### Gries' DP and DPnorm
+`dispersion-dp/1` uses selected-document token shares `s_i` and a term's
+occurrence shares `v_i`, each summing to one:
 
-Corpus divided into `n` parts with token-share proportions `s_i` (Σs=1); the term's
-occurrence proportions `v_i` (Σv=1, over its own total):
-
-```
-DP     = 0.5 · Σ |v_i − s_i|                 // 0 = perfectly even, →1 clumped
+```text
+DP     = 0.5 × Σ |v_i − s_i|
 DPnorm = DP / (1 − min(s_i))
 ```
 
-Parts are the selected documents, including a document whose class-filtered
-token share is zero. Such a part therefore contributes `s_i = 0` to the
-published `min(s_i)` denominator even though it cannot contain an occurrence.
-Below two positive-token parts, `DP = 0` and `DPnorm = null`.
+Zero-token selected parts still contribute `s_i=0` to the normalization.
+Below two positive-token parts the kernel returns `DP=0`, `DPnorm=null`.
+Keyness uses its separate null convention above.
 
-**Test vector**: 3 equal parts, occurrences (9,0,0) → `DP = 0.5·(2/3+1/3+1/3) = 2/3`;
-`DPnorm = (2/3)/(2/3) = 1.0` exactly.
-
-**Test vector (even)**: 3 equal parts, occurrences (3,3,3) → `DP = 0`, `DPnorm = 0`.
-
-**Zero-token-part vector**: selected part sizes `(2,1,0)`, occurrences for one
-term `(2,0,0)` → `DP = 1/3`; because `min(s_i)=0`, `DPnorm = 1/3`.
+| Part sizes; occurrences | DP | DPnorm |
+| --- | ---: | ---: |
+| Three equal parts; `(9,0,0)` | 2/3 | 1 |
+| Three equal parts; `(3,3,3)` | 0 | 0 |
+| `(2,1,0)`; `(2,0,0)` | 1/3 | 1/3 |
 
 ## Lexical diversity
 
-### MATTR (default; window default 500 tokens)
+MATTR averages TTR over every sliding window (step 1; product default 500).
+Sequences shorter than the window use labeled plain TTR. Empty input returns
+zero. `a b a b` with window 3 gives 2/3. The numeric kernel bounds its type-id
+counter allocation explicitly; string input delegates to it.
 
-Mean of TTR over every sliding window of size `w` (step 1); documents shorter than `w`
-report plain TTR labeled as such.
-
-**Test vector**: tokens `a b a b`, `w=3` → windows `aba` (TTR 2/3), `bab` (2/3) →
-`MATTR = 2/3` exactly.
-
-### MTLD (secondary)
-
-Sequential factor count, threshold 0.72 (McCarthy & Jarvis 2010): scan left→right
-tracking running TTR; each time TTR drops below 0.72, count one factor and reset. The
-final partial factor contributes `(1 − TTR_end)/(1 − 0.72)` fractionally.
-`MTLD_fwd = N / factors`; report the mean of forward and backward passes.
-**Zero-factor rule**: if a pass completes zero factors (TTR never crossed the
-threshold and the final partial contributes 0 because TTR = 1), the pass's value is
-defined as `N`. Threshold must lie in (0, 1); implementations reject anything else.
-Test fixtures: constructed sequences with hand-counted factors — `a b c d` → 4
-(zero-factor rule, both passes); `a a a a` → 2 (two exact factors per pass).
+MTLD scans until running TTR drops below 0.72, counts a factor, and resets.
+The final partial factor contributes `(1−TTR_end)/(1−threshold)`.
+A pass returns `N/factors`, or `N` if factors are zero; the method averages
+forward and backward passes. Threshold must lie in (0,1), and empty input
+returns zero. Fixtures: `a b c d` → 4; `a a a a` → 2.
+MTLD is exported but not exposed as a browser score.
 
 ## Readability
 
-### Character-based (`readability-chars/1`, implemented)
-
-```
-ARI          = 4.71·(characters/words) + 0.5·(words/sentences) − 21.43
-Coleman–Liau = 0.0588·L − 0.296·S − 15.8      // L = letters per 100 words,
-                                              // S = sentences per 100 words
-```
-
-This version pins the character conventions rather than inheriting a library's
-ambiguous “character” counter. ARI `characters` are Unicode letters and decimal
-digits; Coleman–Liau `letters` are Unicode letters only. Both are counted as
-Unicode scalar values in normalized emitted token keys, excluding punctuation,
-separators, and UTF-16 encoding width. `inventory/1` publishes the two quantities
-as `readabilityCharacters` and `readabilityLetters`. Its sibling `charsUtf16`
-sums the source-span extent of each contiguous selected run; those spans include
-separators and cannot feed either formula. This convention is part of method
-version `readability-chars/1` because public ARI implementations disagree about
-punctuation.
-
-Both are US grade levels calibrated on expository prose; neither is meaningful on
-a handful of sentences, so callers publish them beside the sentence count.
-ARI requires at least one counted letter or digit per indexed token. Coleman–Liau
-allows fewer letters than tokens because numeral tokens legitimately add words
-without adding letters.
-
-**Test vector**: `characters=500, letters=500, words=100, sentences=10` →
-`ARI = 7.12`, `Coleman–Liau = 10.64` (±1e-6).
-
-### Syllable-based (specified-only, English pack)
-
-```
-Flesch Reading Ease = 206.835 − 1.015·(words/sentences) − 84.6·(syllables/words)
-Flesch–Kincaid grade = 0.39·(words/sentences) + 11.8·(syllables/words) − 15.59
-```
-
-Deliberately not implemented. Syllable counts are heuristic and would need a
-language pack plus an error profile in the fixture suite (a word list with
-hand-counted syllables and a tolerated error band). The character-based indices
-above carry no syllable error and are preferred for cross-document comparison.
-
-## Stylometry
-
-### Burrows' Delta / Cosine Delta
-
-Over the corpus's `k` most frequent words (default k=150): per-document relative
-frequencies `f`, corpus mean `μ_i` and standard deviation `σ_i` per word;
-z-scores `z_i = (f_i − μ_i)/σ_i`.
-
-```
-Delta(A,B)       = (1/k) · Σ |z_A,i − z_B,i|
-CosineDelta(A,B) = 1 − (z_A·z_B)/(‖z_A‖·‖z_B‖)     // Evert et al. 2017: most robust
-```
-
-Test fixtures: 3 tiny synthetic "documents" with hand-computed z-scores in the fixture.
-
-## Burst detection (Poisson surprise, `bursts-poisson/1`)
-
-For a term with baseline rate `λ` per token computed over the bound selection,
-observed `k` occurrences in a sliding window of `w` tokens (default 2000, step `w/2`,
-clipped at document boundaries; expected `λw`):
-
-```
-surprise = −log10 P(X ≥ k),  X ~ Poisson(λw)
-```
-
-Windows above the surprise threshold (default 4.0, an op parameter) become "notable
-moment" annotations; overlapping qualifying windows merge into one annotated span
-with the max surprise.
-
-Numerical contract (round-2 review): the survival probability is computed **in log
-space** — iterate `logPMF(i+1) = logPMF(i) + ln(μ) − ln(i+1)` from `logPMF(0) = −μ`
-and accumulate the upper tail with log-sum-exp; never multiply raw PMF terms (they
-underflow for realistic `μ = λw`). Required fixtures: `μ=0` (surprise ∞ for k>0, 0
-for k=0), large `μ` (e.g. 5000) with `k` near `μ` (surprise ≈ 0.3–0.5 band), far
-tails (no overflow/NaN), and `k=0` (surprise 0).
-
-## Trend rates (`trend/1`)
-
-Per equal-token bin: `rate = count / binTokens × 10_000` (the canonical app-wide
-denominator; raw `count` and `binTokens` always accompany the rate in
-results). Bins partition each document's lexical tokens per the selected
-`TimeCoordinate`; the final bin of a document may be short and is reported with its
-true `binTokens`, never padded. Occurrence de-duplication within a term group follows
-the group's `countOverlaps` (overlap identity = covered-token union).
-
-The Trends range comparison derives two sides from the resident baseline and
-ranged trend lanes. Selected trends contain only touched documents, so results
-are joined by document id before summing—not by parallel row index. For each
-tracked term:
-
-```
-insideCount  = Σ selected count rows
-insideTokens = Σ selected binTokens
-outsideCount = Σ baseline count rows − insideCount
-outsideTokens= Σ baseline binTokens − insideTokens
-```
-
-Rates on both sides use the formula above. Direction uses the bounded observed
-rate contrast `rate-contrast/1`:
-
-```
-C = (rateInside − rateOutside) / (rateInside + rateOutside)   // −1…+1
-```
-
-This is the monotone transform `(r−1)/(r+1) = tanh(ln(r)/2)` of the raw rate
-ratio, so its sign always agrees with the two printed rates. One-sided zeroes
-land honestly at the endpoints. A 21-token range with no occurrences against
-8 occurrences in the remaining 1,923 tokens gives rates 0 and 41.6 per 10,000
-and `C=−1`, toward the rest. A continuity-corrected log ratio would point the
-other way on this vector because its 0.5 pseudo-count implies 227.3 per 10,000
-inside; that estimand is deliberately not used for this observed-direction
-display.
-
-Mark weight is a coarse evidence channel. With pooled rate
-`p=(insideCount+outsideCount)/(insideTokens+outsideTokens)`, the mark is solid
-when `min(p·insideTokens, p·outsideTokens) ≥ 5` and a hairline otherwise. The
-example above has a minimum expected count of `8/1944·21 = 0.0864`, so its
-full-left mark is thin. Direction is undefined when the range leaves no
-remainder or the term occurs nowhere. Overlap-counted groups remain valid
-because a rate contrast does not require occurrence count to be at most the
-token denominator.
-
-Matches are admitted to a range only when fully contained in it. A multi-token
-match crossing a range edge therefore remains outside while the denominator is
-split at the edge; this can bias short-range phrase rates against the inside.
-
-## Company proximity (`company/1`)
-
-Company is exact descriptive evidence over two through five tracked term
-groups and the canonical full-ready corpus. An occurrence with start `p` and
-span `s` occupies the half-open interval `[p, p+s)`. For every unordered pair,
-the method performs both directional questions: for each A occurrence, how far
-is the nearest B interval in the same document, and independently for each B
-occurrence, how far is the nearest A interval? Proper overlap has gap zero;
-touching intervals also enter the zero-gap bucket but are excluded from the
-separate overlap count. If the peer has no occurrence in that document, the
-source occurrence increments `none` instead of a histogram bucket.
-
-The fixed lower edges are:
+`readability-chars/1` exports character-based kernels:
 
 ```text
-0, 1, 2, 3, 4, 5, 7, 10, 15, 25, 50, 100, 200
+ARI          = 4.71 × characters/words + 0.5 × words/sentences − 21.43
+Coleman–Liau = 0.0588 L − 0.296 S − 15.8
+L = letters per 100 words; S = sentences per 100 words
 ```
 
-Each bucket is `[edge_i, edge_(i+1))`; the final bucket is `[200, infinity)`.
-The Company panel's “nearby” value is therefore exactly the sum of buckets
-whose lower edge is below 25, divided by that direction's complete occurrence
-total (including same-document-absent occurrences). The two directions remain
-separate. Pair ordering uses the smaller directional coverage, then the number
-of documents containing both tracks, then canonical identity. This is not an
-association score, expected count, significance test, or causal claim.
+ARI counts Unicode letters and decimal digits; Coleman–Liau counts letters
+only. Counts use scalar values in normalized emitted token keys, excluding
+punctuation, separators, and UTF-16 width. Inventory supplies
+`readabilityCharacters` and `readabilityLetters`; `charsUtf16` instead measures
+source-span extents and cannot feed these formulas.
 
-**Integer fixture**: documents have 30 and 20 tokens. A occurs at
-`d0:[0,2)`, `d0:[10,11)`, and `d1:[5,6)`; B occurs at `d0:[2,3)` and
-`d0:[8,12)`. A→B has bucket zero `2`, `none=1`, `forward=1`, and `overlap=1`.
-B→A has bucket zero `2`, `none=0`, `backward=1`, and `overlap=1`.
-`docsWithBoth=1`; displayed directional nearby coverage is `2/3` for A and
-`2/2` for B. This fixture pins touching, proper overlap, asymmetric
-denominators, and the no-peer document path.
+The models yield US grade-level estimates calibrated on expository prose;
+sentence count must accompany any future score presentation. ARI requires at
+least one counted letter/digit per indexed token; Coleman–Liau permits fewer
+letters than tokens because numerals add words. For 500 characters, 500 letters,
+100 words, and 10 sentences: ARI = 7.12, Coleman–Liau = 10.64 (±0.000001).
+No browser readability-score panel is implemented.
 
-## Reading Destinations (`destinations/1`)
+## Trend rates
 
-Destinations is a deterministic reading heuristic over one through five
-tracked groups and the canonical full-ready corpus. Each distinct occurrence
-start can anchor a centered, document-clamped window of
-`min(400, documentTokens)` tokens. Counts use occurrence starts inside that
-half-open window. Let `n_t` be track `t`'s full-corpus occurrence total,
-`Rmax = max_t(n_t)`, and `c_t` its count in the window. Integer weights and the
-window score are:
+`trend/1` partitions token coordinates and assigns occurrences to bins:
 
 ```text
-W_t    = min(16·65536, floor(65536·Rmax / max(n_t, 1)))
-root_t = floor(sqrt(65536·min(c_t, 4096)))
-score  = presentTracks · Σ_t(W_t · root_t)
+rate = count / binTokens × 10,000
 ```
 
-Thus a one-term score is monotone in its count, while multiple-term breadth,
-bounded rarity, and diminishing returns can elevate a common-plus-rare
-passage. A pair focus is strict: both focused track counts must be positive
-before a candidate can survive. An empty result is meaningful.
+Raw count and actual `binTokens` accompany rates; short final bins are not
+padded. Group overlap identity is the covered-token union unless raw overlap
+counting is enabled. Selected matches must fit completely inside a range.
 
-Nearby anchors collapse to deterministic runs, at most eight numeric
-candidates survive per document, and the final pass consumes candidate depths
-breadth-first across documents. It applies a derived per-document quota,
-suppresses overlapping windows in the same document, and returns at most
-twelve. This greedy ordering serves an independently consumed reading list; it
-is deliberately not weighted-interval DP or a maximum-coverage set. The exact
-winning occurrence is retained as the Reader anchor. Materialization touches
-only winners and bounds each excerpt to 48 tokens, 400 UTF-16 units, 512 UTF-8
-bytes, and 16 marks.
+Inside/rest comparison joins selected and baseline rows by document id, sums
+selected counts/tokens, and subtracts them from baseline totals. It never joins
+by parallel array index because selected results contain only touched texts.
+Its direction is observed `rate-contrast/1`:
 
-**Integer fixture**: one 300-token document has one track at starts 10, 20,
-30, and 40. `Rmax=n_0=4`, so `W_0=65536`, `root_0=floor(sqrt(65536·4))=512`,
-`presentTracks=1`, and the sole clamped window scores exactly `33,554,432`
-with counts `[4]`. A separate strict-focus fixture places one track at token
-100 and another at 2,800 in a 3,000-token document; no 400-token window can
-contain both, so the result is exactly empty.
+```text
+C = (rateInside − rateOutside) / (rateInside + rateOutside)
+```
 
-## Smoothing (overlay only)
+This is `(r−1)/(r+1)`, monotone in the raw rate ratio. One-sided zeroes reach
+±1; no remainder or no occurrences makes direction undefined. Overlap-counted
+rates remain valid even when counts exceed token denominators.
 
-Default trend is the unsmoothed equal-token-bin rate. The overlay is a centered
-rolling mean of bin values with window named in the UI and provenance; edges use
-shrinking windows (no padding, no wraparound, never Fourier). LOESS may be added
-later behind the same overlay contract.
+A zero-hit 21-token range versus 8 hits in the remaining 1,923 tokens yields
+0 and 41.6 per 10,000, with `C=−1`. Compare's 0.5 correction would reverse that
+small-range direction, so it is not used here. The mark is solid only when
+`min(p × insideTokens, p × outsideTokens) ≥ 5`, where `p` is pooled count/token
+rate; otherwise it is a hairline. This fixture's minimum is 0.0864.
+
+A phrase crossing a range edge remains outside while tokens split at the edge;
+short-range phrase comparisons therefore have a boundary bias against inside.
+
+Smoothing is a centered rolling mean over bin values with shrinking edge
+windows, no padding/wrap, no crossing document boundaries, and no bridging
+zero-denominator gaps. It changes presentation, not raw totals.
+
+## Company proximity
+
+`company/1` compares two through five tracked groups over the full ready corpus.
+For each unordered pair, it separately finds each A span's nearest B span in
+the same text and each B span's nearest A. Proper overlap and touching both
+have gap zero, but only proper overlap enters the overlap count. Missing peer
+occurrences in that text contribute to `none`, not a histogram bucket.
+
+Bucket lower edges are `0, 1, 2, 3, 4, 5, 7, 10, 15, 25, 50, 100, 200`.
+Intervals are half-open; the last extends to infinity. Nearby coverage sums
+buckets below 25 and divides by the direction's complete occurrence total,
+including `none`. Pair ordering uses smaller directional coverage, then shared
+text count, then canonical identity. This is descriptive proximity, without
+an association model or significance test.
+
+Fixture: texts have 30 and 20 tokens. A spans are `d0:[0,2)`, `d0:[10,11)`,
+`d1:[5,6)`; B spans are `d0:[2,3)`, `d0:[8,12)`. A→B has zero-gap 2, none 1,
+forward 1, overlap 1; B→A has zero-gap 2, none 0, backward 1, overlap 1.
+One text contains both; nearby coverage is 2/3 and 2/2 respectively.
+
+## Reading destinations
+
+`destinations/1` ranks occurrence-anchored, centered, document-clamped windows
+of `min(400, documentTokens)` over one through five groups. Counts use starts
+inside the half-open window. With full-corpus track total `n_t`,
+`Rmax=max(n_t)`, and window count `c_t`:
+
+```text
+W_t    = min(16 × 65536, floor(65536 × Rmax / max(n_t,1)))
+root_t = floor(sqrt(65536 × min(c_t,4096)))
+score  = presentTracks × Σ(W_t × root_t)
+```
+
+Breadth, bounded rarity, and diminishing returns determine the integer score.
+A focused pair requires both counts positive. Nearby anchors collapse into
+runs; at most eight numeric candidates survive per text. The final pass visits
+candidate depths breadth-first across texts, applies a per-text quota,
+suppresses same-text overlap, and returns at most twelve. This greedy reading
+list is not a maximum-coverage set. Only winners are materialized, each with
+an exact occurrence anchor and an excerpt bounded to 48 tokens, 400 UTF-16
+units, 512 UTF-8 bytes, and 16 marks.
+
+Fixture: one 300-token text with one track at 10, 20, 30, 40 yields `W=65536`,
+`root=512`, breadth 1, and score 33,554,432 for its sole window. In a 3,000-token
+text, focused tracks at 100 and 2,800 cannot share a 400-token window; the
+strict-pair result is empty.

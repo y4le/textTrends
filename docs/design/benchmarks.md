@@ -1,236 +1,158 @@
-# Benchmark record
+# Benchmarks
 
-## Occurrence streaming promotion gate (written before measurement)
+These are dated local measurements with explicit fixture and method limits.
+They support architectural decisions, not a guarantee for every device or a
+claim that formal 10M/50M-token tiers pass. Run commands from the repo root;
+[development](../development.md#measure-performance) lists the harnesses.
+Historical six-volume Sherlock samples predate the current nine-volume corpus
+and cannot be reproduced byte-for-byte with today's fixture.
 
-The bounded materialization cut remains the V1 architecture unless the
-adversarial `bench-occurrences` case crosses any of these thresholds in a
-fresh process on the largest checked-in corpus:
+## Occurrence streaming promotion gate
 
-- cold occurrence construction exceeds **250 ms**, because one synchronous
-  construction is the residual worst-case cancellation delay;
-- the phase-local sampled RSS peak grows by more than **128 MiB** over its
-  post-index, post-GC baseline; or
-- a cap-rejected construction takes more than **500 ms** to reach its bound.
+Keep bounded materialization unless a fresh-process adversarial run on the
+largest checked-in corpus crosses any threshold:
 
-Crossing a threshold promotes a streaming/folding redesign, including its
-cache contract, into active architecture work. A cache-only or transport-only
-rewrite does not satisfy the gate: `NumericOccurrences` is shared by trend,
-KWIC, dispersion, Reader, and passage, so the redesign must cover all of those
-consumers coherently. Run:
+| Measurement | Promote above |
+| --- | ---: |
+| Successful cold occurrence construction | 250 ms |
+| Phase-local sampled RSS growth over post-index/post-GC baseline | 128 MiB |
+| Cap rejection | 500 ms |
 
-`node --expose-gc packages/cli/src/main.ts bench-occurrences <corpus-dir>`
+Crossing promotes streaming/folding work across the shared occurrence/cache
+contract for trend, Matches, dispersion, Reader, and passage. Transport-only
+or cache-only changes do not remove synchronous construction delay.
 
-The benchmark builds the corpus in a child, then runs two signalled phases:
+```sh
+node --expose-gc packages/cli/src/main.ts bench-occurrences text/ASOIF
+```
 
-- a successful construction selected just below the cap by repeating one
-  exact token member; and
-- a cap-pressure `countOverlaps: true` token + prefix + repeated-common phrase
-  group around the corpus's highest-frequency type; this corpus reaches the
-  typed cap, while smaller corpora may complete successfully.
+The child builds the corpus, then signals separate near-cap success and
+cap-pressure phases. The parent samples current Linux `/proc/<pid>/status` RSS
+every millisecond only between each phase's ready/result signals. The baseline
+is post-GC; this excludes the index build's earlier high-water mark. Without
+Linux `/proc`, memory is marked unmeasured and cannot justify deferral.
+Near-cap construction repeats an exact-token member; pressure uses overlapping
+token, prefix, and common phrase members. Smaller corpora may not hit the cap.
 
-The parent samples the child's Linux `/proc/<pid>/status` current RSS every
-1 ms only between each phase's ready/result signals. This excludes the index
-build's earlier high-water mark. The reported memory number is the largest
-sampled current-RSS increase over the phase's post-GC baseline, not a
-process-lifetime `maxRSS` subtraction. On platforms without Linux `/proc`, the
-JSON marks phase memory unmeasured; the 128 MiB gate is then explicitly
-untested and cannot support a deferral claim. Each phase also reports its cold
-kernel result (or typed cap) and an explicit cache read.
+### Occurrence sample, August 3, 2026
 
-### 2026-08-03 — adversarial occurrence construction, dev machine
+Linux dev machine; five ASOIF volumes, 1,759,717 tokens.
 
-Command: `node --expose-gc packages/cli/src/main.ts bench-occurrences text/ASOIF`
+| Phase | Outcome | Cold | RSS delta | Samples | Cache read |
+| --- | --- | ---: | ---: | ---: | --- |
+| Exact `have`, 8,330 postings × 24 members | 199,920 occurrences; 3,998,404-byte payload | 33.4 ms | +35.5 MiB | 33 | hit, 0.001 ms |
+| Folded `the` + prefix + phrase | Typed cap at raw match 200,001 | 42.0 ms | +40.0 MiB | 41 | miss, 0.001 ms |
 
-| Corpus/phase | Input | Outcome | Cold time | Phase RSS peak delta | Warm cache |
-|---|---|---|---:|---:|---|
-| ASOIF (5 vols), near-cap | 1,759,717 tokens; exact `have` (8,330 postings) × 24 members | 199,920 occurrences; 3,998,404-byte typed payload | 33.4 ms | +35.5 MiB (33 samples) | hit, 0.001 ms |
-| ASOIF (5 vols), cap pressure | folded `the` (87,271 raw exact-form postings) + prefix + phrase | typed cap at occurrence 200,001 | 42.0 ms | +40.0 MiB (41 samples) | miss, 0.001 ms |
-
-Both the successful near-cap construction and the cap-rejected path stay well
-below their promotion thresholds: 250 ms for successful cold construction,
-500 ms to reject at the cap, and 128 MiB of sampled phase-local RSS growth.
-The warm column is only an explicit in-process map read: it shows that the
-successful phase produced a value the harness can retain and the rejected
-phase produced no value to insert. The product-level guarantee that a failed
-construction neither poisons nor evicts its occurrence cache is covered
-separately in `apps/web/test/query-executor.test.ts`. On this Linux machine,
-the measured latency and memory therefore do **not** promote the streaming
-rewrite. They do not claim responsive mid-kernel cancellation; the residual
-synchronous span remains one capped computation, measured here at 42.0 ms in
-the rejected case.
-
-An earlier version of this row reported a `+0.9 MiB` delta by subtracting
-process-lifetime max-RSS before/after the phase. Review correctly found that
-the index build could already own the high-water mark, making that delta
-incapable of measuring occurrence memory. That number and its memory-based
-conclusion are superseded by the phase-signalled samples above.
+Neither phase promotes streaming. Cache timings are only explicit harness map
+reads; `query-executor.test.ts` separately proves failed construction does not
+poison or evict the product cache. These results do not claim mid-kernel
+cancellation; one capped synchronous computation remains the residual delay.
+Earlier process-lifetime max-RSS subtraction was invalid because indexing
+could own the high-water mark; only the phase-signalled samples above support
+the memory conclusion.
 
 ## Trends overview kernel gates
 
-These gates isolate the work added after cached occurrences are available.
-They are not end-to-end UI latency claims and do not include occurrence
-construction. Both harnesses use five logical tracks near the one-million-row
-cap, real snapshot document geometry, fresh bounded scratch on every measured
-run, one or two discarded warmups as reported by the command, and the median
-of five iterations on Linux with Node 24.14.1.
+Measure after occurrence acquisition, with five near-cap tracks and fresh
+bounded scratch. These are machine-local promotion gates, not CI timings or
+end-to-end latency claims. Discard the harness-reported warmups and use the
+median of five iterations.
 
-- `bench-company`: median at most **100 ms**, encoded output at most **8 KiB**;
-- `bench-destinations`: planning median at most **100 ms**, bounded winner
-  materialization at most **5 ms**, candidate scratch at most **64 KiB**, and
-  encoded output at most **32 KiB**.
+| Harness | Gate |
+| --- | --- |
+| `bench-company` | Median ≤100 ms; encoded output ≤8 KiB |
+| `bench-destinations` | Planning ≤100 ms; winner materialization ≤5 ms; candidate scratch ≤64 KiB; encoded output ≤32 KiB |
 
-Run:
+### Overview sample, August 19, 2026
 
-```text
-node --expose-gc packages/cli/src/main.ts bench-company <corpus-dir>
-node --expose-gc packages/cli/src/main.ts bench-destinations <corpus-dir>
-```
+Linux dev machine, Node 24.14.1. Company uses document-valid shifted vectors
+with offsets `[0,7,37,101,301]`, exercising all thirteen buckets and roughly
+3.99 million directional visits. Duplicate tracks would exercise only the
+overlap fast path and are not a representative timing fixture.
 
-### 2026-08-19 — Company and Destinations, dev machine
+| Corpus | Company median / JSON | Destination planning / materialization | Scratch / JSON |
+| --- | --- | --- | --- |
+| Sherlock, historical 6 volumes | 42.3 ms / 3,818 B | 42.7 / 0.33 ms | 2,354 / 24,862 B |
+| ASOIF, 5 volumes | 39.8 ms / 3,766 B | 59.1 / 0.28 ms | 1,965 / 24,901 B |
 
-The Company fixture uses shifted document-valid position vectors rather than
-duplicate logical tracks. That distinction is material: an earlier fixture
-sent every visit through the overlap fast path and could not support a timing
-claim. Offsets `[0,7,37,101,301]` exercise all thirteen histogram buckets and
-about 3.99 million directional source visits.
+Destinations uses five interleaved 200,000-row tracks, permitting one million
+distinct anchors and a full twelve-result/192-mark output. Mixed-script probes
+measured 24.4–26.9 KiB while retaining Reader anchors and excerpt bounds. The
+slowest median is 59.1 ms. The original ASOIF sample used a local non-versioned
+copy; do not treat either historical row as a measurement of current source
+bytes without rerunning.
 
-| Corpus | Company median | Company JSON | Destinations planning | Materialization | Scratch | Destinations JSON |
-|---|---:|---:|---:|---:|---:|---:|
-| Sherlock (6 vols) | 42.3 ms | 3,818 B | 42.7 ms | 0.33 ms | 2,354 B | 24,862 B |
-| ASOIF (5 vols) | 39.8 ms | 3,766 B | 59.1 ms | 0.28 ms | 1,965 B | 24,901 B |
+## Index methodology and baseline
 
-The Destinations fixture uses five interleaved, cache-admissible 200,000-row
-tracks over real document boundaries, allowing up to one million distinct
-anchors instead of collapsing duplicate members. The output rows are the full
-twelve-destination / 192-mark shape. Additional mixed-script probes measured
-24.4--26.9 KiB and retained every Reader anchor while respecting the 48-token,
-400-UTF-16-unit, 512-UTF-8-byte, and 16-mark per-excerpt bounds. Both kernels
-therefore leave the slowest planning median at 59.1 ms against a 100 ms gate
-(a 1.69× gate/measured ratio), with substantial materialization and byte
-headroom. The ASOIF row was measured against a local, non-versioned corpus;
-only the bundled Sherlock row is reproducible from a clean checkout. These are
-machine-local promotion gates, not CI timing thresholds.
+`bench <dir>` preloads files, excludes I/O, discards one warmup, and reports the
+median of three measured runs; per-file rows come from the last run. With
+`--expose-gc`, retained memory is the difference between a post-preload baseline
+and post-GC retained final shards. Without it, samples are unattributable.
+This measures a JIT-warmed single-thread process; fresh cold starts differ.
+
+### Index sample, July 19, 2026
+
+Linux dev machine, Node 24.
+
+| Corpus | Characters / tokens | Median; iterations | Retained delta |
+| --- | --- | --- | --- |
+| Sherlock, historical 6 volumes | 2.63M / 462k | 237 ms; 237/239/234 | +2 MB heap, +7 MB array buffers |
+| ASOIF, 5 volumes | 9.54M / 1.76M | 859 ms; 873/859/833 | ~0 MB heap, +26 MB array buffers |
+
+Throughput was about 2M tokens/second; arrays used roughly 15 bytes/token.
+Novel-sized ASOIF documents took 129–205 ms each, so first-document availability
+was not “tens of milliseconds.” Uncollected transients and allocator-retained
+RSS must not be attributed to retained shards. Extrapolation to 50M tokens
+would be a residency hypothesis, not evidence of a satisfied budget.
+
+## Browser methodology and gates
+
+Playwright serves the production-shaped e2e build under `/textTrends/`.
+Main-thread protocol-trace stamps define timings in
+`apps/web/e2e/timings.bench.spec.ts`. Functional and compact WebKit projects
+finish before the serial, no-retry benchmark project in a full local run.
+CI isolates benchmarks on a separate runner. Do not run builds or functional
+load concurrently with a sample in the same checkout.
+
+Semantic gates cover zero-fetch/zero-retokenization warm reopen, one warm
+snapshot, targeted corruption rebuild, buffer transfer, and stale-generation
+rejection. Cancellation acknowledgment p95 must stay below 250ms; attributed
+main-thread tasks must remain below the 100ms failure threshold. The 66-text,
+five-exact-track Atlas gate also bounds canvas residency during first paint
+and horizontal fling. At 1440px its derived structural ceiling is 15 canvases;
+the original sample held 10 at first paint and 14 after fling.
+
+### Browser samples
+
+| Date and fixture | Recorded local result |
+| --- | --- |
+| July 20, 2026; Chromium 149, historical 6-volume Sherlock | Cold barrier 15ms; first book 50ms; all-ready 419ms; warm reopen 93ms; trend 3–15ms; cancellation p95 0.3ms |
+| September 4, 2026; completed reliability/composition stack, Chromium benchmark project | Cold all-ready 539ms; warm reopen 186ms; cancellation p95 0.3ms; all five checks passed; no Atlas-attributed task reached 100ms in gated windows |
+
+The September sample supersedes the pre-fix review's local timing snapshot;
+it is retained evidence, not a fresh run from this documentation pass. Browser
+versions, corpus revisions, and machine conditions differ across samples.
+None establishes physical-device, screen-reader, or formal large-token-tier
+performance. Worker transient clone/binding memory still needs attributable
+trace/heap measurement; standard Performance API results alone do not provide it.
+
+### Footer scheduling sample, August 9, 2026
+
+Linux/headless Chromium with historical six-book Sherlock. After the intentional
+120ms initial hover dwell, five distant positions were correlated on one clock
+from pointer sample through query post, result, and fresh DOM. Removing the
+second trailing passage debounce reduced continued scrub pointer→DOM from
+128–134ms to a 14.9ms median (10.4ms scheduling, 2.9ms worker, 1.4ms DOM).
+Pointer samples remained frame-coalesced and passage delivery single-flight/
+latest-pending. The worker difference is sample variation, not a kernel change.
+This remains a non-gating local sample.
 
 ## WASM promotion gate
 
-Add a WebAssembly implementation only when all three conditions hold:
-
-- an optimized TypeScript implementation misses a written user-facing budget;
-- profiling shows that pass consumes at least roughly 25% of the affected path;
-  and
-- a vertical prototype improves representative end-to-end work by at least 2×
-  or reduces peak memory by at least 30%.
-
-The first plausible candidates are isolated heavy kernels such as n-grams,
-MinHash/LSH, or clustering—not KWIC or basic counts. Replacing the portable
-TypeScript core with Rust requires both a product need for a native core and a
-successful end-to-end spike; implementation-language preference is not a gate.
-
-Preliminary observations against the original performance hypotheses. These are two
-real corpus points, not the formal 1M/10M/50M synthetic tiers (which join the suite with
-the worker adapter) — treat extrapolations below as estimates, not evidence of a
-satisfied budget.
-
-**Method** (encoded in the harness): run
-`node --expose-gc packages/cli/src/main.ts bench <dir>` (Node ≥ 22.12; no installed
-`bin` yet). File contents are preloaded, so I/O is excluded; one warmup iteration is
-discarded; the reported total is the **median of 3 measured iterations** (all totals
-printed); per-file rows come from the final iteration. Memory is a **GC-baselined
-delta**: collect after preload (baseline = sources + runtime), collect again with only
-the final shard set retained, report the difference. Without `--expose-gc` the harness
-prints raw samples explicitly labeled unattributable. Single process, single thread,
-JIT-warmed — the steady state a long-lived worker sees on all but its first documents;
-fresh-process cold starts will be slower.
-
-## 2026-07-19 — shard-index implementation (GC-baselined harness), dev machine (Linux, Node 24)
-
-| Corpus | Chars | Tokens | Median segment+build | Iterations (ms) | Rate | Retained-shard delta |
-|---|---:|---:|---:|---|---:|---|
-| Sherlock (6 vols) | 2.63M | 462k | 237 ms | 237 / 239 / 234 | ~1.95M tok/s | +2 MB heap, +7 MB arrayBuffers |
-| ASOIF (5 vols) | 9.54M | 1.76M | 859 ms | 873 / 859 / 833 | ~2.05M tok/s | ~0 MB heap, +26 MB arrayBuffers |
-
-Readings (preliminary):
-
-- Warmed throughput is flat (~2M tokens/s) across a 3.6× corpus-size range;
-  `Intl.Segmenter` and index build split the cost roughly evenly.
-- **Retained shard memory is dominated by the typed arrays** (arrayBuffers): ~26 MB
-  for 1.76M tokens ≈ 15 bytes/token, consistent with the contract's array layout.
-  An earlier draft of this record attributed ~190 MB of uncollected transients to the
-  shards — corrected by the GC-baselined harness after review caught the
-  misattribution. (Raw process rss remains high after a run because the allocator
-  retains pages; it is not shard cost.)
-- Per-document times on ASOIF's novel-sized files ran 129–205 ms — so under
-  progressive per-document delivery (T1), the first book of a large corpus becomes
-  queryable in roughly 130–210 ms, not "tens of ms" (earlier draft overclaimed).
-- Naive extrapolation to a 50M-token corpus: ~24 s of warmed single-threaded compute
-  and ~750 MB of retained typed arrays — the compute is comfortable; the memory
-  suggests the 50M tier will need the contract's per-document lifecycle (not all
-  shards resident at once) or sharded eviction. The formal tiers plus a
-  browser-worker measurement must confirm both before the WASM promotion gate
-  can be considered, though nothing here approaches it.
-
-## 2026-07-20 — first real-browser baseline (M6 Playwright suite), dev machine (Linux, headless Chromium 149)
-
-**Method**: the serial `chromium-benchmark` Playwright project against the
-e2e-mode production build served by `vite preview` under `/textTrends/`. Clocks
-are main-thread protocol-trace stamps (definitions in
-`apps/web/e2e/timings.bench.spec.ts`); one local run, bundled Sherlock corpus
-(6 docs, ~462k tokens). Machine-local numbers — a GitHub-runner baseline must be
-collected from CI artifacts before any threshold beyond the cancel budget is
-frozen (Codex M6 consult: unmeasured numbers must not become CI policy).
-
-| Clock | Measured |
-|---|---:|
-| Cold begin → cache barrier (`generation-ready`, all 6 missing) | 15 ms |
-| First ingest post → first book queryable (T1) | 50 ms |
-| First ingest post → all 6 books ready | 419 ms |
-| **Warm reopen** (begin → all-ready barrier; zero fetch, zero re-tokenization) | **93 ms** |
-| Trend query post → result (bundled corpus, single terms) | 3–15 ms |
-| Cancel acknowledgement p95 (20 real acknowledgements) | 0.3 ms |
-
-(For a local full-suite run, the benchmark project runs AFTER the functional
-and compact WebKit projects complete and with one worker — enforced in
-playwright.config.ts itself: `chromium-benchmark` declares dependencies on
-`chromium-functional` and `webkit-compact` and pins `workers: 1`. CI runs the
-benchmark project as a separate job, while the semantic projects are sharded
-across isolated one-worker runners. `pnpm --filter @texttrends/web e2e:bench`
-passes `--no-deps` for that deliberate timing-only run.)
-
-Gates now enforced in CI (semantic, deterministic): warm reload performs zero
-corpus fetches and zero decode/segment/index phases and publishes exactly one
-snapshot; corruption repair rebuilds only the damaged document with no fetch and
-persists; ingest buffers and trend result buffers demonstrably transfer
-(detached after post); a replaced generation never publishes stale state; no
-main-thread task ≥ 100 ms during cold analysis + a query burst; cancel-ack
-p95 < 250 ms (the phase-1 plan's stated budget — measured 0.2 ms).
-
-**Open, tracked, deliberately not claimed** (plan M6 scope revision per the M6
-consult): the formal synthetic 1M/10M/50M-token tiers have still not joined the
-harness — the bundled browser corpus is ~462k tokens — and no eviction/residency
-policy exists yet to measure at the 10M/50M tiers. Peak transient worker memory
-(structured clone + binding copies) needs a manual Chrome trace/heap profile;
-the standard Performance API cannot attribute it. These move forward with the
-user-ingest milestone, where corpora larger than the bundle first become real.
-
-## 2026-08-09 — footer passage scheduling, dev machine (Linux, headless Chromium)
-
-The footer passage path now has a permanent non-gating browser sample in
-`apps/web/e2e/timings.bench.spec.ts`. After the intentional one-time 120 ms
-fine-pointer entry dwell is armed, five widely separated corpus positions are
-timed on one main-thread clock from pointer sample to query post, correlated
-worker result, and fresh passage DOM. The bundled six-book Sherlock corpus and
-the production-shaped e2e build are used; medians remain machine-local and do
-not establish a CI budget.
-
-| Passage path | Before | After |
-|---|---:|---:|
-| Continued cross-page scrub, pointer → fresh DOM | 128–134 ms | **14.9 ms median** |
-| After breakdown | ~127–133 ms scheduling + ~0.5–0.7 ms worker + ~1.1–1.4 ms DOM | **10.4 ms scheduling + 2.9 ms worker + 1.4 ms DOM** |
-
-The before sample was a direct browser measurement of the former 120 ms
-trailing passage debounce. The after sample is the checked-in benchmark run
-after removing that redundant timer; pointer samples remain frame-coalesced and
-the passage lane remains single-flight/latest-pending. The worker difference is
-ordinary run-to-run/corpus-cache variation at this scale, not a kernel change.
-The first hover still intentionally waits 120 ms before taking over global
-focus, but no longer stacks a second 120 ms passage delay after that dwell.
+Introduce WebAssembly only when an optimized TypeScript path misses a written
+user-facing budget, profiling attributes at least roughly 25% of that path to
+the candidate pass, and a vertical prototype improves representative end-to-end
+work by at least 2× or peak memory by at least 30%. Heavy isolated future
+kernels are plausible candidates; basic counts and Matches have no such case.
+A native-core rewrite additionally needs a product requirement for a native
+core and a successful end-to-end prototype.
