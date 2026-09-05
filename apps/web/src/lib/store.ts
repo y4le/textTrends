@@ -43,11 +43,8 @@ import { fullTokenCountsForDocs } from './doc-tokens.ts';
 import { trendBinLimits } from './trend-settings.ts';
 import { COMPARE_MAX_RESIDENT_ROWS } from './compare-scroll.ts';
 import type { CapturedTrack } from './track-legend.ts';
+import { footerPassageServes } from './footer-view.ts';
 import {
-  footerPassageServes,
-} from './footer-view.ts';
-import {
-  liveReaderPlace,
   readerCursorToken,
   readerPlaceFor,
   sameReaderCursor,
@@ -67,10 +64,7 @@ import {
   DEFAULT_READER_SCALE,
   type AtlasNormalization,
 } from './reader-view.ts';
-import {
-  preservedReadingCursor,
-  publishedReadingToken,
-} from './reader-cursor.ts';
+import { preservedReadingCursor, publishedReadingToken } from './reader-cursor.ts';
 import {
   clampPositionHistoryExtents,
   EMPTY_POSITION_HISTORY,
@@ -110,16 +104,8 @@ import {
   type FindTrendState,
   type PrimaryInteraction,
 } from './interaction.ts';
-import {
-  clampRsvpPacing,
-  RSVP_PACING_DEFAULTS,
-  type RsvpPacing,
-} from '@texttrends/rsvp';
-import {
-  LatestOperation,
-  OperationScope,
-  type OperationLease,
-} from './operation-lease.ts';
+import { clampRsvpPacing, RSVP_PACING_DEFAULTS, type RsvpPacing } from '@texttrends/rsvp';
+import { LatestOperation, OperationScope, type OperationLease } from './operation-lease.ts';
 import type {
   QueryOpV4,
   QueryResultDataV4,
@@ -135,24 +121,9 @@ import {
   type MatchesColumn,
   type MatchesColumnSettings,
 } from './matches-columns.ts';
-import {
-  SessionCommandError,
-  type AnalysisPhase,
-  type ProjectView,
-  type SessionState,
-} from './project-session.ts';
-import {
-  historyStateFor,
-  parseLayerHistory,
-  pushLayer as pushLayerStack,
-  reconcileLayerRefs,
-  replaceTopLayer,
-  type Layer,
-  type LayerKind,
-} from './layers.ts';
-import { parseRoute, routeSearch, type RouteV1 } from './route.ts';
+import { SessionCommandError, type AnalysisPhase, type SessionState } from './project-session.ts';
+import { pushLayer as pushLayerStack, replaceTopLayer, type Layer } from './layers.ts';
 import type { HistoryPort } from './history-port.ts';
-import { PLACES, type Place } from './places.ts';
 import { DEFAULT_TREND_VIEW } from './trend-view.ts';
 import type {
   KwicRowView,
@@ -177,6 +148,8 @@ import type {
 } from './app-state.ts';
 import { DEFAULT_TREND_BINS, DEFAULT_TREND_MEASURE, DEFAULT_KEYNESS_VIEW } from './app-defaults.ts';
 import { createWorkspacePersistence } from './workspace-persistence.ts';
+import { createNavigationController } from './navigation-controller.ts';
+
 export { DEFAULT_TREND_BINS, DEFAULT_TREND_MEASURE, DEFAULT_KEYNESS_VIEW } from './app-defaults.ts';
 export {
   workspaceFromApp,
@@ -184,7 +157,6 @@ export {
   emptyLibraryWorkspace,
   WORKSPACE_SEMANTIC_SOURCE_KEYS,
 } from './workspace-state.ts';
-
 
 /** Source budgets are call-site intent, not the worker's protocol ceiling.
  * The footer is latency-sensitive and only renders one clipped passage; the
@@ -524,53 +496,6 @@ class QueryLane {
   }
 }
 
-function routeFromUrl(url: string): RouteV1 {
-  try {
-    return parseRoute(new URL(url, 'https://texttrends.invalid/').search);
-  } catch {
-    return { place: null };
-  }
-}
-
-function urlWithRoute(
-  url: string,
-  route: RouteV1,
-): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(url, 'https://texttrends.invalid/');
-  } catch {
-    parsed = new URL('https://texttrends.invalid/');
-  }
-  return `${parsed.pathname}${routeSearch(parsed.search, route)}${parsed.hash}`;
-}
-
-function relativeHistoryUrl(url: string): string {
-  try {
-    const parsed = new URL(url, 'https://texttrends.invalid/');
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-  } catch {
-    return '/';
-  }
-}
-
-function defaultPlaceFor(project: ProjectView | null | undefined): Place {
-  return (project?.data.order.length ?? 0) === 0 ? 'inputs' : 'trends';
-}
-
-function placeReturnFocusTo(place: Place): string {
-  return place === 'vocabulary'
-    ? 'vocabulary-grid-port'
-    : `place-${place}-heading`;
-}
-
-function restoreFocusTo(id: string): void {
-  if (typeof document === 'undefined') return;
-  const focus = () => document.getElementById(id)?.focus({ preventScroll: true });
-  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focus);
-  else queueMicrotask(focus);
-}
-
 export function createAppRuntime(
   client: QueryClient,
   opts?: {
@@ -592,7 +517,6 @@ export function createAppRuntime(
 ): AppRuntime {
   const newId = opts?.newId ?? (() => crypto.randomUUID());
   const newLayerId = opts?.newLayerId ?? (() => crypto.randomUUID());
-  const historyPort = opts?.history ?? null;
   let lastRsvpPacing = clampRsvpPacing(opts?.rsvpPacing ?? RSVP_PACING_DEFAULTS);
   // Ownership: ONE scope for the runtime lifetime (closed on dispose) and one
   // lane per query intent. A lease carries the fences the old hand-rolled
@@ -659,8 +583,6 @@ export function createAppRuntime(
   // extraction has made that document ready. Keep that one-shot intent outside
   // the durable workspace so async completion order cannot choose Book 2.
   let pendingKeynessResetDoc: string | null = null;
-  let historyTraversalPending = false;
-  let pendingBackFocusTo: string | null = null;
   let readerWalk: {
     readonly snapshot: string;
     readonly doc: string;
@@ -733,103 +655,10 @@ export function createAppRuntime(
     }));
   };
 
-  // Route and layer state is initialized before the store so the first React
-  // snapshot and the current history entry cannot disagree.
-  const MAX_LAYER_REGISTRY_ENTRIES = 128;
-  const layerRegistry = new Map<string, Layer>();
-  const rememberLayer = (layer: Layer, retain: readonly Layer[] = []): void => {
-    layerRegistry.delete(layer.id);
-    layerRegistry.set(layer.id, layer);
-    if (layerRegistry.size <= MAX_LAYER_REGISTRY_ENTRIES) return;
-    const protectedIds = new Set(retain.map((item) => item.id));
-    for (const id of layerRegistry.keys()) {
-      if (layerRegistry.size <= MAX_LAYER_REGISTRY_ENTRIES) break;
-      if (!protectedIds.has(id)) layerRegistry.delete(id);
-    }
-  };
-  const resolveLayer = (id: string): Layer | undefined => {
-    const layer = layerRegistry.get(id);
-    if (layer === undefined) return undefined;
-    // A resolved Back/Forward identity becomes most-recently used.
-    layerRegistry.delete(id);
-    layerRegistry.set(id, layer);
-    return layer;
-  };
-  const bootRoute = historyPort === null
-    ? { place: null }
-    : routeFromUrl(historyPort.url);
-  let initialLayers: readonly Layer[] = [];
-  if (historyPort !== null) {
-    historyPort.replace(
-      historyStateFor([]),
-      urlWithRoute(historyPort.url, bootRoute),
-    );
-  }
-
+  const navigation = createNavigationController(opts?.history ?? null, newLayerId);
+  const { rememberLayer, writeNavigation, freshLayer, requestBack } = navigation;
+  let scheduleNavigationFooterPassage!: (target: ScrubTarget) => void;
   const store = create<AppState>((set, get) => {
-    const readerForLayers = (
-      layers: readonly Layer[],
-      snapshot = get().snapshot,
-    ): ReaderPlace | null => {
-      const layer = layers.findLast((candidate) => candidate.kind === 'reader');
-      if (layer === undefined) return null;
-      return liveReaderPlace(
-        layer.target,
-        snapshot?.snapshot ?? null,
-        snapshot?.readyDocs ?? [],
-      );
-    };
-
-    const writeNavigation = (
-      mode: 'push' | 'replace',
-      place: Place,
-      layers: readonly Layer[],
-      options: {
-        readonly preserveReaderNavigation?: boolean;
-        readonly resolveRoute?: boolean;
-        readonly writeHistory?: boolean;
-      } = {},
-    ): void => {
-      if (historyPort !== null && options.writeHistory !== false) {
-        const routePlace = options.resolveRoute === true || get().routeStatus === 'resolved'
-          ? place
-          : null;
-        historyPort[mode](
-          historyStateFor(layers),
-          urlWithRoute(historyPort.url, { place: routePlace }),
-        );
-      }
-      const current = get();
-      const readerPlace = readerForLayers(layers, current.snapshot);
-      const readerChanged = !sameReaderPlace(current.readerPlace, readerPlace);
-      if (readerChanged) readerLane.supersede();
-      set((state) => ({
-        place,
-        routeStatus: options.resolveRoute === true ? 'resolved' : state.routeStatus,
-        layers,
-        interaction: state.interaction.kind === 'rsvp'
-          && (
-            readerPlace === null
-            || readerPlace.snapshot !== state.interaction.rsvp.snapshot
-            || readerPlace.doc !== state.interaction.rsvp.doc
-          )
-          ? state.interaction.suspended
-          : state.interaction,
-        notebookError: place === state.place ? state.notebookError : null,
-        readerPlace,
-        readerPage: readerChanged ? null : state.readerPage,
-        readerVisibleRange: readerChanged ? null : state.readerVisibleRange,
-        readerCursorToken: readerChanged ? null : state.readerCursorToken,
-        readerNavigation:
-          readerChanged && !options.preserveReaderNavigation
-            ? null
-            : state.readerNavigation,
-      }));
-      if (current.readerPlace !== null && readerPlace === null && current.scrub !== null) {
-        scheduleFooterPassage(current.scrub);
-      }
-    };
-
     const replaceReaderTarget = (
       target: ReaderNavigationTarget,
       anchor: ReaderAnchorKind = 'position',
@@ -884,38 +713,6 @@ export function createAppRuntime(
       if (!sameDocument) readerWalk = null;
       get().runReader();
     };
-
-    const requestBack = (count = 1, returnFocusTo?: string): boolean => {
-      const layers = get().layers;
-      if (
-        historyTraversalPending
-        || layers.length === 0
-        || !Number.isSafeInteger(count)
-        || count < 1
-        || count > layers.length
-      ) return false;
-      if (historyPort === null) {
-        const closing = layers.at(-count)!;
-        writeNavigation('replace', get().place, layers.slice(0, -count));
-        restoreFocusTo(returnFocusTo ?? closing.returnFocusTo);
-        return true;
-      }
-      historyTraversalPending = true;
-      pendingBackFocusTo = returnFocusTo ?? null;
-      historyPort.back(count);
-      return true;
-    };
-
-    const freshLayer = (
-      kind: Exclude<LayerKind, 'place'>,
-      target: unknown,
-      returnFocusTo: string,
-    ): Layer => ({
-      kind,
-      id: newLayerId(),
-      target,
-      returnFocusTo,
-    });
 
     /** Issue ONE guarded query on a lane: track its cancel, deliver only while
      *  the lease holds, swallow typed cancellation, surface real failures. The
@@ -2256,6 +2053,7 @@ export function createAppRuntime(
 
     // The store starts EMPTY — the demo notebook is the composition root's
     // seeding decision (store-instance.ts), not baked model state.
+    scheduleNavigationFooterPassage = scheduleFooterPassage;
     return {
       bootstrap: { phase: 'initializing' },
       projectSession: null,
@@ -2268,54 +2066,8 @@ export function createAppRuntime(
       workspacePersistence: { phase: 'idle' },
       interaction: NO_INTERACTION,
       interactionError: null,
-      place: bootRoute.place ?? 'inputs',
-      routeStatus: bootRoute.place === null ? 'pending' : 'resolved',
-      layers: initialLayers,
-      setPlace(place) {
-        if (
-          !PLACES.includes(place)
-          || (place === get().place && get().routeStatus === 'resolved')
-        ) return;
-        const next: Layer = {
-          kind: 'place',
-          id: newLayerId(),
-          target: Object.freeze({ place }),
-          returnFocusTo: placeReturnFocusTo(get().place),
-        };
-        const layers = pushLayerStack(get().layers, next);
-        rememberLayer(next, layers);
-        writeNavigation('push', place, layers, { resolveRoute: true });
-      },
-      replacePlace(place) {
-        if (
-          !PLACES.includes(place)
-          || (place === get().place && get().routeStatus === 'resolved')
-        ) return;
-        const next: Layer = {
-          kind: 'place',
-          id: newLayerId(),
-          target: Object.freeze({ place }),
-          returnFocusTo: placeReturnFocusTo(get().place),
-        };
-        const layers = replaceTopLayer(get().layers, next);
-        rememberLayer(next, layers);
-        writeNavigation('replace', place, layers, { resolveRoute: true });
-      },
-      pushLayer(kind, target, returnFocusTo) {
-        const next = freshLayer(kind, target, returnFocusTo);
-        const layers = pushLayerStack(get().layers, next);
-        rememberLayer(next, layers);
-        writeNavigation('push', get().place, layers);
-      },
-      replaceLayer(kind, target, returnFocusTo) {
-        const next = freshLayer(kind, target, returnFocusTo);
-        const layers = replaceTopLayer(get().layers, next);
-        rememberLayer(next, layers);
-        writeNavigation('replace', get().place, layers);
-      },
-      popLayer(count = 1, returnFocusTo) {
-        return requestBack(count, returnFocusTo);
-      },
+      ...navigation.initial,
+      ...navigation.actions,
       notebook: { schema: 'texttrends/query-notebook/3', groups: [] },
       activeGroupIds: new Set<string>(),
       soloGroupId: null,
@@ -5395,76 +5147,14 @@ export function createAppRuntime(
     };
   });
 
-  const reconcileHistory = (): void => {
-    if (historyPort === null || disposed) return;
-    readerSeekSession = null;
-    const requestedFocusTo = pendingBackFocusTo;
-    pendingBackFocusTo = null;
-    historyTraversalPending = false;
-    const previous = store.getState();
-    const route = routeFromUrl(historyPort.url);
-    const routePlace = route.place ?? defaultPlaceFor(previous.projectSession?.project);
-    const parsed = parseLayerHistory(historyPort.state);
-    const reconciled = reconcileLayerRefs(parsed.refs, resolveLayer);
-    let layers = reconciled.layers;
-    let staleReader = false;
-    const readerIndex = layers.findIndex((layer) => layer.kind === 'reader');
-    let readerPlace: ReaderPlace | null = null;
-    if (readerIndex >= 0) {
-      const layer = layers[readerIndex]!;
-      readerPlace = liveReaderPlace(
-        layer.target,
-        previous.snapshot?.snapshot ?? null,
-        previous.snapshot?.readyDocs ?? [],
-      );
-      if (readerPlace === null) {
-        layers = layers.slice(0, readerIndex);
-        staleReader = true;
-      }
-    }
-    const readerChanged = !sameReaderPlace(previous.readerPlace, readerPlace);
-    if (readerChanged) readerLane.supersede();
-    store.setState((state) => ({
-      place: routePlace,
-      routeStatus: 'resolved',
-      layers,
-      interaction: state.interaction.kind === 'rsvp'
-        && (
-          readerPlace === null
-          || readerPlace.snapshot !== state.interaction.rsvp.snapshot
-          || readerPlace.doc !== state.interaction.rsvp.doc
-        )
-        ? state.interaction.suspended
-        : state.interaction,
-      notebookError: routePlace === state.place ? state.notebookError : null,
-      readerPlace,
-      readerPage: readerChanged ? null : state.readerPage,
-      readerVisibleRange: readerChanged ? null : state.readerVisibleRange,
-      readerNavigation: readerChanged ? null : state.readerNavigation,
-    }));
-    if (previous.readerPlace !== null && readerPlace === null && previous.scrub !== null) {
-      store.getState().runFooterPassage();
-    }
-    const normalizedUrl = urlWithRoute(historyPort.url, { place: routePlace });
-    if (
-      !parsed.valid
-      || reconciled.truncated
-      || staleReader
-      || relativeHistoryUrl(historyPort.url) !== normalizedUrl
-    ) {
-      historyPort.replace(historyStateFor(layers), normalizedUrl);
-    }
-    const removed = previous.layers.find(
-      (candidate) => !layers.some((layer) => layer.id === candidate.id),
-    );
-    if (removed) {
-      restoreFocusTo(requestedFocusTo ?? removed.returnFocusTo);
-    }
-    if (readerPlace !== null && readerChanged) {
-      store.getState().runReader();
-    }
-  };
-  const unsubscribeHistory = historyPort?.subscribe(reconcileHistory) ?? (() => undefined);
+  navigation.bind(store, {
+    isDisposed: () => disposed,
+    supersedeReader: () => readerLane.supersede(),
+    resetReaderSeek: () => { readerSeekSession = null; },
+    scheduleFooterPassage: (target) => scheduleNavigationFooterPassage(target),
+    runFooterPassage: () => store.getState().runFooterPassage(),
+    runReader: () => store.getState().runReader(),
+  });
 
   const persistence = createWorkspacePersistence(store, opts?.workspace ?? null);
 
@@ -5599,12 +5289,7 @@ export function createAppRuntime(
           : live.layers.slice(0, readerIndex);
         // Snapshot invalidation is store-driven, not a user Back intent:
         // consume the now-unresolvable current entry in place.
-        if (historyPort !== null) {
-          historyPort.replace(
-            historyStateFor(layers),
-            urlWithRoute(historyPort.url, { place: live.place }),
-          );
-        }
+        navigation.replaceEntry(live.place, layers);
         store.setState({
           layers,
           readerPlace: null,
@@ -5646,13 +5331,8 @@ export function createAppRuntime(
       acceptSessionState(next.getState());
       if (workspace !== undefined) store.getState().restoreWorkspace(workspace);
       if (store.getState().routeStatus === 'pending') {
-        const place = defaultPlaceFor(next.getState().project);
-        if (historyPort !== null) {
-          historyPort.replace(
-            historyStateFor(store.getState().layers),
-            urlWithRoute(historyPort.url, { place }),
-          );
-        }
+        const place = navigation.defaultPlaceFor(next.getState().project);
+        navigation.replaceEntry(place, store.getState().layers);
         store.setState({ place, routeStatus: 'resolved' });
       }
       persistence.hydrate();
@@ -5660,12 +5340,7 @@ export function createAppRuntime(
     failBootstrap(error: unknown) {
       if (disposed) return; // a torn-down runtime reports nothing
       const pending = store.getState().routeStatus === 'pending';
-      if (pending && historyPort !== null) {
-        historyPort.replace(
-          historyStateFor(store.getState().layers),
-          urlWithRoute(historyPort.url, { place: 'inputs' }),
-        );
-      }
+      if (pending) navigation.replaceEntry('inputs', store.getState().layers);
       store.setState({
         bootstrap: { phase: 'error', message: msg(error) },
         ...(pending ? { place: 'inputs' as const, routeStatus: 'resolved' as const } : {}),
@@ -5712,12 +5387,7 @@ export function createAppRuntime(
         const layers = readerIndex < 0
           ? state.layers
           : state.layers.slice(0, readerIndex);
-        if (historyPort !== null) {
-          historyPort.replace(
-            historyStateFor(layers),
-            urlWithRoute(historyPort.url, { place: state.place }),
-          );
-        }
+        navigation.replaceEntry(state.place, layers);
         store.setState({
           layers,
           readerPlace: null,
@@ -5730,7 +5400,7 @@ export function createAppRuntime(
       clearPositionHistoryTimer();
       pendingPositionSettle = null;
       pendingPositionReconciliation = null;
-      unsubscribeHistory();
+      navigation.dispose();
       unsubscribe?.();
       unsubscribe = null;
       session?.dispose();
