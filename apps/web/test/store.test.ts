@@ -18,16 +18,18 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createAppRuntime,
-  DEFAULT_KEYNESS_VIEW,
   effectiveKeynessMinDocFreq,
-  emptyLibraryWorkspace,
   reconcileKeynessView,
   MAX_SERIES,
   occurrenceNavigationText,
+} from '../src/lib/store.ts';
+import { DEFAULT_KEYNESS_VIEW } from '../src/lib/app-defaults.ts';
+import {
+  emptyLibraryWorkspace,
   WORKSPACE_SEMANTIC_SOURCE_KEYS,
   workspaceFromApp,
   workspaceSemanticKey,
-} from '../src/lib/store.ts';
+} from '../src/lib/workspace-state.ts';
 import type { MetaPatch, QueryClient, SessionPort, WorkspaceStorePort } from '../src/lib/app-state.ts';
 import type { HistoryPort } from '../src/lib/history-port.ts';
 import type { QueryResultDataV4 } from '../src/worker/protocol-v4.ts';

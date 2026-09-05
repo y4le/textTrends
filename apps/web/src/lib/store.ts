@@ -150,14 +150,6 @@ import { DEFAULT_TREND_BINS, DEFAULT_TREND_MEASURE, DEFAULT_KEYNESS_VIEW } from 
 import { createWorkspacePersistence } from './workspace-persistence.ts';
 import { createNavigationController } from './navigation-controller.ts';
 
-export { DEFAULT_TREND_BINS, DEFAULT_TREND_MEASURE, DEFAULT_KEYNESS_VIEW } from './app-defaults.ts';
-export {
-  workspaceFromApp,
-  workspaceSemanticKey,
-  emptyLibraryWorkspace,
-  WORKSPACE_SEMANTIC_SOURCE_KEYS,
-} from './workspace-state.ts';
-
 /** Source budgets are call-site intent, not the worker's protocol ceiling.
  * The footer is latency-sensitive and only renders one clipped passage; the
  * full Reader gets a larger reservoir for browser-measured pages. */
@@ -657,6 +649,7 @@ export function createAppRuntime(
 
   const navigation = createNavigationController(opts?.history ?? null, newLayerId);
   const { rememberLayer, writeNavigation, freshLayer, requestBack } = navigation;
+  // Assigned during Zustand initialization; navigation callbacks start only after bind.
   let scheduleNavigationFooterPassage!: (target: ScrubTarget) => void;
   const store = create<AppState>((set, get) => {
     const replaceReaderTarget = (

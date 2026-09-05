@@ -10,10 +10,7 @@ import {
   type TrendBinMode,
   type TrendSmoothingWindow,
 } from '@texttrends/core';
-import {
-  DEFAULT_TREND_BINS,
-  DEFAULT_TREND_MEASURE,
-} from '../lib/store.ts';
+import { DEFAULT_TREND_BINS, DEFAULT_TREND_MEASURE } from '../lib/app-defaults.ts';
 import { fullTokenCountsForDocs } from '../lib/doc-tokens.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { estimatedTrendRows, trendBinLimits } from '../lib/trend-settings.ts';

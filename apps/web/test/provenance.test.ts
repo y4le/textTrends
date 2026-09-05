@@ -15,7 +15,7 @@ import {
   resultTableFor,
   type ProvenanceInput,
 } from '../src/lib/provenance.ts';
-import { DEFAULT_KEYNESS_VIEW } from '../src/lib/store.ts';
+import { DEFAULT_KEYNESS_VIEW } from '../src/lib/app-defaults.ts';
 
 const inventory: InventoryResultV1 = {
   method: 'inventory/1',

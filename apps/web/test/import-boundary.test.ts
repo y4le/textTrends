@@ -194,17 +194,23 @@ describe('guided-learning import boundary', () => {
   });
 });
 
-
 describe('application contract boundary', () => {
   it('imports shared contracts directly instead of through the runtime', () => {
     const parse = (file: string) => ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
-    const contracts = new Set(parse(join(SRC, 'lib/app-state.ts')).statements.flatMap((node) =>
-      ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) ? [node.name.text] : []));
+    const contracts = new Set(['app-state.ts', 'app-defaults.ts', 'workspace-state.ts'].flatMap((file) =>
+      parse(join(SRC, 'lib', file)).statements.flatMap((node) => {
+        if (!ts.canHaveModifiers(node) || !ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) return [];
+        if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isFunctionDeclaration(node)) {
+          return node.name ? [node.name.text] : [];
+        }
+        return ts.isVariableStatement(node) ? node.declarationList.declarations.flatMap((declaration) =>
+          ts.isIdentifier(declaration.name) ? [declaration.name.text] : []) : [];
+      })));
     const offenders: string[] = [];
     for (const file of walk(SRC)) {
       for (const node of parse(file).statements) {
         if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) continue;
-        if (resolve(dirname(file), node.moduleSpecifier.text) !== join(SRC, 'lib/store.ts')) continue;
+        if (resolve(dirname(file), node.moduleSpecifier.text).replace(/\.tsx?$/, '') !== join(SRC, 'lib/store')) continue;
         const bindings = node.importClause?.namedBindings;
         if (bindings && (ts.isNamespaceImport(bindings) || bindings.elements.some((item) =>
           contracts.has(item.propertyName?.text ?? item.name.text)))) offenders.push(relative(SRC, file));
