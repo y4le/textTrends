@@ -1,0 +1,454 @@
+/* Original tokens.css lines 2575-3026. Loaded in fixed order by main.tsx.
+ * Rules overlap across these files; moving them requires a cascade review. */
+
+/* Inputs workspace ------------------------------------------------------- */
+
+.input-workspace {
+  margin-block-start: var(--space-3);
+  min-inline-size: 0;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.input-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.input-card {
+  min-inline-size: 0;
+  border: 1px solid var(--rule);
+  padding: var(--space-2);
+}
+
+.input-card-active {
+  grid-column: 1 / -1;
+  border-color: var(--rule-strong);
+}
+
+.input-card-acquisition,
+.input-card-library {
+  grid-column: 1 / -1;
+}
+
+.input-card-acquisition {
+  border-color: var(--rule-strong);
+}
+
+.input-card h4 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.input-card-heading-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.input-card-heading-row > span:not(.input-card-spacer),
+.input-card-help,
+.input-card-status,
+.input-card-empty,
+.local-library-size {
+  color: var(--fg-muted);
+}
+
+.input-card-heading-row button[aria-disabled='true'],
+.input-card-heading-row button:disabled {
+  opacity: 0.55;
+}
+
+.input-card-help,
+.input-card-error,
+.input-card-status,
+.input-card-empty {
+  margin: var(--space-1) 0 0;
+}
+
+.input-card-error {
+  color: var(--accent-text);
+}
+
+.input-card-status:empty {
+  margin: 0;
+}
+
+.input-card-spacer {
+  flex: 1;
+}
+
+.input-file-label {
+  position: relative;
+  display: inline-block;
+  border-block-end: 1px solid currentColor;
+  cursor: pointer;
+}
+
+.input-file-label-primary {
+  flex: 0 0 auto;
+  padding: var(--space-2) 1.25ch;
+  border: 1px solid var(--fg);
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.input-file-label[data-disabled='true'] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.input-file-label input {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.input-file-label:has(input:focus) {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.input-acquisition-options {
+  display: grid;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+
+.input-acquisition-primary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--rule-strong);
+  background: color-mix(in srgb, var(--panel-2) 78%, transparent);
+}
+
+.input-acquisition-primary-collapsed {
+  padding-block: var(--space-1);
+  border-color: var(--rule);
+  background: transparent;
+}
+
+.input-acquisition-primary .input-sample-copy {
+  min-inline-size: min(100%, 18rem);
+}
+
+.input-acquisition-trust {
+  flex: 0 1 auto;
+  margin: 0;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.active-input-row {
+  display: grid;
+  grid-template-columns: 3ch minmax(12ch, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-2);
+  border-block-start: 1px solid var(--rule);
+  padding: 3px 0.5ch;
+}
+
+.active-input-row-pending {
+  grid-template-columns: 3ch minmax(12ch, 1fr) auto auto;
+  color: var(--fg-muted);
+}
+
+.active-input-position {
+  color: var(--fg-muted);
+  text-align: end;
+}
+
+.active-input-title {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.active-input-actions,
+.local-library-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.input-sample {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin-block-start: var(--space-2);
+  padding-block-start: var(--space-2);
+  border-block-start: 1px solid var(--rule);
+}
+
+.input-sample-copy {
+  display: flex;
+  flex: 1 1 28rem;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.input-sample-copy span,
+.input-sample-actions > span,
+.input-sample-message {
+  color: var(--fg-muted);
+}
+
+.input-sample-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.input-sample-actions button[aria-disabled='true'],
+.input-sample-actions button:disabled {
+  cursor: default !important;
+  opacity: 0.55;
+}
+
+.input-sample-message {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.input-sample-compact {
+  font-size: var(--text-xs);
+}
+
+.input-catalog-disclosure {
+  border-block-start: 1px solid var(--rule);
+  padding-block-start: var(--space-2);
+}
+
+.input-catalog-summary {
+  display: grid;
+  inline-size: 100%;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  padding: 0;
+  border: 0;
+  gap: var(--space-2);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+}
+
+.input-catalog-summary::before {
+  content: '›';
+  grid-row: 1 / span 2;
+  color: var(--fg-muted);
+}
+
+.input-catalog-summary[aria-expanded='true']::before {
+  content: '⌄';
+}
+
+.input-catalog-summary > :first-child {
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.input-catalog-summary > :last-child {
+  color: var(--fg-muted);
+}
+
+.input-catalog-body {
+  margin-inline-start: calc(1ch + var(--space-2));
+}
+
+.local-library-row {
+  min-inline-size: 0;
+  inline-size: 100%;
+  box-sizing: border-box;
+  border-block-start: 1px solid var(--rule);
+  padding: 3px 0.5ch;
+}
+
+.local-library-name {
+  flex: 1 1 0;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.local-library-size {
+  white-space: nowrap;
+}
+
+.local-library-filter-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-1);
+  margin-block-start: var(--space-2);
+}
+
+.local-library-filter-row input {
+  min-inline-size: 0;
+  inline-size: 100%;
+  box-sizing: border-box;
+  padding: 2px 0.75ch;
+  font: inherit;
+}
+
+.local-library-filter-row input[aria-invalid='true'] {
+  border-color: var(--accent-text);
+  outline-color: var(--accent-text);
+}
+
+.local-library-filter-status {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-muted);
+}
+
+.local-library-filter-status-invalid {
+  color: var(--accent-text);
+}
+
+.local-library-list-port {
+  max-block-size: 18rem;
+  margin-block-start: var(--space-1);
+  overflow-y: auto;
+  overscroll-behavior-block: contain;
+  scrollbar-gutter: stable;
+}
+
+.local-library-list {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.input-catalog-body,
+.standard-ebooks-catalog,
+.standard-ebooks-catalog-content {
+  display: flex;
+  min-block-size: 0;
+  flex-direction: column;
+}
+
+.standard-ebooks-catalog,
+.standard-ebooks-catalog-content {
+  flex: 1 1 auto;
+}
+
+.standard-ebooks-catalog-content {
+  margin-block-start: var(--space-2);
+}
+
+.standard-ebooks-filter {
+  inline-size: 100%;
+  box-sizing: border-box;
+  padding: 2px 0.75ch;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.standard-ebooks-results {
+  flex: 1 1 auto;
+  min-block-size: 18em;
+  max-block-size: 24rem;
+  margin-block-start: var(--space-2);
+  overflow-y: auto;
+  overscroll-behavior-block: contain;
+  scrollbar-gutter: stable;
+}
+
+.active-input-actions button[aria-disabled='true'] {
+  opacity: 0.55;
+}
+
+@media (pointer: coarse), (any-pointer: coarse) {
+  .input-file-label-primary,
+  .input-acquisition-toggle,
+  .input-card-library .input-file-label {
+    min-block-size: 44px;
+    box-sizing: border-box;
+  }
+
+  .input-file-label-primary,
+  .input-card-library .input-file-label {
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+@media (max-width: 799.98px) {
+  .input-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .active-input-row,
+  .active-input-row-pending {
+    grid-template-columns: 3ch minmax(0, 1fr);
+  }
+
+  .active-input-actions,
+  .active-input-row-pending > :nth-child(n + 3) {
+    grid-column: 2;
+  }
+
+  .active-input-actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 599.98px) {
+  .input-acquisition-trust {
+    white-space: normal;
+  }
+
+  .input-catalog-body {
+    margin-inline-start: 0;
+  }
+
+  :root {
+    scroll-padding-block:
+      calc(var(--chrome-target-block-size) + var(--space-2))
+      calc(var(--lens-block-size) + var(--dock-block-size) + var(--space-2));
+  }
+}
+
+.lens-organ {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-1) 0 var(--space-1) var(--space-2);
+}
+
+.lens-organ a {
+  display: inline-flex;
+  min-inline-size: 0;
+  min-block-size: var(--data-header-block-size);
+  align-items: center;
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid transparent;
+  color: var(--fg-muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.lens-organ a[aria-current='page'] {
+  border-bottom-color: var(--fg);
+  color: var(--fg);
+}

@@ -1,0 +1,115 @@
+/* Original tokens.css lines 8497-8609. Loaded in fixed order by main.tsx.
+ * Rules overlap across these files; moving them requires a cascade review. */
+
+/* The full five-place navigation leaves the header before it can consume the
+ * scope track. This fit threshold is deliberately independent of the 600px
+ * compact-density breakpoint: 600–959px keeps regular content density while
+ * reserving a bottom navigation row. */
+@media (min-width: 600px) and (max-width: 959.98px) {
+  :root {
+    --lens-block-size: calc(var(--chrome-target-block-size) + 2 * var(--space-1) + 1px);
+    scroll-padding-block:
+      calc(var(--chrome-target-block-size) + var(--space-2))
+      calc(var(--lens-block-size) + var(--dock-block-size) + var(--space-2));
+  }
+
+  .app-shell,
+  .app-shell[data-place='matches'],
+  .app-shell[data-place='vocabulary'],
+  .app-shell[data-place='compare'] {
+    padding-block-end:
+      calc(
+        var(--lens-block-size)
+        + var(--dock-block-size)
+        + env(safe-area-inset-bottom, 0px)
+      );
+  }
+
+  .workbench-dock {
+    inset-block-end:
+      calc(
+        var(--lens-block-size)
+        + var(--keyboard-inset)
+        + env(safe-area-inset-bottom, 0px)
+      );
+  }
+
+  .lens-organ {
+    position: fixed;
+    z-index: 40;
+    inset-inline: 0;
+    inset-block-end: 0;
+    justify-content: space-evenly;
+    gap: 0;
+    padding:
+      var(--space-1)
+      env(safe-area-inset-right, 0px)
+      calc(var(--space-1) + env(safe-area-inset-bottom, 0px))
+      env(safe-area-inset-left, 0px);
+    border-top: 1px solid var(--rule-strong);
+    background: var(--bg);
+  }
+
+  .lens-organ a {
+    min-block-size: var(--chrome-target-block-size);
+    justify-content: center;
+    padding-inline: var(--space-1);
+    font-size: var(--text-sm);
+  }
+}
+
+@media (pointer: coarse), (any-pointer: coarse) {
+  .workbench-dock {
+    overscroll-behavior: none;
+    touch-action: pan-x pinch-zoom;
+  }
+
+  .term-bucket-port {
+    overflow-y: hidden;
+    touch-action: pan-x;
+  }
+
+  .footer-passage-retry {
+    min-inline-size: 44px;
+    min-block-size: 44px;
+  }
+
+}
+
+.workbench-dock[data-mode='reader'] {
+  inset-inline:
+    calc(var(--space-3) + env(safe-area-inset-left, 0px))
+    calc(var(--space-3) + env(safe-area-inset-right, 0px));
+  inset-block-end:
+    calc(var(--keyboard-inset) + env(safe-area-inset-bottom, 0px));
+}
+
+.workbench-dock[data-mode='reader'] > .query-region:not(.find-bar) {
+  overflow: hidden;
+}
+
+.workbench-dock[data-mode='reader'][data-terms-dropped='true'] > .query-region {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+@media (max-width: 599.98px) {
+  .workbench-dock[data-mode='reader'] {
+    inset-inline:
+      calc(var(--space-2) + env(safe-area-inset-left, 0px))
+      calc(var(--space-2) + env(safe-area-inset-right, 0px));
+    inset-block-end:
+      calc(var(--keyboard-inset) + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

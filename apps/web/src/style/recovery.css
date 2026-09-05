@@ -1,0 +1,30 @@
+/* Original tokens.css lines 8610-8637. Loaded in fixed order by main.tsx.
+ * Rules overlap across these files; moving them requires a cascade review. */
+
+/* An exceptional durability warning stays reachable even in full-page Reader. */
+.workspace-save-warning {
+  position: fixed;
+  z-index: 76;
+  inset-block-start: calc(var(--page-shell-pad-block-start) + var(--app-header-block-size) + max(8px, env(safe-area-inset-top)));
+  inset-inline-end: max(8px, env(safe-area-inset-right));
+  inline-size: min(32rem, calc(100% - 16px));
+  max-block-size: 35dvh;
+  overflow: auto;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 2px solid var(--accent-text);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.workspace-save-warning button { justify-self: start; }
+
+.view-load-error {
+  margin: var(--space-4) auto;
+  padding: var(--space-4);
+  max-inline-size: 44rem;
+  border: 1px solid var(--rule-strong);
+}
+.view-load-error button { margin-inline-end: var(--space-3); }

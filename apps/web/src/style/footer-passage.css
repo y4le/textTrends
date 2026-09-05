@@ -1,0 +1,318 @@
+/* Original tokens.css lines 8181-8496. Loaded in fixed order by main.tsx.
+ * Rules overlap across these files; moving them requires a cascade review. */
+
+/* The source passage owns the complete two-line reading area. Extending its
+ * native scrollport behind the visual status readout gives wheel and touch the
+ * exact same browser-owned scrub path everywhere in that area. */
+.footer-interactive[data-passage='true'][data-status='true'] .footer-passage-scrollable {
+  block-size:
+    calc(
+      var(--footer-passage-height)
+      + var(--footer-lane-gap)
+      + var(--footer-status-height)
+    );
+  margin-block-end:
+    calc(-1 * (var(--footer-lane-gap) + var(--footer-status-height)));
+}
+
+.footer-passage-scrollable::-webkit-scrollbar {
+  display: none;
+}
+
+.footer-passage-coarse {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+  overscroll-behavior: none;
+  touch-action: pan-x pinch-zoom;
+}
+
+.footer-passage-scroll-content {
+  position: relative;
+  display: block;
+  block-size: 100%;
+}
+
+.footer-passage-coarse .footer-passage-text {
+  pointer-events: none;
+}
+
+.footer-passage-retry {
+  padding: 0;
+  border: 0;
+  border-block-end: 1px solid var(--rule-strong);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.footer-passage-retry-overlay {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  block-size: 100%;
+  padding-inline: var(--space-2);
+  border-block-end: 0;
+  background: var(--bg);
+}
+
+.footer-passage-node {
+  padding: 0;
+  border: 0;
+  border-block-end: 1px solid var(--rule-strong);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.footer-passage-node:focus-visible,
+.footer-passage-coarse:focus-visible,
+.footer-passage-retry:focus-visible {
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
+}
+
+.footer-reading-status {
+  position: relative;
+  z-index: 1;
+  block-size: var(--footer-status-height);
+  margin-block-start: var(--footer-lane-gap);
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--footer-status-height);
+  text-align: center;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.footer-strip {
+  position: relative;
+  inline-size: 100%;
+  min-inline-size: 0;
+  margin-block-start: var(--footer-lane-gap);
+  overflow: hidden;
+  outline: none;
+  cursor: crosshair;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+.footer-strip[data-shuttling='true'] {
+  cursor: ew-resize;
+}
+
+.footer-strip[data-range-armed='true'],
+.footer-strip[data-range-brushing='true'] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.footer-strip:focus-visible {
+  outline: 1px solid var(--fg);
+  outline-offset: -1px;
+}
+
+.footer-strip-static,
+.footer-sparkline {
+  position: absolute;
+  inset: 0;
+  display: block;
+  inline-size: 100%;
+  pointer-events: none;
+}
+
+.footer-book-boundary {
+  position: absolute;
+  z-index: 2;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 1px;
+  background: var(--rule-strong);
+  pointer-events: none;
+}
+
+.footer-range {
+  position: absolute;
+  z-index: 2;
+  inset-block: 0;
+  border-inline: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  pointer-events: none;
+}
+
+.footer-progress-track {
+  position: absolute;
+  z-index: 3;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+  pointer-events: none;
+}
+
+.footer-progress-fill {
+  inline-size: 100%;
+  block-size: 100%;
+  background: var(--fg);
+  transform-origin: left center;
+}
+
+.footer-cursor {
+  position: absolute;
+  z-index: 4;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  inline-size: 1px;
+  background: var(--fg);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.footer-strip[data-touch-scrubbing='true'] .footer-cursor {
+  inline-size: 3px;
+  margin-inline-start: -1px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.trend-range-handle {
+  position: absolute;
+  z-index: 3;
+  inline-size: 44px;
+  block-size: 44px;
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+  background: transparent;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.trend-range-handle-mark {
+  position: absolute;
+  inset-block: 5px;
+  inline-size: 3px;
+  border-radius: 2px;
+  background: currentColor;
+  box-shadow:
+    -3px 0 0 color-mix(in srgb, var(--bg) 76%, transparent),
+    3px 0 0 color-mix(in srgb, var(--bg) 76%, transparent);
+}
+
+.trend-range-handle[data-dragging='true'] .trend-range-handle-mark {
+  inline-size: 5px;
+}
+
+.trend-range-handle-start .trend-range-handle-mark {
+  inset-block-start: 5px;
+}
+
+.trend-range-handle-end .trend-range-handle-mark {
+  inset-block-end: 5px;
+}
+
+.trend-title-controls {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  pointer-events: none;
+}
+
+.trend-title-control {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.trend-title-control:hover {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.trend-title-control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+
+.trend-title-control:disabled {
+  pointer-events: none;
+}
+
+@media (max-width: 599.98px) {
+  :root {
+    --lens-block-size: calc(var(--chrome-target-block-size) + 2 * var(--space-1) + 1px);
+    --terms-rail-block-size: 50px;
+    --term-target-block-size: 36px;
+  }
+
+  .app-shell {
+    padding-block-end:
+      calc(
+        var(--lens-block-size)
+        + var(--dock-block-size)
+        + env(safe-area-inset-bottom, 0px)
+      );
+  }
+
+  .workbench-dock {
+    inset-inline:
+      calc(var(--space-3) + env(safe-area-inset-left, 0px))
+      calc(var(--space-3) + env(safe-area-inset-right, 0px));
+    inset-block-end:
+      calc(
+        var(--lens-block-size)
+        + var(--keyboard-inset)
+        + env(safe-area-inset-bottom, 0px)
+      );
+  }
+
+  .footer-passage {
+    font-size: var(--text-xs);
+    line-height: 18px;
+  }
+
+  .footer-passage-text {
+    inset-block-start: calc((var(--footer-passage-height) - 18px) / 2);
+  }
+
+  .footer-reading-status {
+    line-height: var(--footer-status-height);
+  }
+}
+
+@media (max-width: 599.98px) and (orientation: landscape) {
+  .app-shell {
+    padding-block-end:
+      calc(var(--page-shell-pad-block) + var(--dock-block-size) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .app-shell[data-place='matches'] {
+    padding-block-start: env(safe-area-inset-top, 0px);
+    padding-block-end:
+      calc(var(--dock-block-size) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .workbench-dock {
+    inset-inline:
+      calc(8.5rem + env(safe-area-inset-left, 0px))
+      calc(var(--space-3) + env(safe-area-inset-right, 0px));
+    inset-block-end:
+      calc(var(--keyboard-inset) + env(safe-area-inset-bottom, 0px));
+  }
+}

@@ -1,0 +1,253 @@
+/* Original tokens.css lines 7930-8180. Loaded in fixed order by main.tsx.
+ * Rules overlap across these files; moving them requires a cascade review. */
+
+/* Corpus-order reading footer. Its CSS reservation is published by the
+ * mounted component so pages never disappear underneath the fixed strip.
+ * These late app-shell rules intentionally follow the earlier responsive
+ * shell declarations; the matching compact overrides below must stay later. */
+.app-shell {
+  padding-block-end:
+    calc(var(--page-shell-pad-block) + var(--dock-block-size) + env(safe-area-inset-bottom, 0px));
+}
+
+.app-shell[data-place='matches'],
+.app-shell[data-place='vocabulary'],
+.app-shell[data-place='compare'] {
+  display: flex;
+  block-size: calc(100vh - var(--keyboard-inset));
+  block-size: calc(100dvh - var(--keyboard-inset));
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (min-width: 600px) {
+  .app-shell[data-place='matches'],
+  .app-shell[data-place='vocabulary'],
+  .app-shell[data-place='compare'] {
+    padding-block-end:
+      calc(var(--dock-block-size) + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.app-shell[data-place='matches'] .workbench,
+.app-shell[data-place='matches'] .place-region,
+.app-shell[data-place='matches'] .place-surface,
+.app-shell[data-place='matches'] .kwic-panel,
+.app-shell[data-place='matches'] .kwic-grid-shell {
+  min-block-size: 0;
+}
+
+.app-shell[data-place='matches'] .workbench,
+.app-shell[data-place='matches'] .place-region,
+.app-shell[data-place='matches'] .place-surface,
+.app-shell[data-place='matches'] .kwic-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.app-shell[data-place='matches'] .kwic-grid-shell {
+  flex: 1 1 auto;
+}
+
+.app-shell[data-place='vocabulary'] .workbench,
+.app-shell[data-place='vocabulary'] .place-region,
+.app-shell[data-place='vocabulary'] .place-surface,
+.app-shell[data-place='vocabulary'] .frequency-panel,
+.app-shell[data-place='vocabulary'] .frequency-table-shell {
+  min-block-size: 0;
+}
+
+.app-shell[data-place='vocabulary'] .workbench,
+.app-shell[data-place='vocabulary'] .place-region,
+.app-shell[data-place='vocabulary'] .place-surface,
+.app-shell[data-place='vocabulary'] .frequency-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.app-shell[data-place='vocabulary'] .frequency-table-shell {
+  flex: 1 1 auto;
+}
+
+.app-shell[data-place='compare'] .workbench,
+.app-shell[data-place='compare'] .place-region,
+.app-shell[data-place='compare'] .place-surface,
+.app-shell[data-place='compare'] .compare-panel,
+.app-shell[data-place='compare'] .compare-axis-section,
+.app-shell[data-place='compare'] .compare-table-port {
+  min-block-size: 0;
+}
+
+.app-shell[data-place='compare'] .workbench,
+.app-shell[data-place='compare'] .place-region,
+.app-shell[data-place='compare'] .place-surface,
+.app-shell[data-place='compare'] .compare-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.workbench-dock {
+  position: fixed;
+  z-index: 30;
+  display: grid;
+  grid-template-rows:
+    var(--terms-local-block-size, var(--terms-rail-block-size)) minmax(0, 1fr);
+  inset-inline:
+    calc(var(--space-4) + env(safe-area-inset-left, 0px))
+    calc(var(--space-4) + env(safe-area-inset-right, 0px));
+  inset-block-end:
+    calc(var(--keyboard-inset) + env(safe-area-inset-bottom, 0px));
+  block-size: var(--dock-local-block-size, var(--dock-block-size));
+  min-inline-size: 0;
+  overflow: visible;
+  background: var(--bg);
+}
+
+.workbench-footer {
+  position: relative;
+  block-size: var(--footer-local-block-size);
+  min-inline-size: 0;
+  padding-block: var(--footer-pad-block);
+  overflow: visible;
+  border-block-start: 1px solid var(--rule-strong);
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
+  color: var(--fg);
+}
+
+.footer-interactive {
+  block-size: 100%;
+  overflow: hidden;
+}
+
+.footer-interactive:not([data-passage='true']) .footer-strip {
+  margin-block-start: 0;
+}
+
+.footer-resize-handle {
+  position: absolute;
+  z-index: 8;
+  inset-block-start: calc(-1 * var(--dock-resize-handle-inward));
+  inset-inline: 0;
+  display: flex;
+  block-size: calc(2 * var(--dock-resize-handle-inward));
+  align-items: center;
+  justify-content: center;
+  outline: none;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.footer-resize-handle span {
+  inline-size: 36px;
+  block-size: 3px;
+  border: 1px solid var(--rule-strong);
+  background: var(--bg);
+}
+
+.footer-resize-handle:hover span,
+.footer-resize-handle:focus-visible span,
+.footer-resize-handle[data-resizing='true'] span {
+  border-color: var(--fg);
+  background: var(--rule-strong);
+}
+
+.footer-resize-handle:focus-visible span {
+  outline: 1px solid var(--bg);
+  outline-offset: 1px;
+}
+
+.workbench-dock[data-terms-compressed='true'] .term-bucket-port {
+  scrollbar-width: none;
+}
+
+.workbench-dock[data-terms-flush='true'] .term-bar-actions {
+  align-self: stretch;
+}
+
+.workbench-dock[data-terms-flush='true'] .term-bar {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.workbench-dock[data-terms-flush='true'] .term-bucket-frame {
+  block-size: auto;
+  min-block-size: 0;
+  align-self: stretch;
+}
+
+.workbench-dock[data-terms-flush='true'] .term-bucket-port {
+  block-size: 100%;
+  align-items: stretch;
+}
+
+.workbench-dock[data-terms-flush='true'] .term-bucket {
+  block-size: 100%;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.workbench-dock[data-terms-flush='true'] .term-bucket button {
+  block-size: 100%;
+  min-block-size: 0;
+  line-height: 1;
+}
+
+.workbench-dock[data-terms-compressed='true'] .term-bucket-port::-webkit-scrollbar {
+  display: none;
+}
+
+html[data-footer-resizing='true'],
+html[data-footer-resizing='true'] * {
+  cursor: ns-resize !important;
+  user-select: none !important;
+}
+
+.footer-passage {
+  position: relative;
+  block-size: var(--footer-passage-height);
+  min-inline-size: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 20px;
+  font-kerning: none;
+  font-variant-ligatures: none;
+  white-space: pre;
+}
+
+.footer-passage-text {
+  position: absolute;
+  inset-block-start: calc((var(--footer-passage-height) - 20px) / 2);
+  display: inline-block;
+  min-inline-size: max-content;
+  white-space: pre;
+  will-change: transform;
+}
+
+.footer-passage-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+.footer-passage-stale {
+  color: var(--fg-muted);
+  opacity: 0.62;
+}
+
+.footer-passage-stale .footer-passage-text {
+  pointer-events: none;
+}
+
+.footer-passage-scrollable {
+  display: block;
+  inline-size: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: none;
+  scrollbar-width: none;
+}
