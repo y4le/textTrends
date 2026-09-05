@@ -307,18 +307,9 @@
   font: inherit;
 }
 
-.local-library-filter-row input[aria-invalid='true'] {
-  border-color: var(--accent-text);
-  outline-color: var(--accent-text);
-}
-
 .local-library-filter-status {
   margin: var(--space-1) 0 0;
   color: var(--fg-muted);
-}
-
-.local-library-filter-status-invalid {
-  color: var(--accent-text);
 }
 
 .local-library-list-port {
