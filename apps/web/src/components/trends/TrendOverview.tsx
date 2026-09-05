@@ -4,7 +4,7 @@ import type {
   DestinationFocusIntent,
   DestinationsState,
   SeriesIntent,
-} from '../../lib/store.ts';
+} from '../../lib/app-state.ts';
 import type { ReaderOpenIntent } from '../../lib/reader-intent.ts';
 import { companyPairs } from '../../lib/trend-overview.ts';
 import { CompanyPanel } from './CompanyPanel.tsx';

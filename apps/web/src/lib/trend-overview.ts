@@ -6,10 +6,7 @@ import {
   collapseTextWithMarks,
   segmentMarks,
 } from './marks-view.ts';
-import type {
-  DestinationFocusIntent,
-  SeriesIntent,
-} from './store.ts';
+import type { DestinationFocusIntent, SeriesIntent } from './app-state.ts';
 
 /** A presentation threshold derived exactly from the published Company
  * histogram. Buckets whose lower edge is below 25 represent gaps <25 tokens. */

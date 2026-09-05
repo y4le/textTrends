@@ -71,7 +71,7 @@ import {
   type TrendStagePointerIntent,
   type TrendStageSpec,
 } from '../lib/trend-geometry.ts';
-import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
+import type { ScrubTarget, SeriesIntent } from '../lib/app-state.ts';
 import {
   nextTrendView,
   TREND_VIEW_ORDER,

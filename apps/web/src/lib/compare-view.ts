@@ -5,11 +5,7 @@ import {
   type KeynessRowV1,
   type KeynessSortFieldV1,
 } from '@texttrends/core';
-import type {
-  KeynessSettingsInputV1,
-  KeynessTableState,
-  KeynessViewV1,
-} from './store.ts';
+import type { KeynessSettingsInputV1, KeynessTableState, KeynessViewV1 } from './app-state.ts';
 
 export interface CompareRowTarget {
   readonly surface: 'compare-row';

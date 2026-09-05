@@ -3,7 +3,7 @@ import type { ReaderPosition } from './reader-position.ts';
 import { readerSpeedEntryLabel } from './reader-cursor.ts';
 import type { ReaderScale } from './reader-view.ts';
 import type { ShortcutId } from './shortcuts.ts';
-import type { ReaderNavigationTarget } from './store.ts';
+import type { ReaderNavigationTarget } from './app-state.ts';
 
 export type ReaderCommandId =
   | 'exit'

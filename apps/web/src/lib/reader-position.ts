@@ -2,7 +2,7 @@ import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import type { ReaderPlace } from './reader-intent.ts';
 import { readerCursorToken } from './reader-intent.ts';
 import { readerProgress } from './reader-progress.ts';
-import type { ReaderVisibleRangeV1 } from './store.ts';
+import type { ReaderVisibleRangeV1 } from './app-state.ts';
 
 export interface ReaderPositionInput {
   readonly place: ReaderPlace | null;

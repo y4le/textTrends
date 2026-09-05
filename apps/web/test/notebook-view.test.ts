@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { countFor, notebookRows, trendTotal } from '../src/lib/notebook-view.ts';
 import type { NotebookGroupV1 } from '../src/lib/notebook.ts';
 import type { NumericTrend } from '@texttrends/core';
-import type { SeriesTrendState } from '../src/lib/store.ts';
+import type { SeriesTrendState } from '../src/lib/app-state.ts';
 
 function fakeTrend(counts: readonly number[]): NumericTrend {
   return {

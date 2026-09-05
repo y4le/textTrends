@@ -3,7 +3,7 @@ import type {
   CompanyResultV1,
   DestinationsResultV1,
 } from '../src/shared/analysis-contract.ts';
-import type { SeriesIntent } from '../src/lib/store.ts';
+import type { SeriesIntent } from '../src/lib/app-state.ts';
 import {
   companyPairs,
   destinationCards,

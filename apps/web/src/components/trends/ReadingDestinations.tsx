@@ -1,10 +1,6 @@
 import { useMemo } from 'react';
 import { seriesColor } from '../../lib/series-style.ts';
-import type {
-  DestinationFocusIntent,
-  DestinationsState,
-  SeriesIntent,
-} from '../../lib/store.ts';
+import type { DestinationFocusIntent, DestinationsState, SeriesIntent } from '../../lib/app-state.ts';
 import { destinationCards } from '../../lib/trend-overview.ts';
 import type { ReaderOpenIntent } from '../../lib/reader-intent.ts';
 

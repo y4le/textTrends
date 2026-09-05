@@ -19,12 +19,8 @@ import type { WorkspaceV1 } from '@texttrends/core';
 import { WorkerClient } from './client.ts';
 import { RingTrace } from './trace.ts';
 import type { ProjectSession } from './project-session.ts';
-import {
-  createAppRuntime,
-  emptyLibraryWorkspace,
-  workspaceSemanticKey,
-  type WorkspaceStorePort,
-} from './store.ts';
+import { createAppRuntime, emptyLibraryWorkspace, workspaceSemanticKey } from './store.ts';
+import type { WorkspaceStorePort } from './app-state.ts';
 import { createResumeMonitor } from './resume.ts';
 import { browserHistoryPort } from './history-port.ts';
 import { pendingAnalysisCount } from './pending-analyses.ts';

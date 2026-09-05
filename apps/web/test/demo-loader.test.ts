@@ -9,7 +9,7 @@ import {
   builtinCorpusOption,
   demoCorpusFixtures,
 } from '../src/lib/project.ts';
-import type { AppState } from '../src/lib/store.ts';
+import type { AppState } from '../src/lib/app-state.ts';
 
 function harness(fetchCorpus: () => Promise<LoadedDemoCorpus>) {
   const lease = Symbol('demo lease');

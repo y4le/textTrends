@@ -1,5 +1,5 @@
 import { seriesColor } from '../../lib/series-style.ts';
-import type { CompanyState } from '../../lib/store.ts';
+import type { CompanyState } from '../../lib/app-state.ts';
 import {
   COMPANY_NEARBY_GAP_EXCLUSIVE,
   formatCompanyCoverage,

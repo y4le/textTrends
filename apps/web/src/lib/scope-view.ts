@@ -1,4 +1,4 @@
-import type { InventoryState, KeynessViewV1 } from './store.ts';
+import type { InventoryState, KeynessViewV1 } from './app-state.ts';
 import { sameSelection, selectionTokenCount, type TokenRangeSelectionV1 } from './selection.ts';
 import type { Place } from './places.ts';
 

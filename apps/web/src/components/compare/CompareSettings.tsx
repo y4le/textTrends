@@ -3,7 +3,7 @@ import {
   type FrequencyTokenClassV1,
   type KeynessSortFieldV1,
 } from '@texttrends/core';
-import type { KeynessSettingsInputV1 } from '../../lib/store.ts';
+import type { KeynessSettingsInputV1 } from '../../lib/app-state.ts';
 import { toggleCompareClass } from '../../lib/compare-view.ts';
 
 const SORTS: readonly {

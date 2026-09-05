@@ -4,7 +4,7 @@ import {
   type NotebookRowVM,
 } from './notebook-view.ts';
 import type { NotebookGroupV1, SeriesStyleV1 } from './notebook.ts';
-import type { SeriesTrendState } from './store.ts';
+import type { SeriesTrendState } from './app-state.ts';
 
 export type QueryEditorTarget =
   | {

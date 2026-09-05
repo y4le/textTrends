@@ -1,8 +1,5 @@
 import type { NumericTrend } from '@texttrends/core';
-import type {
-  InventoryState,
-  SeriesTrendState,
-} from './store.ts';
+import type { InventoryState, SeriesTrendState } from './app-state.ts';
 
 export interface DocTokenSources {
   /** Snapshot-bound extents retained when the visible inventory becomes

@@ -13,10 +13,7 @@ import {
   compareTarget,
   compareTargetIsStale,
 } from '../src/lib/compare-view.ts';
-import type {
-  KeynessTableState,
-  KeynessViewV1,
-} from '../src/lib/store.ts';
+import type { KeynessTableState, KeynessViewV1 } from '../src/lib/app-state.ts';
 
 const view: KeynessViewV1 = {
   schema: 'texttrends/keyness-view/1',

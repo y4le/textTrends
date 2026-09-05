@@ -7,10 +7,7 @@ import type {
   NumericTrend,
   WorkspaceTrendMeasureV1,
 } from '@texttrends/core';
-import type {
-  FrequencyViewV2,
-  KeynessViewV1,
-} from './store.ts';
+import type { FrequencyViewV2, KeynessViewV1 } from './app-state.ts';
 import type { Place } from './places.ts';
 import { selectionTokenCount, type TokenRangeSelectionV1 } from './selection.ts';
 

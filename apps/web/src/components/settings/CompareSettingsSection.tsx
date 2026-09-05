@@ -3,7 +3,7 @@ import {
   compareSettingsError,
   compareSettingsInput,
 } from '../../lib/compare-view.ts';
-import type { KeynessSettingsInputV1 } from '../../lib/store.ts';
+import type { KeynessSettingsInputV1 } from '../../lib/app-state.ts';
 import { useApp } from '../../lib/store-instance.ts';
 import { CompareSettings } from '../compare/CompareSettings.tsx';
 

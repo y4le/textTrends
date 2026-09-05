@@ -1,7 +1,7 @@
 import type { NumericTrend } from '@texttrends/core';
 import { describe, expect, it } from 'vitest';
 import { catalogTotals } from '../src/lib/catalog-totals.ts';
-import type { SeriesIntent, SeriesTrendState } from '../src/lib/store.ts';
+import type { SeriesIntent, SeriesTrendState } from '../src/lib/app-state.ts';
 import { termBookTotals } from '../src/lib/term-book-totals.ts';
 
 const term: SeriesIntent = {

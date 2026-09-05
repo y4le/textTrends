@@ -14,7 +14,7 @@
  */
 
 import { groupTitle, type NumericTrend, type SeriesStyleV1 } from '@texttrends/core';
-import type { SeriesTrendState } from './store.ts';
+import type { SeriesTrendState } from './app-state.ts';
 import type { NotebookGroupV1 } from './notebook.ts';
 
 export type GroupCountVM =

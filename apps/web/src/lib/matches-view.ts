@@ -1,4 +1,5 @@
-import { kwicRowKey, type KwicRowView } from './store.ts';
+import { kwicRowKey } from './store.ts';
+import type { KwicRowView } from './app-state.ts';
 import type { SeriesStyleV1 } from '@texttrends/core';
 import { collapseTextWithMarks, segmentMarks } from './marks-view.ts';
 

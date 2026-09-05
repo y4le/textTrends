@@ -12,7 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
-import type { ReaderVisibleRangeV1 } from '../lib/store.ts';
+import type { ReaderVisibleRangeV1 } from '../lib/app-state.ts';
 import { findScope } from '../lib/interaction.ts';
 import { groupIdentity, groupTitle } from '../lib/notebook.ts';
 import { trackLegend, type TrackLegendEntry } from '../lib/track-legend.ts';

@@ -3,7 +3,7 @@ import {
   type FrequencyListRowV1,
   type FrequencySortFieldV1,
 } from '@texttrends/core';
-import type { FrequencyState } from './store.ts';
+import type { FrequencyState } from './app-state.ts';
 
 export interface VocabularyRowTarget {
   readonly surface: 'vocab-row';

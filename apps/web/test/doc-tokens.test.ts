@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InventoryResultV1, NumericTrend } from '@texttrends/core';
-import type { InventoryState, SeriesTrendState } from '../src/lib/store.ts';
+import type { InventoryState, SeriesTrendState } from '../src/lib/app-state.ts';
 import { fullTokenCountsForDocs, fullTokensByDoc } from '../src/lib/doc-tokens.ts';
 
 const inventoryResult = (doc: string, fullTokens: number): InventoryResultV1 => ({

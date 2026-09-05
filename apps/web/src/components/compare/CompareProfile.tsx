@@ -4,7 +4,7 @@ import {
   type CompareProfileFormat,
   type CompareProfileMetricV1,
 } from '../../lib/compare-profile.ts';
-import type { KeynessInventoryState } from '../../lib/store.ts';
+import type { KeynessInventoryState } from '../../lib/app-state.ts';
 import { InfoTooltip } from '../InfoTooltip.tsx';
 
 const count = new Intl.NumberFormat('en-US');

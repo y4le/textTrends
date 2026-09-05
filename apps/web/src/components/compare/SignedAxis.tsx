@@ -16,10 +16,7 @@ import {
   type CompareRowTarget,
   type CompareScale,
 } from '../../lib/compare-view.ts';
-import type {
-  KeynessTableState,
-  KeynessViewV1,
-} from '../../lib/store.ts';
+import type { KeynessTableState, KeynessViewV1 } from '../../lib/app-state.ts';
 import { CompareRowDetail } from './CompareRowDetail.tsx';
 import {
   useRowNavigation,

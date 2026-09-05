@@ -3,7 +3,7 @@ import {
   matchesRows,
   oneLine,
 } from '../src/lib/matches-view.ts';
-import type { KwicRowView } from '../src/lib/store.ts';
+import type { KwicRowView } from '../src/lib/app-state.ts';
 
 const ROW: KwicRowView = {
   seriesId: 'series-a',

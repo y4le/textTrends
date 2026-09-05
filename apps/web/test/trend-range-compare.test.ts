@@ -1,6 +1,6 @@
 import type { NumericTrend } from '@texttrends/core';
 import { describe, expect, it } from 'vitest';
-import type { SeriesIntent, SeriesTrendState } from '../src/lib/store.ts';
+import type { SeriesIntent, SeriesTrendState } from '../src/lib/app-state.ts';
 import {
   selectedTrendsPending,
   trendRangeCompare,

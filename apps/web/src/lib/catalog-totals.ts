@@ -1,5 +1,5 @@
 import { TREND_RATE_DENOMINATOR } from '@texttrends/core';
-import type { SeriesIntent, SeriesTrendState } from './store.ts';
+import type { SeriesIntent, SeriesTrendState } from './app-state.ts';
 import { termBookTotals } from './term-book-totals.ts';
 
 export type CatalogTotalsScope = 'full' | 'range';

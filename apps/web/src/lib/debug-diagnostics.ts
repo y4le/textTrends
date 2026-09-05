@@ -2,7 +2,7 @@ import { fingerprint } from '@texttrends/core';
 import { workerProtocolVersion, type WorkerClientDiagnostics } from './client.ts';
 import { LOCAL_LIBRARY_DB_NAME, LOCAL_LIBRARY_DB_VERSION, localLibrary } from './local-library.ts';
 import type { Presentation } from './presentation.ts';
-import type { AppState } from './store.ts';
+import type { AppState } from './app-state.ts';
 import { ARTIFACT_DB_NAME, ARTIFACT_DB_VERSION } from '../shared/storage-schema.ts';
 
 type LaneStatus = 'absent' | 'pending' | 'ready' | 'edge' | 'error';

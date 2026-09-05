@@ -16,7 +16,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
-import type { ScrubIntent } from '../lib/store.ts';
+import type { ScrubIntent } from '../lib/app-state.ts';
 import { findScope } from '../lib/interaction.ts';
 import { fullTokenCountsForDocs } from '../lib/doc-tokens.ts';
 import {

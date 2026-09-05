@@ -2,7 +2,7 @@ import {
   TREND_RATE_DENOMINATOR,
   rateContrast,
 } from '@texttrends/core';
-import type { SeriesIntent, SeriesTrendState } from './store.ts';
+import type { SeriesIntent, SeriesTrendState } from './app-state.ts';
 import { termBookTotals } from './term-book-totals.ts';
 
 export interface TrendRangeSide {

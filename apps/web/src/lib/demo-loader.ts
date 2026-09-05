@@ -8,7 +8,7 @@ import {
   type LocalLibraryFile,
 } from './local-library.ts';
 import { demoCorpusFixtures, type BuiltinCorpusId } from './project.ts';
-import type { AppState } from './store.ts';
+import type { AppState } from './app-state.ts';
 
 export const LIBRARY_BUSY_NOTICE = 'Another input is being saved. Try again when it finishes.';
 

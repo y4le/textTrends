@@ -1,4 +1,4 @@
-import type { ScrubTarget } from './store.ts';
+import type { ScrubTarget } from './app-state.ts';
 
 export const FOOTER_TOUCH_INTENT_PX = 8;
 export const FOOTER_TOUCH_AXIS_RATIO = 1.15;

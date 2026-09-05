@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { AppState } from '../../lib/store.ts';
+import type { AppState } from '../../lib/app-state.ts';
 import { useApp } from '../../lib/store-instance.ts';
 import {
   readOccurrenceActivation,

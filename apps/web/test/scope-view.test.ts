@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InventoryResultV1 } from '@texttrends/core';
-import type { InventoryState } from '../src/lib/store.ts';
+import type { InventoryState } from '../src/lib/app-state.ts';
 import type { ScopeInput } from '../src/lib/scope-view.ts';
 import { corpusName, scopeView } from '../src/lib/scope-view.ts';
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../lib/store-instance.ts';
-import type { FooterPassageState, ScrubTarget } from '../lib/store.ts';
+import type { FooterPassageState, ScrubTarget } from '../lib/app-state.ts';
 import {
   footerPassageDisplay,
   passageLayout,

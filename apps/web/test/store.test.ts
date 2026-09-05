@@ -27,11 +27,8 @@ import {
   WORKSPACE_SEMANTIC_SOURCE_KEYS,
   workspaceFromApp,
   workspaceSemanticKey,
-  type MetaPatch,
-  type QueryClient,
-  type SessionPort,
-  type WorkspaceStorePort,
 } from '../src/lib/store.ts';
+import type { MetaPatch, QueryClient, SessionPort, WorkspaceStorePort } from '../src/lib/app-state.ts';
 import type { HistoryPort } from '../src/lib/history-port.ts';
 import type { QueryResultDataV4 } from '../src/worker/protocol-v4.ts';
 import type {
