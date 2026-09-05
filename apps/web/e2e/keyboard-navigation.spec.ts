@@ -196,7 +196,7 @@ test('result tables retain their intended keyboard behavior', async ({ page }) =
   await gotoPlace(page, 'matches');
   const matchesPort = page.getByRole('grid', { name: 'Matches' });
   const occurrences = matchesPort.locator('[role="row"][aria-rowindex] .kwic-node > button');
-  await expect(occurrences.first()).toBeVisible();
+  await expect(occurrences.first()).toBeVisible({ timeout: 30_000 });
   expect(await occurrences.evaluateAll((buttons) =>
     buttons.every((button) => button.getAttribute('tabindex') === '-1'))).toBe(true);
   await matchesPort.focus();

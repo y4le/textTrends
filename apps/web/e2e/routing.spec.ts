@@ -31,6 +31,11 @@ test('workbench tabs round-trip canonical places without issuing analysis', asyn
   ]);
   await expect(lens.getByRole('link', { name: 'Trends', exact: true }))
     .toHaveAttribute('aria-current', 'page');
+  // Establish the first viewport-sized Matches window before measuring a
+  // navigation-only round trip; its initial materialization is separate work.
+  await lens.getByRole('link', { name: 'Matches', exact: true }).click();
+  await expect(page.getByRole('grid', { name: 'Matches' }).locator('.kwic-node > button').first())
+    .toBeVisible({ timeout: 30_000 });
   await lens.getByRole('link', { name: 'Compare', exact: true }).click();
   await expect(lens.getByRole('link', { name: 'Compare', exact: true }))
     .toHaveAttribute('aria-current', 'page');

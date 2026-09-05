@@ -510,6 +510,10 @@ test('stage taps toggle playback while only explicit exits return to Reader', as
   await reader.locator('.reader-rsvp-identity').click();
   await expect(stage).toBeVisible();
   await expect(status).toContainText('playing');
+  // Freeze playback before sampling the expected return token: a running
+  // transport can advance between Playwright's read and keypress calls.
+  await page.keyboard.press('Space');
+  await expect(status).toContainText('paused');
   const escapeToken = displayedToken(await position.textContent());
   await page.keyboard.press('Escape');
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute(
