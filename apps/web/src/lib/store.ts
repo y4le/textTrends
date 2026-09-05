@@ -57,6 +57,7 @@ import {
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,
   FREQUENCY_FILTER_MAX_UNITS,
+  INGEST_CAPS_V0,
   KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
   parseWorkspaceTrendView,
@@ -73,6 +74,7 @@ import {
   type TermGroupSpec,
   type TrendBinsSpecV1,
   type WorkspaceDocumentMetaV1,
+  type WorkspaceLibraryDocumentV1,
   type WorkspaceTrendMeasureV1,
   type WorkspaceV1,
 } from '@texttrends/core';
@@ -800,6 +802,8 @@ export interface AppState {
   /** Place-independent informational notice (startup reconciliation, etc.). */
   appNotice: string | null;
   workspacePersistence: WorkspacePersistenceState;
+  /** Saved references excluded from analysis because their source is damaged. */
+  unavailableDocs: readonly { readonly index: number; readonly doc: WorkspaceLibraryDocumentV1 }[];
 
   /** The one primary interaction state. Utility panes and future cursor
    * pinning are orthogonal; future command/speed modes extend this union. */
@@ -1242,20 +1246,27 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
   const project = state.projectSession?.project;
   if (!project) return null;
   if (project.data.docs.some((doc) => doc.library === undefined)) return null;
+  const liveLibraries = new Set(project.data.docs.map((doc) => doc.library));
+  const retained = state.unavailableDocs.filter((entry) => !liveLibraries.has(entry.doc.library));
+  const order = [...project.data.order];
+  // Preserve a best-effort neighbouring position after live texts are reordered.
+  for (const entry of [...retained].sort((a, b) => a.index - b.index)) {
+    order.splice(Math.min(entry.index, order.length), 0, entry.doc.doc);
+  }
   const { filter, ...frequency } = state.frequencyView;
   return {
     schema: 'texttrends/workspace/1',
     corpus: {
       kind: 'library',
-      order: project.data.order,
-      docs: project.data.docs.map((doc) => ({
+      order,
+      docs: [...project.data.docs.map((doc) => ({
         doc: doc.doc,
         library: doc.library!,
         meta: doc.meta,
         ...(doc.extraction.text === undefined || doc.extraction.textLengthUtf16 === undefined
           ? {}
           : { warm: { textHash: doc.extraction.text, textLengthUtf16: doc.extraction.textLengthUtf16 } }),
-      })),
+      })), ...retained.map((entry) => entry.doc)],
     },
     notebook: state.notebook,
     active: state.notebook.groups
@@ -1339,6 +1350,7 @@ export function emptyLibraryWorkspace(): WorkspaceV1 {
  * tuple adjacent to and in lockstep with `workspaceFromApp`. */
 export const WORKSPACE_SEMANTIC_SOURCE_KEYS = [
   'projectSession',
+  'unavailableDocs',
   'notebook',
   'activeGroupIds',
   'trendViewPreference',
@@ -3140,6 +3152,7 @@ export function createAppRuntime(
     return {
       bootstrap: { phase: 'initializing' },
       projectSession: null,
+      unavailableDocs: [],
       snapshot: null,
       loadingPhase: null,
       loadError: null,
@@ -6077,8 +6090,22 @@ export function createAppRuntime(
 
       // ── Session command wrappers ──────────────────────────────────────────
       importFiles(files) {
+        set({ commandError: null });
         let accepted = false;
         command((s) => {
+          const retained = get().unavailableDocs;
+          if (retained.length > 0) {
+            const current = s.getState();
+            const liveIds = new Set([...current.project.data.order, ...current.imports.map((item) => item.doc)]);
+            const libraries = new Set([
+              ...current.project.data.docs.map((doc) => doc.library),
+              ...current.imports.map((item) => item.library), ...files.map((file) => file.library),
+            ]);
+            const stillUnavailable = retained.filter((entry) => !libraries.has(entry.doc.library)).length;
+            if (liveIds.size + files.length + stillUnavailable > INGEST_CAPS_V0.maxDocsPerProject) {
+              throw new SessionCommandError(`import would exceed ${INGEST_CAPS_V0.maxDocsPerProject} saved active texts; remove unavailable references before adding more`);
+            }
+          }
           s.appendFiles(files);
           accepted = true;
         });
@@ -6090,6 +6117,7 @@ export function createAppRuntime(
         const texts = current === undefined ? 0 : new Set([
           ...current.project.data.order,
           ...current.imports.map((item) => item.doc),
+          ...get().unavailableDocs.map((entry) => entry.doc.doc),
         ]).size;
         const terms = get().notebook.groups.length;
         let accepted = false;
@@ -6103,17 +6131,22 @@ export function createAppRuntime(
           activeGroupIds: new Set(),
           soloGroupId: null,
         }, { reissue: true });
-        set({ removedGroups: [], inputError: null });
+        set({ removedGroups: [], inputError: null, unavailableDocs: [] });
         return { texts, terms };
       },
       removeImport(doc) {
         command((s) => s.removeImport(doc));
       },
       removeDocument(doc) {
-        command((s) => s.removeDocument(doc));
+        if (get().unavailableDocs.some((entry) => entry.doc.doc === doc)) {
+          set({ unavailableDocs: get().unavailableDocs.filter((entry) => entry.doc.doc !== doc) });
+        } else command((s) => s.removeDocument(doc));
       },
       removeDocuments(docs) {
-        command((s) => s.removeDocuments(docs));
+        command((s) => {
+          s.removeDocuments(docs);
+          set({ unavailableDocs: get().unavailableDocs.filter((entry) => !docs.includes(entry.doc.doc)) });
+        });
       },
       clearActiveInputsAndTerms() {
         if (session === null) {
@@ -6125,6 +6158,7 @@ export function createAppRuntime(
           ...sessionState.project.data.order,
           ...sessionState.project.data.docs.map((doc) => doc.doc),
           ...sessionState.imports.map((item) => item.doc),
+          ...get().unavailableDocs.map((entry) => entry.doc.doc),
         ])];
         const termCount = get().notebook.groups.length;
         if (documentIds.length === 0 && termCount === 0) return { texts: 0, terms: 0 };
@@ -6150,7 +6184,7 @@ export function createAppRuntime(
         // When terms are part of the confirmed reset, their deletion undo
         // history is term state too and must not resurrect a cleared term.
         // A texts-only reset leaves an unrelated term undo available.
-        set({ ...(termCount > 0 ? { removedGroups: [] } : {}), inputError: null });
+        set({ ...(termCount > 0 ? { removedGroups: [] } : {}), inputError: null, unavailableDocs: [] });
         return { texts: documentIds.length, terms: termCount };
       },
       editMeta(doc, patch) {
@@ -6178,6 +6212,15 @@ export function createAppRuntime(
       restoreWorkspace(workspace) {
         pendingKeynessResetDoc = null;
         const state = get();
+        const liveIds = new Set([
+          ...(state.projectSession?.project.data.order ?? []),
+          ...(state.projectSession?.imports.map((item) => item.doc) ?? []),
+        ]);
+        // The parsed workspace guarantees every document occurs in its order.
+        const unavailableDocs = workspace.corpus.docs
+          .filter((doc) => !liveIds.has(doc.doc))
+          .map((doc) => ({ index: workspace.corpus.order.indexOf(doc.doc), doc }));
+
         const fittedRestoredTrendBins = fitTrendBinsToCorpus(
           state,
           workspace.views.trend.bins,
@@ -6190,6 +6233,7 @@ export function createAppRuntime(
         const compare = workspace.views.compare;
         const frequencyFilter = workspace.views.frequency.filter;
         set({
+          unavailableDocs,
           trendViewPreference: workspace.views.trend.mode,
           trendView: (state.projectSession?.project.data.order.length ?? 0) > 1
             || workspace.corpus.order.length === 0
@@ -6484,8 +6528,11 @@ export function createAppRuntime(
       && !atlasAvailable(next.snapshot?.readyDocs ?? [])
       ? 'read'
       : current.readerScale;
+    const liveLibraries = new Set(next.project.data.docs.map((doc) => doc.library));
+    const unavailableDocs = current.unavailableDocs.filter((entry) => !liveLibraries.has(entry.doc.library));
     store.setState({
       bootstrap: { phase: 'attached' },
+      ...(unavailableDocs.length === current.unavailableDocs.length ? {} : { unavailableDocs }),
       projectSession: next,
       snapshot: next.snapshot,
       loadingPhase: describeAnalysis(next.analysis),

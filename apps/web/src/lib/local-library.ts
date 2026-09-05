@@ -43,7 +43,7 @@ interface StoredLocalFileV1 extends LocalLibraryItem {
 
 interface LocalLibraryDb extends DBSchema {
   files: {
-    key: string;
+    key: IDBValidKey;
     value: StoredLocalFileV1;
     indexes: { addedAt: number };
   };
@@ -117,7 +117,7 @@ function supportedFiles(files: readonly LocalFileInput[]): readonly SourceFormat
   return formats;
 }
 
-function validCurrentRecord(value: unknown): value is StoredLocalFileV1 {
+function validMetadata(value: unknown): value is Omit<StoredLocalFileV1, 'bytes'> {
   if (value === null || typeof value !== 'object') return false;
   const record = value as Partial<StoredLocalFileV1>;
   return (
@@ -128,11 +128,26 @@ function validCurrentRecord(value: unknown): value is StoredLocalFileV1 {
     typeof record.size === 'number' && Number.isSafeInteger(record.size) && record.size >= 0 &&
     typeof record.lastModified === 'number' && Number.isFinite(record.lastModified) && record.lastModified >= 0 &&
     typeof record.addedAt === 'number' && Number.isFinite(record.addedAt) && record.addedAt >= 0 &&
-    record.bytes instanceof ArrayBuffer && record.bytes.byteLength === record.size &&
     SOURCE_FORMAT_IDS.includes(record.format as SourceFormat) &&
     typeof record.contentHash === 'string' && SOURCE_HASH.test(record.contentHash) &&
     record.id === localFileIdentity(record.format as SourceFormat, record.contentHash)
   );
+}
+
+function validCurrentRecord(value: unknown): value is StoredLocalFileV1 {
+  return validMetadata(value) && 'bytes' in value
+    && value.bytes instanceof ArrayBuffer && value.bytes.byteLength === value.size;
+}
+
+export interface DamagedLibraryItem {
+  readonly key: IDBValidKey;
+  readonly name: string;
+  readonly message: string;
+}
+
+export interface LibraryInspection {
+  readonly items: readonly LocalLibraryItem[];
+  readonly damaged: readonly DamagedLibraryItem[];
 }
 
 function itemFromRecord(record: StoredLocalFileV1): LocalLibraryItem {
@@ -174,19 +189,31 @@ export class BrowserLocalLibrary {
     return opening;
   }
 
-  private async currentRecords(database: IDBPDatabase<LocalLibraryDb>): Promise<readonly StoredLocalFileV1[]> {
-    const raw: unknown[] = await database.getAll('files');
-    const records: StoredLocalFileV1[] = [];
-    for (const value of raw) {
-      if (!validCurrentRecord(value)) throw new Error('a saved local file is damaged');
-      records.push(value);
+  async inspect(): Promise<LibraryInspection> {
+    const database = await this.open();
+    const transaction = database.transaction('files', 'readonly');
+    void transaction.done.catch(() => {});
+    const [keys, values] = await Promise.all([
+      transaction.store.getAllKeys(), transaction.store.getAll(),
+    ]);
+    await transaction.done;
+    const items: LocalLibraryItem[] = [];
+    const damaged: DamagedLibraryItem[] = [];
+    for (let index = 0; index < keys.length; index++) {
+      const value: unknown = values[index];
+      if (validCurrentRecord(value) && value.id === keys[index]) items.push(itemFromRecord(value));
+      else {
+        const name = value !== null && typeof value === 'object' && 'name' in value
+          && typeof value.name === 'string' && value.name !== '' ? value.name : `Saved text ${index + 1}`;
+        damaged.push({ key: keys[index]!, name, message: 'Reimport the original file to repair it, or remove this item.' });
+      }
     }
-    return records;
+    items.sort((a, b) => b.addedAt - a.addedAt || a.name.localeCompare(b.name));
+    return { items, damaged };
   }
 
   async list(): Promise<readonly LocalLibraryItem[]> {
-    const items = (await this.currentRecords(await this.open())).map(itemFromRecord);
-    return items.sort((a, b) => b.addedAt - a.addedAt || a.name.localeCompare(b.name));
+    return (await this.inspect()).items;
   }
 
   async add(files: readonly LocalFileInput[]): Promise<readonly LocalLibraryAddResult[]> {
@@ -203,8 +230,7 @@ export class BrowserLocalLibrary {
       const contentHash = await hashSourceBytes(new Uint8Array(bytes));
       const id = localFileIdentity(format, contentHash);
       const existing: unknown = await db.get('files', id);
-      if (existing !== undefined) {
-        if (!validCurrentRecord(existing)) throw new Error('a saved local file is damaged');
+      if (validCurrentRecord(existing)) {
         results.push({ item: itemFromRecord(existing), added: false });
         continue;
       }
@@ -244,7 +270,7 @@ export class BrowserLocalLibrary {
     };
   }
 
-  async delete(id: string): Promise<LocalLibraryDeleteResult> {
+  async delete(id: IDBValidKey): Promise<LocalLibraryDeleteResult> {
     const db = await this.open();
     const tx = db.transaction(['files', 'workspace'], 'readwrite');
     // idb creates tx.done eagerly. Observe its rejection even when this method

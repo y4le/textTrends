@@ -68,6 +68,35 @@ function workspace(library: string): WorkspaceV1 {
 }
 
 describe('BrowserLocalLibrary', () => {
+  it('isolates damaged records by their actual key and repairs them on reimport', async () => {
+    const name = `local-library-${crypto.randomUUID()}`;
+    const library = new BrowserLocalLibrary(name);
+    const healthyFile = file('healthy.txt', 'healthy text');
+    const damagedFile = file('repair.txt', 'repairable text');
+    const [healthy, damaged] = await library.add([healthyFile, damagedFile]);
+    await library.close();
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction('files', 'readwrite');
+      tx.objectStore('files').put({ id: damaged!.item.id });
+      tx.objectStore('files').put({ id: 42 });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    database.close();
+    expect(await library.list()).toEqual([healthy!.item]);
+    expect((await library.inspect()).damaged.map((item) => item.key)).toEqual([42, damaged!.item.id]);
+    await library.delete(42);
+    expect((await library.add([damagedFile]))[0]!.added).toBe(true);
+    expect((await library.inspect()).damaged).toEqual([]);
+    expect(new TextDecoder().decode(await (await library.file(damaged!.item.id)).arrayBuffer())).toBe('repairable text');
+    await library.close();
+  });
+
   it('persists reusable file bytes and metadata across library instances', async () => {
     const name = `local-library-${crypto.randomUUID()}`;
     const first = new BrowserLocalLibrary(name);

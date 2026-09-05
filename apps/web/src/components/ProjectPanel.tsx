@@ -13,6 +13,7 @@ import {
 import {
   localFileIdentity,
   localLibrary,
+  type DamagedLibraryItem,
   type LocalFileInput,
   type LocalLibraryFile,
   type LocalLibraryItem,
@@ -71,6 +72,7 @@ export function ProjectPanel() {
   const removeDocuments = useApp((s) => s.removeDocuments);
   const clearActiveInputsAndTerms = useApp((s) => s.clearActiveInputsAndTerms);
   const termCount = useApp((s) => s.notebook.groups.length);
+  const unavailableDocs = useApp((s) => s.unavailableDocs);
   const reorder = useApp((s) => s.reorder);
 
   const importRef = useRef<HTMLInputElement>(null);
@@ -80,6 +82,7 @@ export function ProjectPanel() {
   const pendingActivationRef = useRef(new Set<string>());
   const sawPendingImportsRef = useRef(false);
   const [library, setLibrary] = useState<readonly LocalLibraryItem[]>([]);
+  const [damagedLibrary, setDamagedLibrary] = useState<readonly DamagedLibraryItem[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(true);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [libraryFilter, setLibraryFilter] = useState('');
@@ -114,7 +117,9 @@ export function ProjectPanel() {
 
   const refreshLibrary = useCallback(async (clearError = true) => {
     try {
-      setLibrary(await localLibrary.list());
+      const result = await localLibrary.inspect();
+      setLibrary(result.items);
+      setDamagedLibrary(result.damaged);
       if (clearError) setLibraryError(null);
     } catch (error) {
       setLibraryError(error instanceof Error ? error.message : String(error));
@@ -125,10 +130,11 @@ export function ProjectPanel() {
 
   useEffect(() => {
     let live = true;
-    void localLibrary.list().then(
-      (items) => {
+    void localLibrary.inspect().then(
+      ({ items, damaged }) => {
         if (!live) return;
         setLibrary(items);
+        setDamagedLibrary(damaged);
         setLibraryError(null);
         setLibraryLoading(false);
       },
@@ -149,9 +155,10 @@ export function ProjectPanel() {
 
   const finalizedDocs = docs ?? [];
   const pendingImports = imports ?? [];
-  const inputCount = finalizedDocs.length + pendingImports.length;
-  const acquisitionExpanded = acquisitionOverride ?? inputCount === 0;
-  const catalogExpanded = catalogOverride ?? inputCount === 0;
+  const analyzableCount = finalizedDocs.length + pendingImports.length;
+  const inputCount = analyzableCount + unavailableDocs.length;
+  const acquisitionExpanded = acquisitionOverride ?? analyzableCount === 0;
+  const catalogExpanded = catalogOverride ?? analyzableCount === 0;
   const previousAcquisitionExpandedRef = useRef(acquisitionExpanded);
 
   useLayoutEffect(() => {
@@ -341,7 +348,7 @@ export function ProjectPanel() {
     }
   };
 
-  const removeSaved = async (id: string) => {
+  const removeSaved = async (id: IDBValidKey) => {
     const lease = claimLibrary();
     if (lease === null) {
       setLibraryNotice(LIBRARY_BUSY_NOTICE);
@@ -350,8 +357,10 @@ export function ProjectPanel() {
     const liveDocuments = finalizedDocs
       .filter((doc) => doc.library === id)
       .map((doc) => doc.doc)
-      .concat(pendingImports.filter((item) => item.library === id).map((item) => item.doc));
-    const name = library.find((item) => item.id === id)?.name ?? 'this saved text';
+      .concat(pendingImports.filter((item) => item.library === id).map((item) => item.doc))
+      .concat(unavailableDocs.filter((item) => item.doc.library === id).map((item) => item.doc.doc));
+    const name = library.find((item) => item.id === id)?.name
+      ?? damagedLibrary.find((item) => item.key === id)?.name ?? 'this saved text';
     const activeEffect = liveDocuments.length > 0 ? ' It will also be removed from Active inputs.' : '';
     if (!window.confirm(`Delete “${name}” from the local library?${activeEffect} You can import the file again later.`)) {
       releaseLibrary(lease);
@@ -374,9 +383,9 @@ export function ProjectPanel() {
       setLibraryNotice(LIBRARY_BUSY_NOTICE);
       return;
     }
-    if (library.length === 0 && libraryError === null) return;
+    if (library.length === 0 && damagedLibrary.length === 0 && libraryError === null) return;
     const prompt = library.length === 0
-      ? 'Delete all saved texts from the local library?'
+      ? 'Delete all saved texts, including damaged items, from the local library?'
       : `Delete all ${library.length} saved text${library.length === 1 ? '' : 's'} from the local library?`;
     if (!window.confirm(prompt)) return;
     const lease = claimLibrary();
@@ -386,7 +395,8 @@ export function ProjectPanel() {
     }
     const liveDocuments = finalizedDocs
       .flatMap((doc) => doc.library === undefined ? [] : [doc.doc])
-      .concat(pendingImports.map((item) => item.doc));
+      .concat(pendingImports.map((item) => item.doc))
+      .concat(unavailableDocs.map((item) => item.doc.doc));
     try {
       const result = await localLibrary.clear();
       const removed = [...new Set([...liveDocuments, ...result.removedDocuments])];
@@ -443,7 +453,7 @@ export function ProjectPanel() {
   };
 
   const clearActive = (): void => {
-    const textCount = finalizedDocs.length + pendingImports.length;
+    const textCount = finalizedDocs.length + pendingImports.length + unavailableDocs.length;
     if (textCount === 0 && termCount === 0) return;
     if (libraryOperation.isBusy()) {
       setActiveNotice(LIBRARY_BUSY_NOTICE);
@@ -502,6 +512,17 @@ export function ProjectPanel() {
           <p className="input-card-help">
             These texts are analyzed in this order. Drop saved or new files here; drag rows or use the move buttons to reorder.
           </p>
+          {unavailableDocs.length > 0 && (
+            <section aria-label="Unavailable active texts">
+              <p>These active texts are saved but cannot be analyzed. Reimport the original file, or remove its reference here.</p>
+              {unavailableDocs.map(({ doc }) => (
+                <div key={doc.doc}>
+                  <span>{doc.meta.title}</span>{' '}
+                  <button type="button" disabled={libraryBusy} onClick={() => removeDocument(doc.doc)} style={SMALL_BUTTON_STYLE}>Remove unavailable {doc.meta.title}</button>
+                </div>
+              ))}
+            </section>
+          )}
           {inputCount === 0 && (
             <>
               <p className="input-card-empty">No active inputs. Nothing is being analyzed.</p>
@@ -709,7 +730,7 @@ export function ProjectPanel() {
                 }}
               />
             </label>
-            <button type="button" disabled={libraryBusy || (library.length === 0 && libraryError === null)} onClick={() => void clearSaved()} style={SMALL_BUTTON_STYLE}>
+            <button type="button" disabled={libraryBusy || (library.length === 0 && damagedLibrary.length === 0 && libraryError === null)} onClick={() => void clearSaved()} style={SMALL_BUTTON_STYLE}>
               Delete all
             </button>
           </div>
@@ -717,6 +738,17 @@ export function ProjectPanel() {
             Drop files here to save them without activating them. Filter filenames with a case-insensitive regular expression.
           </p>
           {libraryError && <p role="alert" className="input-card-error">{libraryError}</p>}
+          {damagedLibrary.length > 0 && (
+            <section aria-label="Damaged saved texts">
+              <p>Some saved texts could not be opened. Healthy texts are available; damaged items remain saved until you remove them.</p>
+              {damagedLibrary.map((item) => (
+                <div key={JSON.stringify(item.key)}>
+                  <p>{item.name}: {item.message}</p>
+                  <button type="button" disabled={libraryBusy} onClick={() => void removeSaved(item.key)} style={SMALL_BUTTON_STYLE}>Remove damaged item {item.name}</button>
+                </div>
+              ))}
+            </section>
+          )}
           <p role="status" aria-live="polite" className="input-card-status">{libraryNotice ?? (libraryLoading ? 'loading saved texts…' : '')}</p>
           {!libraryLoading && library.length === 0 && <p className="input-card-empty">No saved texts yet.</p>}
           <div className="local-library-filter-row">

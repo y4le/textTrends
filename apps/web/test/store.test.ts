@@ -40,7 +40,7 @@ import type {
   SessionState,
 } from '../src/lib/project-session.ts';
 import { SessionCommandError } from '../src/lib/project-session.ts';
-import { SHERLOCK } from '../src/lib/project.ts';
+import { SHERLOCK, libraryProject } from '../src/lib/project.ts';
 import { WorkerClientError } from '../src/lib/client.ts';
 import type { SnapshotInfo } from '../src/lib/client.ts';
 import {
@@ -1033,6 +1033,79 @@ describe('the session bridge', () => {
   it('defines a fresh install as a valid empty library workspace', () => {
     const workspace = emptyLibraryWorkspace();
     expect(parseWorkspace(workspace)).toEqual(workspace);
+  });
+
+  it('retains unavailable references through edits and reordering, then removes them explicitly', async () => {
+    const documents = ['a', 'damaged', 'b'].map((doc, index) => ({
+      doc, library: `txt:${String(index + 1).repeat(64)}`,
+      meta: { title: doc, language: 'en', tags: [] },
+    }));
+    const durable = workspaceState({ corpus: { kind: 'library', order: documents.map((doc) => doc.doc), docs: documents } });
+    const healthy = documents.filter((doc) => doc.doc !== 'damaged');
+    const data = await libraryProject({ ...durable, corpus: { ...durable.corpus, order: ['a', 'b'], docs: healthy } }, new Map(healthy.map((doc) => [doc.library, {
+      id: doc.library, name: `${doc.doc}.txt`, format: 'txt' as const, size: 1, contentHash: doc.library.slice(4),
+    }])));
+    vi.useFakeTimers();
+    const workspace = new FakeWorkspaceStore();
+    const runtime = createAppRuntime(fakeQueryClient().client, { workspace });
+    const port = new FakeSessionPort(sessionState(null, { project: { data } }));
+    try {
+      runtime.attachSession(port, durable);
+      runtime.useApp.getState().quickAdd('Watson');
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(workspace.saves.at(-1)?.corpus.order).toEqual(['a', 'damaged', 'b']);
+      expect(workspace.saves.at(-1)?.corpus.docs).toContainEqual(documents[1]);
+      port.emit(sessionState(null, { project: { data: { ...data, order: ['b', 'a'] } } }));
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(workspace.saves.at(-1)?.corpus.order).toEqual(['b', 'damaged', 'a']);
+      runtime.useApp.getState().removeDocuments(['damaged']);
+      runtime.useApp.getState().quickAdd('Holmes');
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(workspace.saves.at(-1)?.corpus.order).toEqual(['b', 'a']);
+      expect(runtime.useApp.getState().unavailableDocs).toEqual([]);
+    } finally { runtime.dispose(); vi.useRealTimers(); }
+  });
+
+  it('counts unavailable references in import admission while allowing source repair at the cap', () => {
+    const docs = Array.from({ length: 256 }, (_, index) => ({
+      doc: `unavailable-${index}`, library: `txt:${index.toString(16).padStart(64, '0')}`,
+      meta: { title: `Text ${index}`, language: 'en', tags: [] },
+    }));
+    const { store, port, runtime } = harness();
+    store.getState().restoreWorkspace(workspaceState({ corpus: { kind: 'library', order: docs.map((doc) => doc.doc), docs } }));
+    const input: LocalLibraryFile = { name: 'extra.txt', size: 1, format: 'txt', contentHash: 'b'.repeat(64), library: `txt:${'b'.repeat(64)}`, arrayBuffer: async () => new ArrayBuffer(1) };
+    expect(store.getState().importFiles([input])).toBe(false);
+    expect(store.getState().commandError).toContain('256 saved active texts');
+    expect(port.calls.some((call) => call.method === 'appendFiles')).toBe(false);
+    expect(store.getState().importFiles([{ ...input, library: docs[0]!.library, contentHash: docs[0]!.library.slice(4) }])).toBe(true);
+    expect(store.getState().commandError).toBeNull();
+    runtime.dispose();
+  });
+
+  it('repairing a retained source under a new document id does not duplicate it', async () => {
+    const doc = { doc: 'damaged', library: `txt:${'a'.repeat(64)}`, meta: { title: 'Repair', language: 'en', tags: [] } };
+    const durable = workspaceState({ corpus: { kind: 'library', order: [doc.doc], docs: [doc] } });
+    const { store, port, runtime } = harness();
+    store.getState().restoreWorkspace(durable);
+    expect(store.getState().unavailableDocs).toHaveLength(1);
+    const repaired = { ...doc, doc: 'reimported' };
+    const data = await libraryProject({ ...durable, corpus: { ...durable.corpus, order: [repaired.doc], docs: [repaired] } }, new Map([[doc.library, {
+      id: doc.library, name: 'repair.txt', format: 'txt', size: 1, contentHash: 'a'.repeat(64),
+    }]]));
+    port.emit(sessionState(null, { project: { data } }));
+    expect(workspaceFromApp(store.getState())?.corpus.order).toEqual(['reimported']);
+    expect(store.getState().unavailableDocs).toEqual([]);
+    runtime.dispose();
+  });
+
+  it.each(['clear', 'replace'] as const)('%s discards retained unavailable references', (action) => {
+    const doc = { doc: 'damaged', library: `txt:${'a'.repeat(64)}`, meta: { title: 'Repair', language: 'en', tags: [] } };
+    const { store, runtime } = harness();
+    store.getState().restoreWorkspace(workspaceState({ corpus: { kind: 'library', order: [doc.doc], docs: [doc] } }));
+    const result = action === 'clear' ? store.getState().clearActiveInputsAndTerms() : store.getState().replaceInputsAndTerms([]);
+    expect(result?.texts).toBe(1);
+    expect(workspaceFromApp(store.getState())?.corpus.order).toEqual([]);
+    runtime.dispose();
   });
 
   it('autosaves workspace changes after 1.5 seconds and excludes transient paging', async () => {

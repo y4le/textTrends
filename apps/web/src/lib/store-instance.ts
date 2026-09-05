@@ -165,15 +165,18 @@ async function bootstrap(): Promise<void> {
     ]);
     workspaceStore = localLibrary;
     closeLibrary = () => localLibrary.close();
-    const [libraryItems, stored] = await Promise.all([
-      localLibrary.list(),
+    const [inspection, stored] = await Promise.all([
+      localLibrary.inspect(),
       localLibrary.loadWorkspace(),
     ]);
+    const libraryItems = inspection.items;
+    const healthyIds = new Set(libraryItems.map((item) => item.id));
+    const savedIds = new Set([...healthyIds, ...inspection.damaged.flatMap((item) => typeof item.key === 'string' ? [item.key] : [])]);
     let workspace = emptyLibraryWorkspace();
     if (stored.kind === 'ready') {
       const reconciled = reconcileLibraryWorkspace(
         stored.workspace,
-        new Set(libraryItems.map((item) => item.id)),
+        savedIds,
       );
       restoredWorkspace = reconciled.workspace;
       if (reconciled.removedDocuments.length > 0) {
@@ -183,7 +186,11 @@ async function bootstrap(): Promise<void> {
         const count = reconciled.removedDocuments.length;
         bootstrapNotice = `${count} active text${count === 1 ? '' : 's'} no longer existed in the catalog and ${count === 1 ? 'was' : 'were'} removed.`;
       }
-      workspace = reconciled.workspace;
+      workspace = reconcileLibraryWorkspace(reconciled.workspace, healthyIds).workspace;
+      const unavailable = reconciled.workspace.corpus.docs.length - workspace.corpus.docs.length;
+      if (unavailable > 0) {
+        bootstrapNotice = [bootstrapNotice, `${unavailable} active text${unavailable === 1 ? '' : 's'} could not be opened because the saved source is damaged. Their workspace references remain saved; repair or remove them in Inputs.`].filter(Boolean).join(' ');
+      }
     } else if (stored.kind === 'corrupt') {
       bootstrapNotice = `The saved workspace was incompatible or damaged and could not be restored: ${stored.reason}`;
       restoredWorkspace = workspace;

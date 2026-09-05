@@ -1,6 +1,24 @@
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import type { WorkspaceV1 } from '@texttrends/core';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
 import { awaitAllReady, awaitReadyCount, DOC_COUNT, gotoPlace, openQuickAdd } from './helpers.ts';
+
+async function readSavedWorkspace(page: Page): Promise<WorkspaceV1 | undefined> {
+  return page.evaluate(async (name) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise<WorkspaceV1 | undefined>((resolve, reject) => {
+        const read = db.transaction('workspace').objectStore('workspace').get('current');
+        read.onsuccess = () => resolve(read.result);
+        read.onerror = () => reject(read.error);
+      });
+    } finally { db.close(); }
+  }, LOCAL_LIBRARY_DB_NAME);
+}
 
 async function dragSavedText(source: Locator, target: Locator): Promise<void> {
   const targetHandle = await target.elementHandle();
@@ -331,3 +349,92 @@ test('Clear all confirms one reset, keeps saved texts, and leaves demos additive
   await expect(page.getByRole('button', { name: 'Edit term: Reader term' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit term: Holmes' })).toBeVisible();
 });
+
+test('a damaged unused saved file does not prevent reopening healthy research', async ({ page }) => {
+  await page.goto('./');
+  await page.getByLabel('Add files — import and analyze').setInputFiles({
+    name: 'healthy.txt', mimeType: 'text/plain', buffer: Buffer.from('Healthy saved research remains available.'),
+  });
+  await awaitReadyCount(page, 1);
+  await page.evaluate(async (name) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('files', 'readwrite');
+        tx.objectStore('files').put({ id: 'damaged-unused', name: 'damaged.txt' });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally { db.close(); }
+  }, LOCAL_LIBRARY_DB_NAME);
+  await expect.poll(async () => (await readSavedWorkspace(page))?.corpus.order.length).toBe(1);
+  await page.reload();
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'inputs');
+  const recovery = page.getByRole('region', { name: 'Damaged saved texts' });
+  await expect(recovery).toContainText('damaged.txt');
+  await expect(page.getByLabel('Saved texts').getByText('healthy.txt')).toBeVisible();
+  page.once('dialog', (dialog) => dialog.accept());
+  await recovery.getByRole('button', { name: 'Remove damaged item damaged.txt' }).click();
+  await expect(recovery).toHaveCount(0);
+  await expect(page.getByLabel('Saved texts').getByText('healthy.txt')).toBeVisible();
+});
+
+for (const removal of ['reference', 'source'] as const) {
+test(`damaged active references survive autosave and explicit ${removal} deletion cannot resurrect them`, async ({ page }) => {
+  await page.goto('./');
+  await page.getByLabel('Add files — import and analyze').setInputFiles([
+    { name: 'healthy.txt', mimeType: 'text/plain', buffer: Buffer.from('Healthy research evidence.') },
+    { name: 'damaged.txt', mimeType: 'text/plain', buffer: Buffer.from('Original unavailable research.') },
+  ]);
+  await awaitReadyCount(page, 2);
+  await expect.poll(async () => (await readSavedWorkspace(page))?.corpus.order.length).toBe(2);
+  const original = (await readSavedWorkspace(page))!;
+  const damaged = original.corpus.docs.find((doc) => doc.meta.title === 'damaged')!;
+  await page.evaluate(async ({ name, key }) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('files', 'readwrite');
+        tx.objectStore('files').put({ id: key, name: 'damaged.txt' });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally { db.close(); }
+  }, { name: LOCAL_LIBRARY_DB_NAME, key: damaged.library });
+  await page.reload();
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'inputs');
+  const unavailable = page.getByRole('region', { name: 'Unavailable active texts' });
+  await expect(unavailable).toContainText('damaged');
+  await gotoPlace(page, 'trends');
+  const input = await openQuickAdd(page);
+  await input.fill('research');
+  await input.press('Enter');
+  await expect.poll(async () => (await readSavedWorkspace(page))?.notebook.groups.some((group) => group.aliases.includes('research'))).toBe(true);
+  expect((await readSavedWorkspace(page))?.corpus.order).toEqual(original.corpus.order);
+  await gotoPlace(page, 'inputs');
+  if (removal === 'source') {
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: 'Remove damaged item damaged.txt' }).click();
+  } else {
+    await unavailable.getByRole('button', { name: 'Remove unavailable damaged' }).click();
+    await expect(page.getByRole('region', { name: 'Damaged saved texts' })).toContainText('damaged.txt');
+  }
+  await expect(unavailable).toHaveCount(0);
+  await gotoPlace(page, 'trends');
+  const next = await openQuickAdd(page);
+  await next.fill('evidence');
+  await next.press('Enter');
+  await expect.poll(async () => (await readSavedWorkspace(page))?.notebook.groups.some((group) => group.aliases.includes('evidence'))).toBe(true);
+  expect((await readSavedWorkspace(page))?.corpus.docs.some((doc) => doc.library === damaged.library)).toBe(false);
+});
+}
