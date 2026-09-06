@@ -20,6 +20,8 @@ export function createWorkspacePersistence(
   let workspaceSaveTimer: ReturnType<typeof setTimeout> | null = null;
   let workspaceSaveToken = 0;
   let workspaceScheduling = false;
+  let suspended = false;
+  const pendingWrites = new Set<Promise<void>>();
   let saveWorkspaceNow = (): void => undefined;
 
   const msg = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -32,7 +34,7 @@ export function createWorkspacePersistence(
 
   const scheduleWorkspaceSave = (): void => {
     if (
-      disposed ||
+      disposed || suspended ||
       !workspaceHydrated ||
       workspaceStore === null
     ) {
@@ -52,7 +54,7 @@ export function createWorkspacePersistence(
   };
 
   saveWorkspaceNow = (): void => {
-    if (disposed || !workspaceHydrated || workspaceStore === null) return;
+    if (disposed || suspended || !workspaceHydrated || workspaceStore === null) return;
     const workspace = workspaceFromApp(store.getState());
     const issuedKey = workspaceSemanticKey(store.getState());
     if (workspace === null || issuedKey === null) return;
@@ -64,7 +66,7 @@ export function createWorkspacePersistence(
     } finally {
       workspaceScheduling = false;
     }
-    void workspaceStore.saveWorkspace(workspace).then(() => {
+    const write = workspaceStore.saveWorkspace(workspace).then(() => {
       if (disposed || token !== workspaceSaveToken) return;
       workspacePausedKey = null;
       workspaceLastKey = issuedKey;
@@ -84,6 +86,8 @@ export function createWorkspacePersistence(
         },
       });
     });
+    pendingWrites.add(write);
+    void write.finally(() => pendingWrites.delete(write));
   };
 
   let workspaceSources = workspaceSemanticSources(store.getState());
@@ -127,6 +131,24 @@ export function createWorkspacePersistence(
     saveNow() {
       workspacePausedKey = null;
       saveWorkspaceNow();
+    },
+    /** Stop new writes and drain issued transactions before replacing the
+     * durable workspace. The caller resumes only if replacement did not commit. */
+    async suspend() {
+      if (disposed || suspended) throw new Error('Workspace saving is already stopped.');
+      suspended = true;
+      clearWorkspaceTimer();
+      workspaceSaveToken += 1;
+      await Promise.allSettled([...pendingWrites]);
+      let resumed = false;
+      return () => {
+        if (resumed || disposed) return;
+        resumed = true;
+        suspended = false;
+        workspacePausedKey = null;
+        if (workspaceSemanticKey(store.getState()) !== workspaceLastKey) scheduleWorkspaceSave();
+        else store.setState({ workspacePersistence: { phase: 'saved' } });
+      };
     },
     reportFailure(error: unknown) {
       if (!disposed) store.setState({ workspacePersistence: {

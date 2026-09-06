@@ -575,6 +575,7 @@ export function createAppRuntime(
   // extraction has made that document ready. Keep that one-shot intent outside
   // the durable workspace so async completion order cannot choose Book 2.
   let pendingKeynessResetDoc: string | null = null;
+  let restoringCompareDocs: readonly string[] | null = null;
   let readerWalk: {
     readonly snapshot: string;
     readonly doc: string;
@@ -5062,6 +5063,7 @@ export function createAppRuntime(
       },
       restoreWorkspace(workspace) {
         pendingKeynessResetDoc = null;
+        restoringCompareDocs = workspace.corpus.order;
         const state = get();
         const liveIds = new Set([
           ...(state.projectSession?.project.data.order ?? []),
@@ -5173,6 +5175,10 @@ export function createAppRuntime(
       pendingKeynessResetDoc = null;
     }
     let keynessView: KeynessViewV1;
+    if (restoringCompareDocs !== null && (
+      restoringCompareDocs.every((doc) => next.snapshot?.readyDocs.includes(doc))
+      || restoringCompareDocs.some((doc) => !activeDocuments.has(doc))
+    )) restoringCompareDocs = null;
     if (pendingKeynessResetDoc !== null) {
       if (readyDocs.includes(pendingKeynessResetDoc)) {
         const focus = pendingKeynessResetDoc;
@@ -5198,7 +5204,12 @@ export function createAppRuntime(
         };
       }
     } else {
-      keynessView = reconcileKeynessView(currentKeynessView, readyDocs);
+      // A cold reopen can publish TXT before HTML/EPUB. That temporary ready
+      // subset must not rewrite the saved comparison or its mode. Query scopes
+      // still require ready inputs; actual document removal ends this fence.
+      keynessView = restoringCompareDocs !== null
+        ? currentKeynessView
+        : reconcileKeynessView(currentKeynessView, readyDocs);
     }
     let current = store.getState();
     if (prevKey !== nextKey) {
@@ -5303,6 +5314,8 @@ export function createAppRuntime(
 
   return {
     useApp: store,
+    suspendWorkspaceSaving: () => persistence.suspend(),
+    getRsvpPacing: () => lastRsvpPacing,
     attachSession(next: SessionPort, workspace?: WorkspaceV1, workspacePort?: WorkspaceStorePort) {
       if (disposed) {
         // A late attachment (async bootstrap racing teardown) must not bridge

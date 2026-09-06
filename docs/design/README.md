@@ -10,6 +10,7 @@ Executable types, validators, and tests resolve disagreements with prose.
 | Extraction, identity, coordinates, protocol, persistence semantics | [Analysis contract](analysis-contract.md) |
 | Formula, denominator, statistical result, deterministic ranking | [Statistical methods](statistics.md) |
 | Runtime ownership, persistence lifecycle, navigation, stylesheet cascade | [Application composition](architecture/application-composition.md) |
+| Portable workspace files, restoration transaction, settings, other tabs | [Workspace backup](workspace-backup.md) |
 | Inputs, Terms, places, Find, settings, responsive shell | [Workbench UX](workbench-ux.md) |
 | Matches merge, sparse axis, virtualization, shared cursor | [Continuous Matches](continuous-matches.md) |
 | Fitted Read, Atlas, source navigation, chrome | [Reader](spatial-reader.md) |

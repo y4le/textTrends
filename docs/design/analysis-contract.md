@@ -161,6 +161,8 @@ Persistence has two owners:
    backed by it. Workspace writes are last-write-wins; there is no multi-tab
    edit or conflict model. IndexedDB v2 separates file metadata from source
    bodies; its atomic upgrade preserves original records on failure.
+   Workspace-file restore advances an epoch that rejects older tabs' writes.
+   Its source/workspace/settings handoff follows the [backup contract](workspace-backup.md).
 2. `texttrends-artifacts-provisional-db3` stores disposable verified text and
    document indexes. It can always be discarded and rebuilt from library or
    bundled source bytes.

@@ -17,12 +17,15 @@ import {
   type WorkspaceV1,
 } from '@texttrends/core';
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import type { PreparedBackup } from './workspace-backup.ts';
 
 export const LOCAL_LIBRARY_DB_NAME = 'texttrends-library';
 export const LOCAL_LIBRARY_DB_VERSION = 2;
 
 const LOCAL_FILE_SCHEMA = 'texttrends/library-file/1' as const;
 const CURRENT_WORKSPACE = 'current' as const;
+const WORKSPACE_EPOCH = 'restore-epoch';
+const PENDING_SETTINGS = 'pending-backup-settings';
 const SOURCE_HASH = /^[0-9a-f]{64}$/u;
 
 export interface LocalLibraryItem {
@@ -52,8 +55,8 @@ interface LocalLibraryDb extends DBSchema {
     value: unknown;
   };
   workspace: {
-    key: typeof CURRENT_WORKSPACE;
-    value: WorkspaceV1;
+    key: string;
+    value: unknown;
   };
 }
 
@@ -156,8 +159,20 @@ function itemFromRecord(record: StoredLocalMetadataV1): LocalLibraryItem {
 
 export class BrowserLocalLibrary {
   private database: Promise<IDBPDatabase<LocalLibraryDb>> | null = null;
+  private epoch: string | null = null;
 
   constructor(private readonly name = LOCAL_LIBRARY_DB_NAME) {}
+
+  /** Ordinary tabs retain last-write-wins semantics. A restore changes the
+   * epoch so a tab opened before replacement cannot write the old setup back. */
+  private async checkEpoch(store: { get(key: string): Promise<unknown> }): Promise<string> {
+    const stored = await store.get(WORKSPACE_EPOCH);
+    if (stored !== undefined && typeof stored !== 'string') throw new Error('The saved workspace epoch is damaged.');
+    const epoch = stored ?? 'initial';
+    if (this.epoch === null) this.epoch = epoch;
+    if (epoch !== this.epoch) throw new Error('This workspace was replaced in another tab. Reload to continue.');
+    return epoch;
+  }
 
   private open(): Promise<IDBPDatabase<LocalLibraryDb>> {
     if (this.database !== null) return this.database;
@@ -227,8 +242,9 @@ export class BrowserLocalLibrary {
 
   async inspect(): Promise<LibraryInspection> {
     const database = await this.open();
-    const transaction = database.transaction(['files', 'bodies'], 'readonly');
+    const transaction = database.transaction(['files', 'bodies', 'workspace'], 'readonly');
     void transaction.done.catch(() => {});
+    await this.checkEpoch(transaction.objectStore('workspace'));
     const [keys, values, bodyKeys] = await Promise.all([
       transaction.objectStore('files').getAllKeys(), transaction.objectStore('files').getAll(),
       transaction.objectStore('bodies').getAllKeys(),
@@ -267,9 +283,10 @@ export class BrowserLocalLibrary {
       }
       const contentHash = await hashSourceBytes(new Uint8Array(bytes));
       const id = localFileIdentity(format, contentHash);
-      const tx = db.transaction(['files', 'bodies'], 'readwrite');
+      const tx = db.transaction(['files', 'bodies', 'workspace'], 'readwrite');
       void tx.done.catch(() => {});
       try {
+        await this.checkEpoch(tx.objectStore('workspace'));
         const [existing, body] = await Promise.all([
           tx.objectStore('files').get(id), tx.objectStore('bodies').get(id),
         ]);
@@ -297,8 +314,9 @@ export class BrowserLocalLibrary {
 
   async file(id: string): Promise<LocalLibraryFile> {
     const db = await this.open();
-    const tx = db.transaction(['files', 'bodies'], 'readonly');
+    const tx = db.transaction(['files', 'bodies', 'workspace'], 'readonly');
     void tx.done.catch(() => {});
+    await this.checkEpoch(tx.objectStore('workspace'));
     const [record, bytes] = await Promise.all([
       tx.objectStore('files').get(id), tx.objectStore('bodies').get(id),
     ]);
@@ -327,6 +345,7 @@ export class BrowserLocalLibrary {
     let removedDocuments: readonly string[] = [];
     try {
       const workspaceStore = tx.objectStore('workspace');
+      await this.checkEpoch(workspaceStore);
       const storedWorkspace: unknown = await workspaceStore.get(CURRENT_WORKSPACE);
       if (storedWorkspace !== undefined) {
         let workspace: WorkspaceV1 | null;
@@ -372,6 +391,7 @@ export class BrowserLocalLibrary {
     let removedDocuments: readonly string[] = [];
     try {
       const workspaceStore = tx.objectStore('workspace');
+      await this.checkEpoch(workspaceStore);
       const storedWorkspace: unknown = await workspaceStore.get(CURRENT_WORKSPACE);
       if (storedWorkspace !== undefined) {
         let workspace: WorkspaceV1 | null;
@@ -399,7 +419,11 @@ export class BrowserLocalLibrary {
   }
 
   async loadWorkspace(): Promise<WorkspaceReadResult> {
-    const value: unknown = await (await this.open()).get('workspace', CURRENT_WORKSPACE);
+    const tx = (await this.open()).transaction('workspace', 'readonly');
+    void tx.done.catch(() => {});
+    await this.checkEpoch(tx.store);
+    const value: unknown = await tx.store.get(CURRENT_WORKSPACE);
+    await tx.done;
     if (value === undefined) return { kind: 'absent' };
     try {
       return { kind: 'ready', workspace: parseWorkspace(value) };
@@ -413,7 +437,59 @@ export class BrowserLocalLibrary {
 
   async saveWorkspace(workspace: WorkspaceV1): Promise<void> {
     const admitted = parseWorkspace(workspace);
-    await (await this.open()).put('workspace', admitted, CURRENT_WORKSPACE);
+    const tx = (await this.open()).transaction('workspace', 'readwrite');
+    void tx.done.catch(() => {});
+    try {
+      await this.checkEpoch(tx.store);
+      await tx.store.put(admitted, CURRENT_WORKSPACE);
+      await tx.done;
+    } catch (error) { abortQuietly(tx); throw error; }
+  }
+
+  /** Accept the fully validated archive plan. Only IDB requests occur inside
+   * the all-or-nothing commit. Unrelated
+   * saved texts remain; imported identities take their archived metadata. */
+  async restoreBackup(backup: PreparedBackup, signal?: AbortSignal): Promise<void> {
+    const manifest = backup.manifest;
+    const workspace = parseWorkspace(manifest.workspace);
+    const nextEpoch = crypto.randomUUID();
+    const database = await this.open();
+    signal?.throwIfAborted();
+    const tx = database.transaction(['files', 'bodies', 'workspace'], 'readwrite');
+    void tx.done.catch(() => {});
+    try {
+      await this.checkEpoch(tx.objectStore('workspace'));
+      for (const item of manifest.sources) {
+        const bytes = backup.bodies.get(item.id);
+        if (bytes === undefined || bytes.byteLength !== item.size) throw new Error(`The source for “${item.name}” is missing.`);
+        await tx.objectStore('files').put({ ...item, schema: LOCAL_FILE_SCHEMA });
+        await tx.objectStore('bodies').put(bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes.buffer : bytes.slice().buffer, item.id);
+      }
+      await tx.objectStore('workspace').put(workspace, CURRENT_WORKSPACE);
+      await tx.objectStore('workspace').put(manifest.settings, PENDING_SETTINGS);
+      await tx.objectStore('workspace').put(nextEpoch, WORKSPACE_EPOCH);
+      await tx.done;
+      this.epoch = nextEpoch;
+    } catch (error) { abortQuietly(tx); throw error; }
+  }
+
+  async pendingBackupSettings(): Promise<unknown> {
+    const tx = (await this.open()).transaction('workspace', 'readonly');
+    void tx.done.catch(() => {});
+    await this.checkEpoch(tx.store);
+    const settings = await tx.store.get(PENDING_SETTINGS);
+    await tx.done;
+    return settings;
+  }
+
+  async finishBackupSettings(): Promise<void> {
+    const tx = (await this.open()).transaction('workspace', 'readwrite');
+    void tx.done.catch(() => {});
+    try {
+      await this.checkEpoch(tx.store);
+      await tx.store.delete(PENDING_SETTINGS);
+      await tx.done;
+    } catch (error) { abortQuietly(tx); throw error; }
   }
 
   async close(): Promise<void> {

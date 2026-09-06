@@ -89,10 +89,19 @@ Escape discards unapplied changes. Vocabulary filters apply live.
 | Reading cursor, linked range, Find, Reader scale, jump history, removal undo | Current session |
 | Verified extracted text and indexes | Disposable browser cache |
 
-Workspace saves are last-write-wins; there is no multi-tab merge model.
+Workspace saves are last-write-wins; there is no multi-tab merge model. Loading
+a workspace file fences older tabs from writing until they reload.
 Unsupported pre-alpha workspace shapes recover with notice rather than migrate.
 Healthy records can open around damaged library entries. The app has no
-production result export, workspace backup, account, or synchronization UI.
+production result export, account, or synchronization UI.
+
+Workspace files (`.ttws`) include all saved source files and the active workspace,
+plus theme/density, Speed pacing, Atlas normalization, trend-row sizing, and
+Matches/Vocabulary column proportions. Loading replaces those settings and the
+active workspace while retaining unrelated library files. The file limits are
+1,024 saved texts, 32 MiB per source, 256 MiB source bytes, and 261 MiB total.
+Active texts retain the ordinary corpus limits. Invalid or incomplete files are
+refused before writing. See [save/load instructions](how-to.md#save-and-load-a-workspace-file).
 
 Trends defaults to 40 bins per text, rates per 10,000 tokens, and no smoothing.
 Equal gives separate texts equal width; To scale gives them a shared token

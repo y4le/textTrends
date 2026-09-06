@@ -66,6 +66,8 @@ const runtime = createAppRuntime(client, {
 
 /** The single React-facing store. */
 export const useApp = runtime.useApp;
+export const suspendWorkspaceSaving = () => runtime.suspendWorkspaceSaving();
+export const currentRsvpPacing = () => runtime.getRsvpPacing();
 
 export const workerDiagnostics = () => client.diagnostics();
 
@@ -149,6 +151,7 @@ async function bootstrap(): Promise<void> {
   let workspaceStore: WorkspaceStorePort | null = null;
   let restoredWorkspace: WorkspaceV1 | null = null;
   let bootstrapNotice: string | null = null;
+  let settingsNotice: string | null = null;
   let afterAttach: (() => void) | null = null;
   try {
     const [
@@ -162,6 +165,26 @@ async function bootstrap(): Promise<void> {
     ]);
     workspaceStore = localLibrary;
     closeLibrary = () => localLibrary.close();
+    const pendingSettings = await localLibrary.pendingBackupSettings();
+    if (torndown) return;
+    if (pendingSettings !== undefined) {
+      const { applyBackupPreferences } = await import('./workspace-backup-preferences.ts');
+      if (torndown) return;
+      try {
+        applyBackupPreferences(pendingSettings, {
+          local: browserStorage(window, 'local'), session: browserStorage(window, 'session'),
+        });
+        await localLibrary.finishBackupSettings();
+      } catch (error) {
+        settingsNotice = `Your texts and terms were loaded. Saved display and reading settings are still pending: ${error instanceof Error ? error.message : String(error)} Allow browser settings storage, then reload to retry.`;
+      }
+      if (settingsNotice === null) {
+        if (!torndown) await reloadRestoredWorkspace();
+        return;
+      }
+      // Texts and authored research remain usable even if browser preference
+      // storage stays blocked. Preserve the record for a later retry.
+    }
     const [inspection, stored] = await Promise.all([
       localLibrary.inspect(),
       localLibrary.loadWorkspace(),
@@ -219,7 +242,8 @@ async function bootstrap(): Promise<void> {
   }
   if (workspaceStore === null) throw new Error('the local library did not initialize');
   runtime.attachSession(session, restoredWorkspace ?? undefined, workspaceStore); // subscribe + seed, exactly once
-  if (bootstrapNotice !== null) runtime.reportNotice(bootstrapNotice);
+  const notices = [settingsNotice, bootstrapNotice].filter((notice) => notice !== null);
+  if (notices.length > 0) runtime.reportNotice(notices.join(' '));
   session.start(); // only after the store is observing
   if (demoBootRequest !== null && demoBootRequest.id !== null) {
     void loadDemoCorpus(demoBootRequest.id, 'replace', { getState: runtime.useApp.getState }).then(
@@ -298,6 +322,16 @@ export async function shutdownAppForReload(options: { readonly preserveWorkspace
     }
   }
   await closeLibrary?.();
+}
+
+/** Successful restore already committed its workspace; flushing the old live
+ * runtime here would overwrite it. Clear old source/range URL targets too. */
+export async function reloadRestoredWorkspace(): Promise<void> {
+  await shutdownAppForReload();
+  const url = new URL(window.location.href);
+  url.search = '?p=inputs';
+  url.hash = '';
+  window.location.replace(url.href);
 }
 
 // Dev-server module replacement: this module owns the app's live resources

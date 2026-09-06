@@ -5,6 +5,8 @@ analysis, five workbench places, full-corpus Matches, Read/Atlas/Speed, guided
 learning, and CI-backed Pages deployment. Source acquisition, workspace-save
 feedback, damaged-record recovery, and Reader chrome consolidation are
 implemented.
+Portable [workspace backup and restore](workspace-backup.md) includes original
+library sources, active workspace intent, and display/reading settings.
 The [design index](README.md) owns their current contracts; this page contains
 only remaining work and explicit deferrals (reconciled September 5, 2026).
 
@@ -27,7 +29,6 @@ These are candidates for scoped work, not shipped behavior or a delivery order.
 | Opportunity | Required decision or evidence |
 | --- | --- |
 | Result export | Choose complete-result versus displayed-row scope; include methods, filters, document ids/titles, corpus identity, and completeness. Tested provenance formatters have no production consumer. |
-| Workspace backup/restore | Decide source-byte inclusion and portable restoration separately from result export. |
 | First-use simplification | Reduce competing acquisition choices; offer explicit Track a term and Read paths after import. Preserve returning-user access. |
 | Visible measurement captions | Reflect active bins/denominator/smoothing; label Compare's log₂ scale and independent rankings. |
 | Compact results | Test a smaller initial destination list with Show more and clearer Company filtering; simplify initial Vocabulary columns without losing analytical access. |
@@ -36,7 +37,7 @@ These are candidates for scoped work, not shipped behavior or a delivery order.
 | Input summaries | Resident term cells can yield document frequency; cumulative growth can yield order-dependent new types. Do not call either text-exclusive vocabulary. |
 | Query suggestions | Add a bounded corpus-aware vocabulary query before suggestions or precommit hit estimates. Quote-to-phrase behavior needs tokenizer semantics. |
 | Additional guides | Build a corpus, Matches/source, Compare two texts, Vocabulary filters, Read/Atlas, and Speed; prioritize from observed need. |
-| Second-tab feedback | Discuss notice/write ownership within the existing last-write-wins model before adding conflict or multi-workspace semantics. |
+| Second-tab feedback | Restore epochs reject stale writers after replacement; broader proactive notice/write ownership remains open within the ordinary last-write-wins model. |
 
 ## Architecture follow-ups
 

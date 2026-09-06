@@ -1215,6 +1215,38 @@ describe('the session bridge', () => {
     }
   });
 
+  it('drains issued saves before restore and resumes the latest intent after an aborted restore', async () => {
+    vi.useFakeTimers();
+    const workspace = new FakeWorkspaceStore();
+    let finish!: () => void;
+    const save = vi.spyOn(workspace, 'saveWorkspace').mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const { runtime, store } = harness(undefined, { workspace });
+    try {
+      store.getState().quickAdd('Watson');
+      await vi.advanceTimersByTimeAsync(1_500);
+      let drained = false;
+      const suspension = runtime.suspendWorkspaceSaving().then((resume) => { drained = true; return resume; });
+      store.getState().quickAdd('Holmes');
+      store.getState().retryWorkspaceSave();
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(drained).toBe(false);
+      expect(save).toHaveBeenCalledTimes(1);
+      finish();
+      const resume = await suspension;
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(save).toHaveBeenCalledTimes(1);
+      resume();
+      resume();
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(save).toHaveBeenCalledTimes(2);
+      expect(workspace.saves.at(-1)?.notebook.groups.map(groupTitle)).toEqual(['Watson', 'Holmes']);
+      expect(store.getState().workspacePersistence.phase).toBe('saved');
+    } finally {
+      runtime.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it('surfaces a workspace write failure and retries the latest state', async () => {
     vi.useFakeTimers();
     try {
@@ -7000,6 +7032,24 @@ describe('dueling keyness query intent (slice-4)', () => {
       restOn: 'a',
       documentB: 'b',
     });
+  });
+
+  it('preserves restored comparison sides through partial cold snapshots', async () => {
+    const base = workspaceState();
+    const docs = ['a', 'b'].map((doc) => ({ doc, library: `txt:${doc.repeat(64)}`, meta: { title: doc, language: 'en', tags: [] } }));
+    const saved = { ...base, corpus: { kind: 'library' as const, order: ['a', 'b'], docs }, views: { ...base.views, compare: { ...base.views.compare, mode: 'documents' as const, documentA: 'a', documentB: 'b' } } };
+    const data = await libraryProject(saved, new Map(docs.map((doc) => [doc.library, { id: doc.library, name: `${doc.doc}.txt`, format: 'txt' as const, size: 10, contentHash: doc.doc.repeat(64) }])));
+    const f = harness();
+    try {
+      f.port.emit(sessionState(null, { project: { data } }));
+      f.store.getState().restoreWorkspace(saved);
+      f.port.emit(sessionState(snap('g1', 'partial', ['b']), { project: { data } }));
+      expect(f.store.getState().keynessView).toMatchObject({ mode: 'documents', documentA: 'a', documentB: 'b' });
+      f.port.emit(sessionState(snap('g1', 'complete', ['a', 'b']), { project: { data } }));
+      expect(f.store.getState().keynessView).toMatchObject({ mode: 'documents', documentA: 'a', documentB: 'b' });
+      f.port.emit(sessionState(snap('g2', 'removed', ['b']), { project: { data: { ...data, order: ['b'], docs: data.docs.filter((doc) => doc.doc === 'b') } } }));
+      expect(f.store.getState().keynessView).toMatchObject({ mode: 'selection-rest', documentA: 'b', documentB: null });
+    } finally { f.runtime.dispose(); }
   });
 
   it('reconciles departed documents on the next snapshot', () => {

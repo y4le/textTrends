@@ -11,7 +11,7 @@ corpus arrays and source text remain behind the worker boundary.
 | `app-state.ts` | Type-only shared contracts; no runtime values/imports |
 | `app-defaults.ts` | Initial analytical preferences |
 | `workspace-state.ts` | Durable projection, unavailable-source references, exact referential prefilter for semantic saves |
-| `workspace-persistence.ts` | Connection, hydration baseline, debounce, retry pause, stale-save fencing, visibility flush, disposal |
+| `workspace-persistence.ts` | Connection, hydration baseline, debounce, retry pause, restore suspension/drain, stale-save fencing, visibility flush, disposal |
 | `navigation-controller.ts` | Initial URL normalization, layer registry, Back/Forward, history writes, focus return |
 | `store.ts` | Runtime composition, session bridge, notebook actions, query/Reader interaction |
 
@@ -67,5 +67,5 @@ generic registry to shorten the runtime. Current local evidence is in
 [benchmarks](../benchmarks.md); it does not establish larger corpus tiers.
 
 `provenance.ts` is a tested deferred capability without a production export
-surface. Result completeness and workspace/source-byte backup need separate
-product decisions.
+surface. Result completeness still needs a product decision. Portable source
+and workspace restoration follows the [backup contract](../workspace-backup.md).

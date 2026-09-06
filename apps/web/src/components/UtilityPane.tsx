@@ -17,6 +17,7 @@ export function UtilityPane({
   layerClassName,
   compactClose = false,
   closeOnBackdrop = false,
+  closeDisabled = false,
   onClose,
   onKeyDown,
   bodyRef,
@@ -33,6 +34,7 @@ export function UtilityPane({
   readonly layerClassName?: string;
   readonly compactClose?: boolean;
   readonly closeOnBackdrop?: boolean;
+  readonly closeDisabled?: boolean;
   readonly onClose: () => void;
   readonly onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
   readonly bodyRef?: Ref<HTMLDivElement>;
@@ -64,6 +66,7 @@ export function UtilityPane({
           </div>
           <button
             type="button"
+            disabled={closeDisabled}
             {...(compactClose ? { 'aria-label': 'close' } : {})}
             {...(closeKeyshortcuts === undefined ? {} : { 'aria-keyshortcuts': closeKeyshortcuts })}
             onClick={onClose}

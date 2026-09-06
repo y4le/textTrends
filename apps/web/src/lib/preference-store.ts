@@ -16,6 +16,8 @@ export interface PreferenceCodec<T> extends Omit<PreferenceDescriptor, 'legacyKe
 }
 
 export interface Preference<T> extends PreferenceDescriptor {
+  parse(value: unknown): T | null;
+  serialize(value: T): unknown | null;
   load(storage: PreferenceReader | null): T | null;
   save(storage: PreferenceWriter | null, value: T): void;
   clear(storage: Pick<Storage, 'removeItem'> | null): void;
@@ -38,6 +40,8 @@ export function definePreference<T>(codec: PreferenceCodec<T>): Preference<T> {
     key: codec.key,
     scope: codec.scope,
     legacyKeys,
+    parse: codec.parse,
+    serialize: codec.serialize,
     load(storage: PreferenceReader | null): T | null {
       if (storage === null) return null;
       try {

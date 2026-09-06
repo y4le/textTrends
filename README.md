@@ -8,8 +8,8 @@ ranges, and read through Read, Atlas, or Speed.
 **Status: active pre-alpha.** One workspace is saved in this browser; imported
 text and analysis are never uploaded. Prepared samples load from the app's
 host. The optional Standard Ebooks catalog downloads source archives from
-GitHub. There is no account, synchronization, result-download UI, or workspace
-backup UI.
+GitHub. Workspace files save and load texts, terms, and settings. There is no
+account, synchronization, or result-download UI.
 
 ## Run locally
 

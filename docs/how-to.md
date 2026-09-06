@@ -89,6 +89,24 @@ double arrows move across the visible paused passage. Opening Speed settings
 pauses playback. Return to Reader or Escape returns to prose at the displayed
 token. [Speed settings](reference.md#speed) describes the controls.
 
+## Save and load a workspace file
+
+In **Inputs → Workspace file**, choose **Save workspace file** to download a
+`.ttws` file containing all saved library texts, active text order and metadata,
+terms, analysis settings, and display/reading preferences. Resolve pending or
+failed imports and repair or remove damaged sources before saving.
+
+Choose **Load workspace file**, select the backup, and review its counts.
+**Replace workspace and load** replaces active texts, terms, and saved settings,
+then reopens the app. Unrelated library texts are kept. Imported texts take the
+names and metadata saved in the file. Save the current setup first if you want
+to return to it; Cancel leaves it unchanged.
+
+The file works in a fresh browser without downloading its texts again. Analysis
+is rebuilt; selections, cursor position, open panels, and undo history reset.
+If another tab reports that the workspace was replaced, reload that tab before
+continuing. If settings restoration was interrupted, reload to finish it.
+
 ## Recover saved work
 
 A workspace-save warning remains visible across places and Reader. Use its
@@ -107,5 +125,5 @@ retains library files and the workspace, then rebuilds indexes. Full reset is
 separate: it removes saved sources, workspace, caches, and owned preferences
 after confirmation. If deletion is blocked, close other app tabs and retry.
 
-Browser storage belongs to this origin and browser profile. There is no
-workspace backup/restore UI; keep your original source files separately.
+Browser storage belongs to this origin and browser profile. Keep downloaded
+workspace files somewhere you can access outside that browser.

@@ -718,6 +718,8 @@ export interface AppState {
  *  `store-instance.ts` and tests, never for React. */
 export interface AppRuntime {
   useApp: UseBoundStore<StoreApi<AppState>>;
+  suspendWorkspaceSaving(): Promise<() => void>;
+  getRsvpPacing(): RsvpPacing;
   /** Subscribe the store to the session and seed current state, exactly once.
    *  A second (different) attachment is a programming error and throws. Call
    *  BEFORE `session.start()` so the first publication is observed. */
