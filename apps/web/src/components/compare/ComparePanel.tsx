@@ -290,10 +290,11 @@ export function ComparePanel() {
                 className="compare-reverse"
                 type="button"
                 onClick={reverseRankings}
+                aria-label="Reverse rankings"
                 title="Reverse ranking directions"
                 disabled={!hasComparison}
               >
-                Reverse rankings
+                <span aria-hidden="true">⇅</span>
               </button>
               <label data-side="a">
                 {sideControl('a')}
