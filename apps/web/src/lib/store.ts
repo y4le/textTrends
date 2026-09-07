@@ -3823,8 +3823,9 @@ export function createAppRuntime(
           settlePositionHistory();
           set({
             trends: new Map(),
-            scrub: null,
-            footerPassage: null,
+            // Reading position and source remain useful without term tracks.
+            // The passage request above refreshes highlights for the empty list.
+            ...(!snapshot ? { scrub: null, footerPassage: null } : {}),
             dispersion: null,
             company: null,
             destinations: null,
@@ -5280,7 +5281,13 @@ export function createAppRuntime(
       footerPassageLane.supersede();
       footerPassageActive = null;
       footerPassagePending = null;
-      store.setState({ interaction: NO_INTERACTION, interactionError: null });
+      store.setState({
+        interaction: NO_INTERACTION,
+        interactionError: null,
+        // Empty-term reading survives term edits, but its axis is still
+        // snapshot-bound and must reset when the loaded texts change.
+        ...(store.getState().series.length === 0 ? { scrub: null } : {}),
+      });
       const live = store.getState();
       const readerLive =
         live.readerPlace !== null

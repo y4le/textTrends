@@ -3,6 +3,7 @@ import {
   awaitAllReady,
   awaitReadyCount,
   clearDemoInputs,
+  clearNotebook,
   DOC_COUNT,
   gotoPlace,
   submitAndAwaitFreshResults,
@@ -131,6 +132,63 @@ test('the workbench footer shares one corpus axis and opens the current passage'
   await expect(reader.getByRole('slider', { name: /Position in/ })).toHaveCount(1);
   await page.getByRole('button', { name: 'Return to workbench', exact: true }).click();
   await expect(footer).toBeVisible();
+});
+
+test('footer progress survives clearing all terms and still opens Reader', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  await slider.focus();
+  await slider.press('End');
+  const position = await slider.getAttribute('aria-valuenow');
+  await clearNotebook(page);
+  await expect(page.locator('.term-bar .term-bucket')).toHaveCount(0);
+  await expect(slider).toHaveAttribute('aria-valuenow', position!);
+  await expect(footer.getByTestId('footer-progress')).toHaveAttribute('data-progress', '100');
+  await expect(footer.getByRole('button', { name: /Open reader at .* token/ })).toBeVisible();
+  await expect(footer.locator('.footer-sparkline path')).toHaveCount(0);
+
+  await expect(slider).toBeVisible();
+  const box = await slider.boundingBox();
+  if (!box) throw new Error('footer slider has no layout box');
+  await page.mouse.move(box.x + box.width * 0.38, box.y + 5);
+  await expect(slider).not.toHaveAttribute('aria-valuenow', position!);
+  const scrubbed = Number(await slider.getAttribute('aria-valuenow'));
+  await slider.focus();
+  await slider.press('Shift+ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuenow', String(scrubbed + 1));
+  const passage = footer.locator('.footer-passage[data-passage-for]');
+  await expect(footer.getByRole('button', { name: /Open reader at .* token/ })).toBeVisible();
+  const token = await passage.getAttribute('data-passage-for');
+  await footer.getByRole('button', { name: /Open reader at .* token/ }).click();
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  await expect(reader).toBeVisible();
+  await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-anchor', token!);
+});
+
+test('a text imported without terms has footer progress and can open Reader', async ({ page }) => {
+  await page.goto('./?fresh=1');
+  await page.getByLabel('Add files — import and analyze').setInputFiles({
+    name: 'no-terms.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('one two three four five six seven eight nine ten'),
+  });
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
+  await expect(page.locator('.term-bar .term-bucket')).toHaveCount(0);
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  await expect(slider).toBeVisible();
+  await slider.focus();
+  await slider.press('Home');
+  await slider.press('Shift+ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuenow', '1');
+  await expect(page.getByTestId('footer-progress')).toHaveAttribute('data-progress', '20');
+  await slider.press('Enter');
+  const reader = page.getByRole('main', { name: /Reader: no-terms/ });
+  await expect(reader).toBeVisible();
+  await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-anchor', '1');
 });
 
 test('footer keyboard reading exposes page, fine, and open actions', async ({ page }) => {

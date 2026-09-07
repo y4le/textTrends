@@ -1901,18 +1901,20 @@ describe('store query intent discipline', () => {
       .toEqual({ kind: 'rank', rank: 0 });
   });
 
-  it('clearing the comparison and a snapshot-null transition discard axis state', () => {
+  it('clearing terms retains the reading axis until a snapshot-null transition', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes');
     f.store.getState().setScrub({ doc: 'a', token: 100 });
     f.store.getState().removeGroup(f.store.getState().series[0]!.id);
     expect(f.store.getState().kwic).toBeNull();
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 100 });
     f.store.getState().quickAdd('holmes');
     expect((f.kwics().filter((query) => !query.cancelled).at(-1)!.query as { request: { anchor: unknown } }).request.anchor)
-      .toEqual({ kind: 'rank', rank: 0 });
+      .toEqual({ kind: 'position', doc: 'a', token: 100 });
     f.port.emit(sessionState(null));
     expect(f.store.getState().kwic).toBeNull();
+    expect(f.store.getState().scrub).toBeNull();
   });
 
   it('scrubbing with no active terms leaves Matches absent and issues no window', () => {
@@ -3850,7 +3852,7 @@ describe('reading position history intent', () => {
     }
   });
 
-  it('settles before the shared cursor clears and traverses the destination named by the controls', () => {
+  it('retains the shared cursor and settled history when the last term is deactivated', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes');
@@ -3864,7 +3866,7 @@ describe('reading position history intent', () => {
     const group = f.store.getState().notebook.groups[0]!;
     f.store.getState().setGroupActive(group.id, false);
 
-    expect(f.store.getState().scrub).toBeNull();
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 3_000 });
     expect(f.store.getState().positionHistory.entries.map((entry) => entry.token))
       .toEqual([0, 1_000, 2_000, 3_000]);
     expect(f.store.getState().stepPositionHistory(-1)).toEqual({ doc: 'a', token: 2_000 });
