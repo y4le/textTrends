@@ -5154,6 +5154,33 @@ export function createAppRuntime(
 
   const persistence = createWorkspacePersistence(store, opts?.workspace ?? null);
 
+  // A range can be committed before its full token extents arrive. Resume
+  // Compare when inventory or trend results make the complement available;
+  // repeated counts must not cancel rankings that are already running.
+  const unsubscribeKeynessGeometry = store.subscribe((state, previous) => {
+    if (
+      state.corpusTokenCounts === previous.corpusTokenCounts
+      || state.snapshot === null
+      || state.snapshot !== previous.snapshot
+      || state.keynessView.mode !== 'selection-rest'
+      || state.linkedSelection === null
+      || state.linkedSelection !== previous.linkedSelection
+    ) return;
+    const { linkedSelection, snapshot } = state;
+    if (
+      selectionComplement(
+        linkedSelection,
+        snapshot.readyDocs,
+        (doc) => previous.corpusTokenCounts.get(doc),
+      ) === null
+      && selectionComplement(
+        linkedSelection,
+        snapshot.readyDocs,
+        (doc) => state.corpusTokenCounts.get(doc),
+      ) !== null
+    ) state.runKeyness();
+  });
+
   /** One-way bridge: mirror the session view for the query flow and reissue
    *  queries ONLY when the (generation, snapshot) identity changes (including a
    *  transition to null). It must never issue a session command in response to
@@ -5365,6 +5392,7 @@ export function createAppRuntime(
     reportWorkspaceFailure: (error: unknown) => persistence.reportFailure(error),
     dispose() {
       disposed = true;
+      unsubscribeKeynessGeometry();
       persistence.dispose();
       // Close the ownership scope FIRST: every outstanding lease goes dead, so
       // a late settlement (even one whose cancel is never acknowledged) can no

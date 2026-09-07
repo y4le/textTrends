@@ -11,6 +11,30 @@ const ONE_TEXT = [
   ...Array.from({ length: 40 }, () => 'outside'),
 ].join(' ');
 
+test('a fresh text compares a footer selection without tracked terms', async ({ page }) => {
+  await page.goto('./?fresh=1');
+  await page.getByLabel('Add files — import and analyze').setInputFiles({
+    name: 'one.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from(ONE_TEXT),
+  });
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
+  await expect(page.locator('.term-bar .term-bucket')).toHaveCount(0);
+
+  const footer = page.getByRole('slider', { name: 'Corpus footer position' });
+  await footer.focus();
+  await footer.press('Home');
+  await footer.press('s');
+  for (let index = 0; index < 8; index++) await footer.press('Shift+ArrowRight');
+  await footer.press('Enter');
+  await gotoPlace(page, 'compare');
+
+  const pyramid = page.getByRole('table', { name: 'Compare population pyramid' });
+  await expect(pyramid.getByRole('button', { name: /^inside,/ })).toBeVisible();
+  await expect(pyramid.getByRole('button', { name: /^outside,/ })).toBeVisible();
+});
+
 test('one text compares a selected range with its corpus complement', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });

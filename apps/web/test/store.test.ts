@@ -6605,6 +6605,46 @@ describe('dueling keyness query intent (slice-4)', () => {
     expect(f.store.getState().keynessB).toBeNull();
   });
 
+  it.each(['baseline', 'selected'] as const)(
+    'starts a waiting range comparison when the %s inventory supplies token counts',
+    async (first) => {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      const baseline = f.inventories().at(-1)!;
+      f.store.getState().setLinkedSelection({
+        snapshot: 's1',
+        ranges: [{ doc: 'a', tokens: { start: 2, end: 4 } }],
+      });
+      const selected = f.inventories().at(-1)!;
+      expect(f.keynesses()).toHaveLength(0);
+
+      const leading = first === 'baseline' ? baseline : selected;
+      const trailing = first === 'baseline' ? selected : baseline;
+      leading.resolve(fakeInventoryResult(10, [{ doc: 'a', fullTokens: 10 }]));
+      await flush();
+
+      expect(f.keynesses()).toHaveLength(2);
+      expect(f.keynessInventories().filter((query) => query !== selected)).toHaveLength(2);
+      expect((f.keynesses()[0]!.query as {
+        request: { a: unknown; b: unknown };
+      }).request).toMatchObject({
+        a: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: 2, end: 4 } }] },
+        b: {
+          docs: ['a'],
+          ranges: [
+            { doc: 'a', tokens: { start: 0, end: 2 } },
+            { doc: 'a', tokens: { start: 4, end: 10 } },
+          ],
+        },
+      });
+
+      trailing.resolve(fakeInventoryResult(10, [{ doc: 'a', fullTokens: 10 }]));
+      await flush();
+      expect(f.keynesses()).toHaveLength(2);
+      expect(f.keynesses().every((query) => !query.cancelled)).toBe(true);
+    },
+  );
+
   it('leaves selection comparison when a document is chosen', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
