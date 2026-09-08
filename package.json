@@ -13,8 +13,8 @@
     "vitest": "^4.1.0"
   },
   "scripts": {
-    "dev": "pnpm build:packages && pnpm --filter @texttrends/web dev",
-    "dev:tailnet": "pnpm build:packages && bash scripts/dev-tailnet.sh",
+    "dev": "node scripts/dev.mjs",
+    "dev:tailnet": "node scripts/dev.mjs --tailnet",
     "build": "pnpm typecheck && pnpm --filter @texttrends/web build:bundle && pnpm check:bundle",
     "check:bundle": "node scripts/check-bundle.mjs",
     "build:packages": "pnpm --filter @texttrends/epub build && pnpm --filter @texttrends/standard-ebooks build",

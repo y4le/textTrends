@@ -8,8 +8,12 @@ pnpm dev
 ```
 
 The app runs under `/textTrends/`; open the URL printed by Vite. Workspace
-packages are local dependencies, and `pnpm dev` builds the compiled EPUB and
-Standard Ebooks packages before starting the web app.
+packages are local dependencies. Both `pnpm dev` and `pnpm dev:tailnet` build
+the compiled EPUB and Standard Ebooks packages before starting the web app,
+then watch both packages with one TypeScript build watcher. Package source edits
+update their compiled exports while Vite is running. Compiler errors appear in
+the terminal; fix them to resume successful rebuilds. Ctrl-C stops the server
+and package watcher together, and either process exiting stops its sibling.
 
 ## Repository map
 
