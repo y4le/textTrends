@@ -24,6 +24,7 @@ their consumers.
 | `compare-controller.ts` | Compare initial state, four query lanes, selection/settings and pagination intent, cold-restore/demo reconciliation |
 | `reader-controller.ts` | Reader initial state, actions, page-query lane, fitted-page walk, seek session, and disposal |
 | `query-lane.ts` | Shared latest-wins lease and best-effort transport cancellation mechanism |
+| `trend-queries.ts` | Shared per-series trend and dispersion issuance; runtime retains lanes, guards, pending publication, and refresh order |
 | `store.ts` | Runtime composition, session bridge, notebook/query/Find/Speed actions, shared cursor and position history |
 
 Persistence connects before session attachment and establishes its baseline

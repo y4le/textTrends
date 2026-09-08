@@ -642,6 +642,26 @@ describe('typed query delivery', () => {
   });
 });
 
+describe('Trends burst intent guards', () => {
+  it('rejects baseline and selected results when their captured bin geometry is no longer current', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('holmes');
+    const baseline = f.trends().at(-1)!;
+    f.store.getState().setLinkedSelection({ snapshot: 's1', ranges: [{ doc: 'a', tokens: { start: 1, end: 8 } }] });
+    const selected = f.trends().at(-1)!;
+    // Exercise the captured-intent fence independently of transport cancellation.
+    f.store.setState({ trendBins: { mode: 'fixed-tokens', count: 250 } });
+    baseline.resolve({ op: 'trend', trend: fakeTrend(9) });
+    selected.resolve({ op: 'trend', trend: fakeTrend(3) });
+    await flush();
+    expect(f.store.getState().trends.get('u1')).toEqual({ status: 'pending' });
+    expect(f.store.getState().selectedTrends.get('u1')).toEqual({ status: 'pending' });
+    expect(f.store.getState().corpusTokenCounts.size).toBe(0);
+    f.runtime.dispose();
+  });
+});
+
 describe('workbench route and history authority', () => {
   it('keeps every durable workspace source and linked selection identical through guide staging', () => {
     const history = new FakeHistoryPort('/textTrends/?p=trends');

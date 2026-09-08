@@ -154,7 +154,6 @@ export function createCompareController({
       },
       lease,
       (data) => {
-
         writeKeynessTable(side, {
           snapshot: snapshot.snapshot,
           side,
@@ -220,7 +219,6 @@ export function createCompareController({
       },
       lease,
       (data) => {
-
         writeKeynessInventory(side, {
           snapshot: snapshot.snapshot,
           side,
@@ -335,7 +333,6 @@ export function createCompareController({
         },
         lease,
         (data) => {
-
           const next = data.keyness;
           if (
             next.method !== resident.method

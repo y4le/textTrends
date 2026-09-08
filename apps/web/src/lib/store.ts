@@ -116,6 +116,7 @@ import type {
 } from './app-state.ts';
 import { DEFAULT_TREND_BINS, DEFAULT_TREND_MEASURE } from './app-defaults.ts';
 import { QueryLane } from './query-lane.ts';
+import { issueTrendSeries, issueDispersion } from './trend-queries.ts';
 import { createVocabularyController } from './vocabulary-controller.ts';
 import { createCompareController } from './compare-controller.ts';
 import { createReaderController } from './reader-controller.ts';
@@ -1052,6 +1053,26 @@ export function createAppRuntime(
       runFindDispersion();
     };
 
+    const writeBaselineTrend = (id: string, state: SeriesTrendState): void => set((live) => {
+      const trends = new Map(live.trends);
+      trends.set(id, state);
+      return {
+        trends,
+        corpusTokenCounts: state.status === 'ready'
+          ? retainTrendTokenCounts(live.corpusTokenCounts, state.trend)
+          : live.corpusTokenCounts,
+      };
+    });
+    const writeSelectedTrend = (id: string, state: SeriesTrendState): void => set((live) => {
+      const selectedTrends = new Map(live.selectedTrends);
+      selectedTrends.set(id, state);
+      return { selectedTrends };
+    });
+    const trendBinsCurrent = (bins: TrendBinsSpecV1): boolean => {
+      const live = get().trendBins;
+      return live.mode === bins.mode && live.count === bins.count;
+    };
+
     /** Reissue only the trend result lanes after a bin-policy change.
      * Dispersion, KWIC, and inventory do not depend on trend bins and must
      * remain resident. */
@@ -1066,10 +1087,7 @@ export function createAppRuntime(
       }
       const issuedKey = snapKey(snapshot);
       const issuedBins = trendBins;
-      const binsCurrent = () => {
-        const current = get().trendBins;
-        return current.mode === issuedBins.mode && current.count === issuedBins.count;
-      };
+      const binsCurrent = () => trendBinsCurrent(issuedBins);
       set({
         trends: new Map(series.map((item) => [item.id, { status: 'pending' } as const])),
       });
@@ -1077,42 +1095,10 @@ export function createAppRuntime(
         () => snapKey(get().snapshot) === issuedKey,
         binsCurrent,
       );
-      for (const item of series) {
-        const spec = specFor(item.id);
-        if (spec === null) continue;
-        const issuedIdentity = termGroupIdentity(spec);
-        const write = (state: SeriesTrendState) => set((live) => {
-          const next = new Map(live.trends);
-          next.set(item.id, state);
-          return {
-            trends: next,
-            corpusTokenCounts: state.status === 'ready'
-              ? retainTrendTokenCounts(live.corpusTokenCounts, state.trend)
-              : live.corpusTokenCounts,
-          };
-        });
-        issueOn(
-          trendLane,
-          snapshot.snapshot,
-          {
-            op: 'trend',
-            selection: { docs: [...snapshot.readyDocs] },
-            group: spec,
-            request: { coordinate: 'declared-sequence', bins: issuedBins },
-          },
-          baselineLease,
-          (data) => {
-            if (identityOf(item.id) === issuedIdentity) {
-              write({ status: 'ready', trend: data.trend });
-            }
-          },
-          (message) => {
-            if (identityOf(item.id) === issuedIdentity) {
-              write({ status: 'error', message });
-            }
-          },
-        );
-      }
+      issueTrendSeries(
+        trendLane, { snapshot: snapshot.snapshot, selection: { docs: [...snapshot.readyDocs] }, series, bins: issuedBins },
+        baselineLease, { issue: issueOn, specFor, identityOf }, writeBaselineTrend,
+      );
 
       if (
         linkedSelection === null ||
@@ -1131,37 +1117,10 @@ export function createAppRuntime(
         binsCurrent,
         () => get().linkedSelection === issuedSelection,
       );
-      for (const item of series) {
-        const spec = specFor(item.id);
-        if (spec === null) continue;
-        const issuedIdentity = termGroupIdentity(spec);
-        const write = (state: SeriesTrendState) => set((live) => {
-          const next = new Map(live.selectedTrends);
-          next.set(item.id, state);
-          return { selectedTrends: next };
-        });
-        issueOn(
-          selectedTrendLane,
-          snapshot.snapshot,
-          {
-            op: 'trend',
-            selection: wireSelection,
-            group: spec,
-            request: { coordinate: 'declared-sequence', bins: issuedBins },
-          },
-          selectedLease,
-          (data) => {
-            if (identityOf(item.id) === issuedIdentity) {
-              write({ status: 'ready', trend: data.trend });
-            }
-          },
-          (message) => {
-            if (identityOf(item.id) === issuedIdentity) {
-              write({ status: 'error', message });
-            }
-          },
-        );
-      }
+      issueTrendSeries(
+        selectedTrendLane, { snapshot: snapshot.snapshot, selection: wireSelection, series, bins: issuedBins },
+        selectedLease, { issue: issueOn, specFor, identityOf }, writeSelectedTrend,
+      );
     };
 
     /** (Re)issue the SELECTED-range overlays (trends + dispersion) for the
@@ -1184,31 +1143,13 @@ export function createAppRuntime(
       set({ selectedTrends: new Map(series.map((s) => [s.id, { status: 'pending' } as const])) });
       const lease = selectedTrendLane.ops.begin(
         () => snapKey(get().snapshot) === issuedKey,
+        () => trendBinsCurrent(trendBins),
         guard,
       );
-      for (const s of series) {
-        const spec = specFor(s.id);
-        if (spec === null) continue;
-        const issuedIdentity = termGroupIdentity(spec);
-        const write = (state: SeriesTrendState) =>
-          set((prev) => {
-            const next = new Map(prev.selectedTrends);
-            next.set(s.id, state);
-            return { selectedTrends: next };
-          });
-        issueOn(
-          selectedTrendLane,
-          snapshot.snapshot,
-          { op: 'trend', selection: wireSelection, group: spec, request: { coordinate: 'declared-sequence', bins: trendBins } },
-          lease,
-          (data) => {
-            if (identityOf(s.id) === issuedIdentity) write({ status: 'ready', trend: data.trend });
-          },
-          (message) => {
-            if (identityOf(s.id) === issuedIdentity) write({ status: 'error', message });
-          },
-        );
-      }
+      issueTrendSeries(
+        selectedTrendLane, { snapshot: snapshot.snapshot, selection: wireSelection, series, bins: trendBins },
+        lease, { issue: issueOn, specFor, identityOf }, writeSelectedTrend,
+      );
       const dTracks = trackSpecs(series);
       if (dTracks !== null) {
         const dLease = selectedDispersionLane.ops.begin(
@@ -1222,25 +1163,9 @@ export function createAppRuntime(
             state: { status: 'pending' },
           },
         });
-        issueOn(
-          selectedDispersionLane,
-          snapshot.snapshot,
-          { op: 'dispersion', selection: wireSelection, tracks: dTracks.wire, request: { method: 'dispersion/1', exactMax: DISPERSION_EXACT_MAX, bucketBudget: DISPERSION_BUCKET_BUDGET } },
-          dLease,
-          (data) => {
-            set({
-              selectedDispersion: {
-                snapshot: snapshot.snapshot,
-                state: { status: 'ready', result: data.dispersion },
-              },
-            });
-          },
-          (message) => set({
-            selectedDispersion: {
-              snapshot: snapshot.snapshot,
-              state: { status: 'error', message },
-            },
-          }),
+        issueDispersion(
+          issueOn, selectedDispersionLane, snapshot.snapshot, wireSelection, dTracks.wire, dLease,
+          (state) => set({ selectedDispersion: { snapshot: snapshot.snapshot, state } }),
         );
       }
     };
@@ -1425,7 +1350,6 @@ export function createAppRuntime(
         },
         lease,
         (data) => {
-
           const live = get().kwic;
           const axis = data.window.axis
             ?? (live?.snapshot === snapshot.snapshot && live.trackKey === trackKey ? live.axis : null);
@@ -2844,46 +2768,15 @@ export function createAppRuntime(
           trends: new Map(series.map((s) => [s.id, { status: 'pending' } as const])),
         });
         // ONE lease for the whole series burst — the burst is a single intent.
-        const lease = trendLane.ops.begin(() => snapKey(get().snapshot) === issuedKey);
+        const lease = trendLane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => trendBinsCurrent(trendBins),
+        );
 
-        for (const s of series) {
-          const spec = specFor(s.id);
-          if (spec === null) continue; // vanished mid-burst: superseded intent
-          const issuedIdentity = termGroupIdentity(spec);
-          const write = (state: SeriesTrendState) =>
-            set((prev) => {
-              const next = new Map(prev.trends); // NEVER mutate the resident map
-              next.set(s.id, state);
-              return {
-                trends: next,
-                corpusTokenCounts: state.status === 'ready'
-                  ? retainTrendTokenCounts(prev.corpusTokenCounts, state.trend)
-                  : prev.corpusTokenCounts,
-              };
-            });
-          issueOn(
-            trendLane,
-            issuedSnapshot,
-            {
-              op: 'trend',
-              selection: { docs: [...snapshot.readyDocs] },
-              group: spec,
-              request: { coordinate: 'declared-sequence', bins: trendBins },
-            },
-            lease,
-            (data) => {
-              // Commit only under the ISSUED matching semantics (invariant 4):
-              // a member edit under the same UUID kills the old result even if
-              // a reissue were somehow missed.
-              if (identityOf(s.id) === issuedIdentity) write({ status: 'ready', trend: data.trend });
-            },
-            // A genuine failure must mark ITS series, not silently vanish —
-            // and must not erase successful peers.
-            (message) => {
-              if (identityOf(s.id) === issuedIdentity) write({ status: 'error', message });
-            },
-          );
-        }
+        issueTrendSeries(
+          trendLane, { snapshot: snapshot.snapshot, selection: { docs: [...snapshot.readyDocs] }, series, bins: trendBins },
+          lease, { issue: issueOn, specFor, identityOf }, writeBaselineTrend,
+        );
 
         // The barcode rides the SAME burst/guards as the trends: one
         // dispersion query for the whole effective comparison.
@@ -2900,30 +2793,9 @@ export function createAppRuntime(
               state: { status: 'pending' },
             },
           });
-          issueOn(
-            dispersionLane,
-            issuedSnapshot,
-            {
-              op: 'dispersion',
-              selection: { docs: [...snapshot.readyDocs] },
-              tracks: dTracks.wire,
-              request: { method: 'dispersion/1', exactMax: DISPERSION_EXACT_MAX, bucketBudget: DISPERSION_BUCKET_BUDGET },
-            },
-            dLease,
-            (data) => {
-              set({
-                dispersion: {
-                  snapshot: issuedSnapshot,
-                  state: { status: 'ready', result: data.dispersion },
-                },
-              });
-            },
-            (message) => set({
-              dispersion: {
-                snapshot: issuedSnapshot,
-                state: { status: 'error', message },
-              },
-            }),
+          issueDispersion(
+            issueOn, dispersionLane, issuedSnapshot, { docs: [...snapshot.readyDocs] }, dTracks.wire, dLease,
+            (state) => set({ dispersion: { snapshot: issuedSnapshot, state } }),
           );
         }
 
