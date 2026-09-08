@@ -87,7 +87,7 @@ import { clampRsvpPacing, RSVP_PACING_DEFAULTS, type RsvpPacing } from '@texttre
 import { OperationScope, type OperationLease } from './operation-lease.ts';
 import type {
   QueryOpV4,
-  QueryResultDataV4,
+  QueryResultFor,
 } from '../shared/analysis-contract.ts';
 import {
   clampMatchesColumnWidth,
@@ -383,13 +383,13 @@ export function createAppRuntime(
   const store = create<AppState>((set, get) => {
     /** Issue ONE guarded query on a lane: track its cancel, deliver only while
      *  the lease holds, swallow typed cancellation, surface real failures. The
-     *  caller's onReady narrows the op discriminant and writes its own state. */
-    const issueOn = (
+     *  issuer validates the operation before delivering its specific result. */
+    const issueOn = <Op extends QueryOpV4>(
       lane: QueryLane,
       snapshotId: string,
-      op: QueryOpV4,
+      op: Op,
       lease: OperationLease,
-      onReady: (data: QueryResultDataV4) => void,
+      onReady: (data: QueryResultFor<Op['op']>) => void,
       onError: (message: string) => void,
       errorMessage: (error: unknown) => string = queryErrorMessage,
     ): void => {
@@ -400,7 +400,14 @@ export function createAppRuntime(
         // lane when onReady/onError publishes the settled result.
         .then((data) => {
           untrack();
-          if (lease.isCurrent()) onReady(data);
+          if (!lease.isCurrent()) return;
+          if (data.op !== op.op) {
+            onError(`Analysis response mismatch: expected ${op.op}, received ${data.op}.`);
+            return;
+          }
+          // TypeScript cannot correlate generic union members; the operation
+          // check above establishes precisely this request/result association.
+          onReady(data as QueryResultFor<Op['op']>);
         })
         .catch((e: unknown) => {
           untrack();
@@ -621,8 +628,7 @@ export function createAppRuntime(
         lease,
         (data) => {
           if (
-            data.op !== 'company'
-            || data.company.method !== 'company/1'
+            data.company.method !== 'company/1'
             || !resultTracksMatch(data.company.tracks, tracks)
           ) {
             set({
@@ -735,8 +741,7 @@ export function createAppRuntime(
         lease,
         (data) => {
           if (
-            data.op !== 'destinations'
-            || data.destinations.method !== 'destinations/1'
+            data.destinations.method !== 'destinations/1'
             || !resultTracksMatch(data.destinations.tracks, tracks)
             || canonicalJson(data.destinations.focus) !== canonicalJson(focusOrdinals)
           ) {
@@ -987,13 +992,6 @@ export function createAppRuntime(
         },
         lease,
         (data) => {
-          if (data.op !== 'trend') {
-            writeFindTrend(issuedIdentity, {
-              status: 'error',
-              message: 'worker returned the wrong find trend operation',
-            });
-            return;
-          }
           writeFindTrend(issuedIdentity, { status: 'ready', trend: data.trend });
         },
         (message) => writeFindTrend(issuedIdentity, { status: 'error', message }),
@@ -1031,13 +1029,6 @@ export function createAppRuntime(
         },
         lease,
         (data) => {
-          if (data.op !== 'dispersion') {
-            writeFindDispersion(issuedIdentity, {
-              status: 'error',
-              message: 'worker returned the wrong find dispersion operation',
-            });
-            return;
-          }
           const [track] = data.dispersion.tracks;
           if (
             data.dispersion.tracks.length !== 1
@@ -1111,7 +1102,7 @@ export function createAppRuntime(
           },
           baselineLease,
           (data) => {
-            if (data.op === 'trend' && identityOf(item.id) === issuedIdentity) {
+            if (identityOf(item.id) === issuedIdentity) {
               write({ status: 'ready', trend: data.trend });
             }
           },
@@ -1160,7 +1151,7 @@ export function createAppRuntime(
           },
           selectedLease,
           (data) => {
-            if (data.op === 'trend' && identityOf(item.id) === issuedIdentity) {
+            if (identityOf(item.id) === issuedIdentity) {
               write({ status: 'ready', trend: data.trend });
             }
           },
@@ -1211,7 +1202,7 @@ export function createAppRuntime(
           { op: 'trend', selection: wireSelection, group: spec, request: { coordinate: 'declared-sequence', bins: trendBins } },
           lease,
           (data) => {
-            if (data.op === 'trend' && identityOf(s.id) === issuedIdentity) write({ status: 'ready', trend: data.trend });
+            if (identityOf(s.id) === issuedIdentity) write({ status: 'ready', trend: data.trend });
           },
           (message) => {
             if (identityOf(s.id) === issuedIdentity) write({ status: 'error', message });
@@ -1237,14 +1228,12 @@ export function createAppRuntime(
           { op: 'dispersion', selection: wireSelection, tracks: dTracks.wire, request: { method: 'dispersion/1', exactMax: DISPERSION_EXACT_MAX, bucketBudget: DISPERSION_BUCKET_BUDGET } },
           dLease,
           (data) => {
-            if (data.op === 'dispersion') {
-              set({
-                selectedDispersion: {
-                  snapshot: snapshot.snapshot,
-                  state: { status: 'ready', result: data.dispersion },
-                },
-              });
-            }
+            set({
+              selectedDispersion: {
+                snapshot: snapshot.snapshot,
+                state: { status: 'ready', result: data.dispersion },
+              },
+            });
           },
           (message) => set({
             selectedDispersion: {
@@ -1436,7 +1425,7 @@ export function createAppRuntime(
         },
         lease,
         (data) => {
-          if (data.op !== 'matches-window') return;
+
           const live = get().kwic;
           const axis = data.window.axis
             ?? (live?.snapshot === snapshot.snapshot && live.trackKey === trackKey ? live.axis : null);
@@ -2331,8 +2320,7 @@ export function createAppRuntime(
           lease,
           (data) => {
             if (
-              data.op !== 'occurrence-step'
-              || data.step.method !== 'occurrence-step/1'
+              data.step.method !== 'occurrence-step/1'
             ) {
               writeFindState({ status: 'error', message: 'worker returned the wrong operation' });
               return;
@@ -2672,8 +2660,7 @@ export function createAppRuntime(
           lease,
           (data) => {
             if (
-              data.op !== 'occurrence-step'
-              || data.step.method !== 'occurrence-step/1'
+              data.step.method !== 'occurrence-step/1'
             ) {
               set({
                 occurrenceNavigation: {
@@ -2888,7 +2875,7 @@ export function createAppRuntime(
               // Commit only under the ISSUED matching semantics (invariant 4):
               // a member edit under the same UUID kills the old result even if
               // a reissue were somehow missed.
-              if (data.op === 'trend' && identityOf(s.id) === issuedIdentity) write({ status: 'ready', trend: data.trend });
+              if (identityOf(s.id) === issuedIdentity) write({ status: 'ready', trend: data.trend });
             },
             // A genuine failure must mark ITS series, not silently vanish —
             // and must not erase successful peers.
@@ -2924,14 +2911,12 @@ export function createAppRuntime(
             },
             dLease,
             (data) => {
-              if (data.op === 'dispersion') {
-                set({
-                  dispersion: {
-                    snapshot: issuedSnapshot,
-                    state: { status: 'ready', result: data.dispersion },
-                  },
-                });
-              }
+              set({
+                dispersion: {
+                  snapshot: issuedSnapshot,
+                  state: { status: 'ready', result: data.dispersion },
+                },
+              });
             },
             (message) => set({
               dispersion: {

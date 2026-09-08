@@ -610,6 +610,38 @@ function harness(initial?: SessionState, opts?: {
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+describe('typed query delivery', () => {
+  it('surfaces mismatches through each controller instead of leaving pending views', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 0, from: 'kwic', anchor: 'occurrence' });
+    for (const op of ['trend', 'keyness', 'freq-list', 'reader-page']) {
+      const request = f.issued.findLast((entry) => entry.op === op)!;
+      expect(request, op).toBeDefined();
+      request.resolve({ op: 'dispersion' } as QueryResultDataV4);
+    }
+    await flush();
+    const state = f.store.getState();
+    for (const view of [state.trends.get('u1'), state.keynessB?.state, state.frequency?.state, state.readerPage?.state]) {
+      expect(view).toMatchObject({ status: 'error', message: expect.stringContaining('response mismatch') });
+    }
+    f.runtime.dispose();
+  });
+
+  it('silently drops a mismatched response after its lease is superseded', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('holmes');
+    const old = f.trends().at(-1)!;
+    f.store.getState().runQueries();
+    old.resolve({ op: 'dispersion' } as QueryResultDataV4);
+    await flush();
+    expect(f.store.getState().trends.get('u1')).toEqual({ status: 'pending' });
+    f.runtime.dispose();
+  });
+});
+
 describe('workbench route and history authority', () => {
   it('keeps every durable workspace source and linked selection identical through guide staging', () => {
     const history = new FakeHistoryPort('/textTrends/?p=trends');

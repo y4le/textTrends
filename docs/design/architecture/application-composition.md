@@ -4,6 +4,13 @@ One composed Zustand runtime projects immutable `ProjectSession` publications
 and issues bounded queries. The session owns source admission and generations;
 corpus arrays and source text remain behind the worker boundary.
 
+The client correlates query results with the requested snapshot and operation.
+The shared issuer validates the operation after checking the live lease, then
+delivers an operation-specific result type to controllers. Injected query ports
+remain union-typed; current mismatches enter the lane's error state and stale
+responses remain silent. Payload checks (document, track, method) stay with
+their consumers.
+
 ## Ownership
 
 | Module in `apps/web/src/lib` | Responsibility |

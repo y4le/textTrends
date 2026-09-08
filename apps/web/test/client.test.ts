@@ -43,6 +43,22 @@ afterEach(() => {
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+describe('query response correlation', () => {
+  it.each([
+    { snapshot: 'other', op: 'trend' },
+    { snapshot: 'snap', op: 'inventory' },
+  ])('rejects mismatched response $snapshot/$op and retires the request', async ({ snapshot, op }) => {
+    const client = new WorkerClient();
+    const query = client.query('snap', { op: 'trend' } as never);
+    FakeWorker.instances.at(-1)!.onmessage?.({
+      data: { v: PROTOCOL_VERSION_V4, t: 'result', job: 1, snapshot, data: { op } },
+    });
+    await expect(query.result).rejects.toMatchObject({ code: 'WORKER_RESPONSE_MISMATCH' });
+    expect(client.diagnostics().pendingRequests).toBe(0);
+    client.close();
+  });
+});
+
 describe('WorkerClient close()', () => {
   it('rejects every pending request typed, terminates the Worker, and is NOT revivable', async () => {
     const client = new WorkerClient();

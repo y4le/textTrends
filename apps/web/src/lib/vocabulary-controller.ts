@@ -86,7 +86,7 @@ export function createVocabularyController({
           },
           lease,
           (data) => {
-            if (data.op !== 'inventory') return;
+
             const ready: InventoryState = {
               snapshot: snapshot.snapshot,
               selection: null,
@@ -139,7 +139,7 @@ export function createVocabularyController({
         },
         lease,
         (data) => {
-          if (data.op !== 'inventory') return;
+
           set((state) => ({
             inventory: {
               snapshot: snapshot.snapshot,
@@ -226,7 +226,7 @@ export function createVocabularyController({
         },
         lease,
         (data) => {
-          if (data.op !== 'freq-list') return;
+
           set({
             frequency: {
               snapshot: snapshot.snapshot,
@@ -316,7 +316,7 @@ export function createVocabularyController({
         },
         lease,
         (data) => {
-          if (data.op !== 'freq-list') return;
+
           const next = data.frequency;
           if (
             next.total !== resident.total

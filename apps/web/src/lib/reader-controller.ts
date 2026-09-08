@@ -627,7 +627,7 @@ export function createReaderController(deps: ReaderDependencies) {
         },
         lease,
         (data) => {
-          if (data.op !== 'reader-page') return;
+
           if (data.page.doc !== issuedPlace.doc) {
             set({
               readerPage: {

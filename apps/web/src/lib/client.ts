@@ -38,6 +38,7 @@ export type WorkerClientFailureCode =
   | 'WORKER_RESTARTED'
   | 'WORKER_TERMINATED'
   | 'WORKER_POST_FAILED'
+  | 'WORKER_RESPONSE_MISMATCH'
   | 'WORKER_ERROR';
 
 /** A typed transport/lifecycle rejection from the analysis lane. `code` is the
@@ -109,7 +110,7 @@ export interface GenerationReady {
 const MAX_WORKER_RESTARTS = 3;
 
 type Pending =
-  | { kind: 'query'; resolve: (r: QueryResultDataV4) => void; reject: (e: Error) => void }
+  | { kind: 'query'; snapshot: string; op: QueryOpV4['op']; resolve: (r: QueryResultDataV4) => void; reject: (e: Error) => void }
   | { kind: 'open'; resolve: (r: GenerationReady) => void; reject: (e: Error) => void };
 
 export interface WorkerClientDiagnostics {
@@ -278,6 +279,10 @@ export class WorkerClient {
         const p = m.job !== undefined ? this.pending.get(m.job) : undefined;
         if (p?.kind === 'query') {
           this.pending.delete(m.job);
+          if (m.snapshot !== p.snapshot || m.data.op !== p.op) {
+            p.reject(new WorkerClientError('WORKER_RESPONSE_MISMATCH', 'Analysis response does not match the requested snapshot and operation.'));
+            return;
+          }
           p.resolve(m.data);
         }
         return;
@@ -520,7 +525,7 @@ export class WorkerClient {
 
   query(snapshot: string, query: QueryOpV4): { result: Promise<QueryResultDataV4>; cancel: () => void } {
     return this.request<QueryResultDataV4>((job, resolve, reject) => {
-      this.pending.set(job, { kind: 'query', resolve, reject });
+      this.pending.set(job, { kind: 'query', snapshot, op: query.op, resolve, reject });
       this.post({ v: PROTOCOL_VERSION_V4, t: 'query', job, snapshot, query });
     });
   }

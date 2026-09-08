@@ -1,5 +1,5 @@
 import { LatestOperation, type OperationScope, type OperationLease } from './operation-lease.ts';
-import type { QueryOpV4, QueryResultDataV4 } from '../shared/analysis-contract.ts';
+import type { QueryOpV4, QueryResultFor } from '../shared/analysis-contract.ts';
 
 /** One query-intent lane: latest-wins ownership plus the in-flight transport
  *  cancels it may best-effort clean up. Superseding is ONE operation, so no
@@ -30,12 +30,12 @@ export class QueryLane {
   }
 }
 
-export type QueryIssuer = (
+export type QueryIssuer = <Op extends QueryOpV4>(
   lane: QueryLane,
   snapshotId: string,
-  op: QueryOpV4,
+  op: Op,
   lease: OperationLease,
-  onReady: (data: QueryResultDataV4) => void,
+  onReady: (data: QueryResultFor<Op['op']>) => void,
   onError: (message: string) => void,
   errorMessage?: (error: unknown) => string,
 ) => void;

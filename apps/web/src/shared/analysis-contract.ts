@@ -241,3 +241,6 @@ export type QueryResultDataV4 =
       readonly groupId: string;
       readonly step: OccurrenceStepResultV1;
     };
+
+/** The result associated with a request operation, after boundary validation. */
+export type QueryResultFor<K extends QueryOpV4['op']> = Extract<QueryResultDataV4, { readonly op: K }>;
