@@ -25,6 +25,7 @@ import {
   SOURCE_FILE_ACCEPT,
   type BuiltinCorpusId,
 } from '../lib/project.ts';
+import { readyReaderDocumentOrder } from '../lib/reader-order.ts';
 import type { SourceStatus } from '../lib/project-session.ts';
 import { libraryOperation } from '../lib/library-operation.ts';
 import { inputResetCopy } from '../lib/input-reset-view.ts';
@@ -74,6 +75,11 @@ export function ProjectPanel() {
   const termCount = useApp((s) => s.notebook.groups.length);
   const unavailableDocs = useApp((s) => s.unavailableDocs);
   const reorder = useApp((s) => s.reorder);
+  const snapshot = useApp((s) => s.snapshot);
+  const corpusTokenCounts = useApp((s) => s.corpusTokenCounts);
+  const setPlace = useApp((s) => s.setPlace);
+  const pushLayer = useApp((s) => s.pushLayer);
+  const openReader = useApp((s) => s.openReader);
 
   const importRef = useRef<HTMLInputElement>(null);
   const saveRef = useRef<HTMLInputElement>(null);
@@ -149,8 +155,22 @@ export function ProjectPanel() {
   const pendingImports = imports ?? [];
   const analyzableCount = finalizedDocs.length + pendingImports.length;
   const inputCount = analyzableCount + unavailableDocs.length;
-  const acquisitionExpanded = acquisitionOverride ?? analyzableCount === 0;
-  const catalogExpanded = catalogOverride ?? analyzableCount === 0;
+  // Failed imports remain visible as errors but do not hide the path to retry.
+  const hasUsableInputs = finalizedDocs.length > 0
+    || pendingImports.some((item) => item.status !== 'failed');
+  const acquisitionExpanded = acquisitionOverride ?? !hasUsableInputs;
+  const catalogExpanded = catalogOverride ?? false;
+  const previousHasUsableInputs = useRef(hasUsableInputs);
+  useLayoutEffect(() => {
+    if (previousHasUsableInputs.current === hasUsableInputs) return;
+    previousHasUsableInputs.current = hasUsableInputs;
+    setAcquisitionOverride(null);
+    setCatalogOverride(null);
+  }, [hasUsableInputs]);
+
+  const readyDocs = snapshot?.readyDocs ?? [];
+  const firstReadableDoc = readyReaderDocumentOrder(project?.data.order, readyDocs)
+    .find((doc) => (corpusTokenCounts.get(doc) ?? 0) > 0);
   const previousAcquisitionExpandedRef = useRef(acquisitionExpanded);
 
   useLayoutEffect(() => {
@@ -470,6 +490,21 @@ export function ProjectPanel() {
     }
   };
 
+  const sampleButton = (action: typeof demoActions[number]) => (
+    <button
+      key={`${action.id}-sample`}
+      type="button"
+      aria-disabled={action.unavailable}
+      aria-busy={demoLoading === action.id || undefined}
+      onClick={() => {
+        if (!action.unavailable) void loadDemo(action.id);
+      }}
+      style={SMALL_BUTTON_STYLE}
+    >
+      {action.label}
+    </button>
+  );
+
   return (
     <section className="input-workspace">
       <div className="input-card-grid">
@@ -504,6 +539,33 @@ export function ProjectPanel() {
           <p className="input-card-help">
             These texts are analyzed in this order. Drop saved or new files here; drag rows or use the move buttons to reorder.
           </p>
+          {readyDocs.length > 0 && (
+            <div className="input-next-steps" role="group" aria-label="Explore your texts">
+              <span>{readyDocs.length} text{readyDocs.length === 1 ? '' : 's'} ready. Choose a next step:</span>
+              <button
+                id="inputs-track-term"
+                type="button"
+                onClick={() => {
+                  setPlace('trends');
+                  pushLayer('row-detail', {
+                    surface: 'query-editor', mode: 'manage', create: true,
+                  }, 'term-add');
+                }}
+                style={SMALL_BUTTON_STYLE}
+              >Track a term</button>
+              {firstReadableDoc !== undefined && snapshot !== null && (
+                <button
+                  id="inputs-read"
+                  type="button"
+                  onClick={() => openReader({
+                    snapshot: snapshot.snapshot, doc: firstReadableDoc,
+                    token: 0, from: 'inputs', anchor: 'position',
+                  }, 'inputs-read')}
+                  style={SMALL_BUTTON_STYLE}
+                >Read</button>
+              )}
+            </div>
+          )}
           {unavailableDocs.length > 0 && (
             <section aria-label="Unavailable active texts">
               <p>These active texts are saved but cannot be analyzed. Reimport the original file, or remove its reference here.</p>
@@ -645,21 +707,14 @@ export function ProjectPanel() {
                   <span>Public-domain texts and useful starter terms are added without replacing your work.</span>
                 </p>
                 <div className="input-sample-actions">
-                  {demoActions.map((action) => (
-                    <button
-                      key={`${action.id}-sample`}
-                      type="button"
-                      aria-disabled={action.unavailable}
-                      aria-busy={demoLoading === action.id || undefined}
-                      onClick={() => {
-                        if (!action.unavailable) void loadDemo(action.id);
-                      }}
-                      style={SMALL_BUTTON_STYLE}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
+                  {demoActions.slice(0, 2).map(sampleButton)}
                 </div>
+                <details className="input-more-samples">
+                  <summary>More prepared samples</summary>
+                  <div className="input-sample-actions">
+                    {demoActions.slice(2).map(sampleButton)}
+                  </div>
+                </details>
                 {demoError && <p role="alert" className="input-card-error input-sample-message">{demoError}</p>}
                 <p role="status" aria-live="polite" aria-atomic="true" className="input-card-status input-sample-message">
                   {loadingDemoLabel ? `Adding the ${loadingDemoLabel} sample…` : demoNotice ?? ''}

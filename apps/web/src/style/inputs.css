@@ -456,3 +456,37 @@
   gap: var(--space-2);
 }
 .workspace-file-actions button { min-height: 44px; }
+
+.input-next-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+
+.input-next-steps > span {
+  flex-basis: 100%;
+}
+
+.input-more-samples {
+  margin-block-start: var(--space-2);
+}
+
+.input-more-samples > summary {
+  cursor: pointer;
+}
+
+@media (pointer: coarse) {
+  .input-next-steps > button {
+    min-block-size: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .input-more-samples > summary {
+    min-block-size: 44px;
+    padding-block: 12px;
+    box-sizing: border-box;
+  }
+}

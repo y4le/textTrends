@@ -30,6 +30,7 @@ test('the Austen sample sits beside Sherlock and loads all six novels with evide
   const requests = trackCorpusRequests(page);
   await page.goto('./');
 
+  await page.getByText('More prepared samples', { exact: true }).click();
   for (const label of [
     'Sherlock Holmes',
     'Jane Austen',
@@ -69,11 +70,13 @@ test('a new public one-shot URL loads the complete corpus and starter terms', as
 
 test('the Bible and Quran samples can be analyzed together', async ({ page }) => {
   await page.goto('./');
+  await page.getByText('More prepared samples', { exact: true }).click();
   await page.getByRole('button', { name: 'Try the World English Bible sample' }).click();
   await awaitReadyCount(page, BIBLE.length);
 
   const acquisition = page.getByRole('region', { name: 'Add texts' });
   await acquisition.getByRole('button', { name: 'Show options', exact: true }).click();
+  await page.getByText('More prepared samples', { exact: true }).click();
   await acquisition.getByRole('button', { name: 'Add Quran sample', exact: true }).click();
   await awaitReadyCount(page, BIBLE.length + QURAN.length);
 

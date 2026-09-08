@@ -6,7 +6,7 @@ export interface ReaderOpenIntent {
   readonly snapshot: string;
   readonly doc: string;
   readonly token: number;
-  readonly from: 'kwic' | 'barcode' | 'footer' | 'occurrence';
+  readonly from: 'kwic' | 'barcode' | 'footer' | 'occurrence' | 'inputs';
   /** The evidence claim at this location. A density midpoint is a position,
    * even though its numeric token is exact. */
   readonly anchor: ReaderAnchorKind;
@@ -28,6 +28,7 @@ const READER_ORIGINS = new Set<ReaderOpenIntent['from']>([
   'barcode',
   'footer',
   'occurrence',
+  'inputs',
 ]);
 const READER_CURSOR_KINDS = new Set<ReaderPlace['cursor']['kind']>([
   'around',

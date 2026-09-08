@@ -49,7 +49,9 @@ test('empty Inputs foregrounds local import and collapses acquisition around act
   expect((await trust.boundingBox())?.y).toBeLessThan(844);
 
   const catalogToggle = acquisition.getByRole('button', { name: /Browse Standard Ebooks/ });
-  await expect(catalogToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(catalogToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('list', { name: 'Popular Standard Ebooks' })).toHaveCount(0);
+  await catalogToggle.click();
   await expect(page.getByRole('list', { name: 'Popular Standard Ebooks' }).getByRole('listitem'))
     .toHaveCount(20);
 

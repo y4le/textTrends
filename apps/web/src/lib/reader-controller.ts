@@ -176,7 +176,9 @@ export function createReaderController(deps: ReaderDependencies) {
           ? 'matches'
           : intent.from === 'footer'
             ? 'seek'
-            : intent.from;
+            : intent.from === 'inputs'
+              ? 'reader'
+              : intent.from;
         const target = { doc: intent.doc, token: intent.token };
         const previous = get().scrub;
         recordPositionJump(previous, target, origin);

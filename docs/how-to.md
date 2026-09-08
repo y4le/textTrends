@@ -20,12 +20,19 @@ its saved bytes; deleting a library file also removes every active text backed
 by it. The deletion confirmation names that consequence.
 
 To start with prepared texts, expand **Show options** under Add texts and pick
-a sample. Samples add ordinary local texts and starter terms without replacing
-your work. The Standard Ebooks catalog offers another acquisition path; adding
-a title downloads its source archive from GitHub.
+a sample. Sherlock and Austen are shown first; expand **More prepared samples**
+for the others.
+Samples add ordinary local texts and starter terms without replacing
+your work. **Browse Standard Ebooks** opens the catalog when you want another
+acquisition path; adding a title downloads its source archive from GitHub.
 
 **Clear all** in Active inputs clears the active texts and terms together
 while retaining the library. It is separate from deleting saved files.
+
+After analysis makes a text ready, Inputs offers **Track a term** to open a new
+term in Trends and **Read** to open the first readable text in declared order.
+Healthy texts remain usable when another import fails. Clearing all active work
+reopens acquisition options; saved library files remain available.
 
 ## Track related names as one term
 
