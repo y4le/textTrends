@@ -54,6 +54,13 @@ consumes that measurement and owns pointer/keyboard resizing and focus cleanup.
 Each hook cancels its own frames and timers; context escalation stays a focused
 effect in the panel.
 
+`reader/useRsvpPlayback` owns Speed source residency, cursor and passage history,
+continuation requests, visibility pausing, and playback timers. Store-owned
+playing and pacing remain inputs; `RsvpReader` owns settings, announcements,
+focus, keyboard/pointer handling, and markup. Pure timing rules stay in
+`packages/rsvp`. The hook is mounted for one keyed Speed session and clears its
+timer both when paused and when unmounted.
+
 The Reader controller is constructed inside Zustand initialization after query
 and matching capabilities exist, without reading state during construction.
 Navigation binds after initialization. The controller owns Reader queries and

@@ -9,25 +9,18 @@ import {
 } from 'react';
 import type { RsvpState } from '../lib/interaction.ts';
 import {
-  rsvpBoundedFrameStart,
-  rsvpCursorStep,
-  rsvpNeedsContinuation,
   RSVP_MAX_WPM,
   RSVP_MIN_WPM,
   RSVP_REST_CUE_MIN_MS,
   RSVP_RHYTHM_PRESETS,
   RSVP_WPM_STEP,
   effectiveRsvpWordsPerFrame,
-  rsvpContextPageToken,
-  rsvpFrameAt,
-  rsvpFrameTiming,
-  rsvpPausedContext,
   rsvpPresetSelection,
-  rsvpSpanAt,
-  rsvpSpanPlan,
   type RsvpPacing,
   type RsvpRhythmPreset,
 } from '@texttrends/rsvp';
+import { useRsvpPlayback, type RsvpReaderSource } from './reader/useRsvpPlayback.ts';
+export type { RsvpReaderSource } from './reader/useRsvpPlayback.ts';
 import { RSVP_WPM_INPUT_ID } from '../lib/rsvp-ui.ts';
 import { readerProgress } from '../lib/reader-progress.ts';
 import {
@@ -43,11 +36,6 @@ import {
   type ReaderSeekPhase,
 } from './reader/ReaderProgressRail.tsx';
 
-export type RsvpReaderSource =
-  | { readonly status: 'pending' }
-  | { readonly status: 'error'; readonly message: string }
-  | { readonly status: 'ready'; readonly page: ReaderPageResultV1 };
-
 export interface RsvpReaderProps {
   readonly title: string;
   readonly mode: RsvpState;
@@ -62,12 +50,6 @@ export interface RsvpReaderProps {
   readonly onOpenSettings: (returnFocus: HTMLElement, restSummary: string) => void;
 }
 
-interface PlaybackPhase {
-  readonly frameKey: string;
-  readonly kind: 'word' | 'rest';
-  readonly startedAt: number;
-}
-
 interface StagePointer {
   readonly id: number;
   readonly x: number;
@@ -78,16 +60,8 @@ interface StagePointer {
 
 const RSVP_PACE_HELP_ID = 'reader-rsvp-pace-help';
 
-function contains(page: ReaderPageResultV1, token: number): boolean {
-  return token >= page.tokens.start && token < page.tokens.end;
-}
-
 function stopControlSpace(event: KeyboardEvent<HTMLElement>): void {
   if (event.key === ' ') event.stopPropagation();
-}
-
-function clockNow(): number {
-  return typeof performance === 'undefined' ? 0 : performance.now();
 }
 
 function frameWordAt(target: EventTarget | null): number | null {
@@ -120,37 +94,15 @@ export function RsvpReader({
   onOpenSettings,
 }: RsvpReaderProps) {
   const presentation = usePresentation();
-  const initial = source.status === 'ready'
-    && source.page.doc === mode.doc
-    && contains(source.page, mode.startToken)
-    ? source.page
-    : null;
-  const [resident, setResident] = useState<ReaderPageResultV1 | null>(initial);
-  const [cursor, setCursor] = useState(mode.startToken);
-  const [completed, setCompleted] = useState(false);
   const [editingPace, setEditingPace] = useState(false);
   const [paceDraft, setPaceDraft] = useState(String(mode.wpm));
   const [settingStatus, setSettingStatus] = useState('');
-  const [phase, setPhase] = useState<PlaybackPhase>({
-    frameKey: '',
-    kind: 'word',
-    startedAt: 0,
-  });
   const resumeAfterEdit = useRef(false);
   const editingPaceRef = useRef(false);
-  const requestedSource = useRef<string | null>(null);
-  const nextFrameStart = useRef<number | null>(null);
-  const passageHistory = useRef<{ back: number[]; forward: number[] }>({
-    back: [],
-    forward: [],
-  });
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playRef = useRef<HTMLButtonElement | null>(null);
   const exitRef = useRef<HTMLButtonElement | null>(null);
   const stagePointer = useRef<StagePointer | null>(null);
-  const cursorRef = useRef(cursor);
-  cursorRef.current = cursor;
-
   const effectiveWords = effectiveRsvpWordsPerFrame(
     mode.wordsPerFrame,
     presentation.width === 'compact',
@@ -171,11 +123,12 @@ export function RsvpReader({
     mode.wpm,
   ]);
 
-  useEffect(() => {
-    if (source.status !== 'ready' || source.page.doc !== mode.doc) return;
-    if (!contains(source.page, cursorRef.current)) return;
-    setResident(source.page);
-  }, [mode.doc, source]);
+  const {
+    resident, cursor, completed, frame, spanPlan, timing, phase, frameKey,
+    pausedContext, canGoWordBack, canGoWordForward, canGoPassageBack,
+    canGoPassageForward, moveToToken: seekToken, moveWord: stepWord,
+    movePassage: stepPassage,
+  } = useRsvpPlayback({ mode, source, playbackPacing, onSetPlaying, onPublish, onSeek });
 
   useEffect(() => {
     if (!editingPace) setPaceDraft(String(mode.wpm));
@@ -199,160 +152,6 @@ export function RsvpReader({
     if (completed) exitRef.current?.focus({ preventScroll: true });
   }, [completed]);
 
-  useEffect(() => {
-    const pauseWhenHidden = () => {
-      if (!document.hidden) return;
-      onPublish(cursorRef.current);
-      onSetPlaying(false);
-    };
-    document.addEventListener('visibilitychange', pauseWhenHidden);
-    return () => document.removeEventListener('visibilitychange', pauseWhenHidden);
-  }, [onPublish, onSetPlaying]);
-
-  useEffect(() => {
-    if (source.status !== 'error') return;
-    onPublish(cursorRef.current);
-    onSetPlaying(false);
-  }, [onPublish, onSetPlaying, source.status]);
-
-  const relative = resident ? cursor - resident.tokens.start : -1;
-  const frame = useMemo(
-    () => resident && relative >= 0 && relative < resident.tokens.end - resident.tokens.start
-      ? rsvpFrameAt(resident, relative, {
-          wordsPerFrame: effectiveWords,
-          charLimit: mode.frameCharLimit,
-        })
-      : null,
-    [effectiveWords, mode.frameCharLimit, relative, resident],
-  );
-  const span = useMemo(
-    () => resident && relative >= 0 && relative < resident.tokens.end - resident.tokens.start
-      ? rsvpSpanAt(resident, relative)
-      : null,
-    [relative, resident],
-  );
-  const spanStartToken = span?.startToken ?? -1;
-  const spanPlan = useMemo(
-    () => resident && spanStartToken >= resident.tokens.start
-      ? rsvpSpanPlan(resident, spanStartToken - resident.tokens.start, playbackPacing)
-      : null,
-    [playbackPacing, resident, spanStartToken],
-  );
-  const timing = useMemo(
-    () => frame && spanPlan ? rsvpFrameTiming(spanPlan, frame) : null,
-    [frame, spanPlan],
-  );
-  const passageContext = useMemo(
-    () => resident && frame && source.status !== 'error'
-      ? rsvpPausedContext(resident, frame)
-      : null,
-    [frame, resident, source.status],
-  );
-  const pausedContext = !mode.playing && !completed ? passageContext : null;
-  const canGoWordBack = cursor > 0;
-  const canGoWordForward = cursor < mode.docTokenCount - 1;
-  const previousPassageToken = passageContext === null
-    ? null
-    : rsvpContextPageToken(passageContext, cursor, mode.docTokenCount, -1);
-  const nextPassageToken = passageContext === null
-    ? null
-    : rsvpContextPageToken(passageContext, cursor, mode.docTokenCount, 1);
-  const canGoPassageBack = passageHistory.current.back.length > 0
-    || previousPassageToken !== null;
-  const canGoPassageForward = passageHistory.current.forward.length > 0
-    || nextPassageToken !== null;
-  const frameKey = frame
-    ? `${frame.startToken}:${frame.words.map((word) => word.token).join(',')}:${frame.text}`
-    : '';
-
-  useEffect(() => {
-    if (frameKey === '' || !frame || !timing) {
-      nextFrameStart.current = null;
-      return;
-    }
-    // Pausing and resuming both restart the displayed frame. This is the
-    // forgiving recovery path and prevents paused wall time counting as read.
-    const now = clockNow();
-    const plannedStart = mode.playing ? nextFrameStart.current : null;
-    nextFrameStart.current = null;
-    setPhase({
-      frameKey,
-      kind: 'word',
-      startedAt: plannedStart === null
-        ? now
-        : rsvpBoundedFrameStart(plannedStart, now, timing.wordMs, frame.words.length),
-    });
-  }, [frame, frameKey, mode.playing, timing]);
-
-  useEffect(() => {
-    if (!resident || !frame || completed) return;
-    const key = `${resident.doc}:${resident.tokens.start}:${resident.tokens.end}`;
-    if (
-      requestedSource.current !== key
-      && rsvpNeedsContinuation(resident, cursor, playbackPacing)
-    ) {
-      requestedSource.current = key;
-      onSeek(cursor);
-    }
-  }, [completed, cursor, frame, onSeek, playbackPacing, resident]);
-
-  useEffect(() => {
-    if (
-      !mode.playing
-      || !resident
-      || !frame
-      || !timing
-      || completed
-      || phase.frameKey !== frameKey
-    ) return undefined;
-
-    const advance = (scheduledDeadline: number) => {
-      const step = rsvpCursorStep(resident, cursor, frame.words.length);
-      if (step.kind === 'next') {
-        passageHistory.current = { back: [], forward: [] };
-        nextFrameStart.current = scheduledDeadline;
-        setCursor(step.token);
-        onPublish(step.token);
-        return;
-      }
-      nextFrameStart.current = null;
-      onPublish(cursor);
-      onSetPlaying(false);
-      if (step.kind === 'document-end') {
-        setCompleted(true);
-      } else {
-        onSeek(cursor);
-      }
-    };
-    const duration = phase.kind === 'word' ? timing.wordMs : timing.pauseMs;
-    const scheduledDeadline = phase.startedAt + duration;
-    const remaining = Math.max(0, scheduledDeadline - clockNow());
-    const timer = window.setTimeout(() => {
-      if (phase.kind === 'word' && timing.pauseMs > 0) {
-        setPhase({
-          frameKey,
-          kind: 'rest',
-          startedAt: phase.startedAt + timing.wordMs,
-        });
-      } else {
-        advance(scheduledDeadline);
-      }
-    }, remaining);
-    return () => window.clearTimeout(timer);
-  }, [
-    completed,
-    cursor,
-    frame,
-    frameKey,
-    mode.playing,
-    onPublish,
-    onSeek,
-    onSetPlaying,
-    phase,
-    resident,
-    timing,
-  ]);
-
   const exit = () => {
     setSettingStatus('');
     onPublish(cursor);
@@ -363,41 +162,14 @@ export function RsvpReader({
     onPublish(cursor);
     onSetPlaying(!mode.playing);
   };
-  const moveToToken = useCallback((
-    token: number,
-    status: string,
-    retainPassageHistory = false,
-  ) => {
-    if (!Number.isSafeInteger(token) || token < 0 || token >= mode.docTokenCount) return;
-    if (!retainPassageHistory) passageHistory.current = { back: [], forward: [] };
-    nextFrameStart.current = null;
-    onSetPlaying(false);
-    setCompleted(false);
-    setCursor(token);
-    onPublish(token);
-    if (resident === null || !contains(resident, token)) onSeek(token);
-    setSettingStatus(status);
-  }, [mode.docTokenCount, onPublish, onSeek, onSetPlaying, resident]);
+  const moveToToken = (token: number, status: string) => {
+    if (seekToken(token)) setSettingStatus(status);
+  };
   const moveWord = useCallback((direction: -1 | 1) => {
-    const next = cursor + direction;
-    if (next < 0 || next >= mode.docTokenCount) return;
-    moveToToken(next, direction === -1 ? 'previous word' : 'next word');
-  }, [cursor, mode.docTokenCount, moveToToken]);
+    if (stepWord(direction)) setSettingStatus(direction === -1 ? 'previous word' : 'next word');
+  }, [stepWord]);
   const movePassage = (direction: -1 | 1) => {
-    if (passageContext === null) return;
-    const history = passageHistory.current;
-    const remembered = direction === -1 ? history.back.pop() : history.forward.pop();
-    const target = remembered
-      ?? (direction === -1 ? previousPassageToken : nextPassageToken);
-    if (target !== null) {
-      if (direction === -1) history.forward.push(cursor);
-      else history.back.push(cursor);
-      moveToToken(
-        target,
-        direction === -1 ? 'previous passage' : 'next passage',
-        true,
-      );
-    }
+    if (stepPassage(direction)) setSettingStatus(direction === -1 ? 'previous passage' : 'next passage');
   };
   const seekFromProgress = (token: number, phase: ReaderSeekPhase) => {
     moveToToken(token, phase === 'commit' ? 'position selected' : '');
