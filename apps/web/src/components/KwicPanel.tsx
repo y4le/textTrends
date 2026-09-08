@@ -7,16 +7,12 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
-  useState,
   type CSSProperties,
   type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
-import type { ScrubIntent } from '../lib/app-state.ts';
 import { findScope } from '../lib/interaction.ts';
 import { fullTokenCountsForDocs } from '../lib/doc-tokens.ts';
 import {
@@ -25,8 +21,6 @@ import {
   type MatchesRowVM,
 } from '../lib/matches-view.ts';
 import {
-  matchesColumnWidthFromDrag,
-  matchesColumnWidthFromKey,
   matchesGridTemplate,
   matchesTokenLabel,
   MATCHES_COLUMN_LIMITS,
@@ -39,17 +33,7 @@ import {
   type MatchesColumnSettings,
 } from '../lib/matches-columns.ts';
 import { proportionalPairFromPixels } from '../lib/column-layout.ts';
-import {
-  matchesLogicalAtScroll,
-  matchesPhysicalExtent,
-  matchesPrefetchRank,
-  matchesScrollTop,
-  matchesTargetAtLogical,
-  matchesVisibleRanks,
-  matchesWindowSize,
-  globalTokenForTarget,
-  logicalForGlobalToken,
-} from '../lib/matches-scroll.ts';
+import { matchesWindowSize, globalTokenForTarget } from '../lib/matches-scroll.ts';
 import { DENSITY_METRICS } from '../lib/display-preference.ts';
 import { sequenceLayoutFor } from '../lib/footer-view.ts';
 import {
@@ -70,35 +54,14 @@ import {
   type DataGridColumn,
 } from './data-grid/DataGridHeader.tsx';
 import { GuideLink } from './guide/GuideLink.tsx';
+import { useMatchesScroll } from './matches/useMatchesScroll.ts';
+import { useMatchesColumnResize } from './matches/useMatchesColumnResize.ts';
 
-const SCROLL_TOLERANCE_PX = 0.75;
-const ANNOUNCEMENT_INTERVAL_MS = 250;
 const CONTEXT_ESCALATION_DELAY_MS = 250;
 const ROW_ARIA_KEYS = shortcutAria(ROW_NAVIGATION_SHORTCUT_IDS);
 
 function tokenDistance(count: number): string {
   return `${count.toLocaleString()} ${count === 1 ? 'token' : 'tokens'}`;
-}
-
-interface SelfPublishedCursor {
-  readonly doc: string;
-  readonly token: number;
-  readonly logical: number;
-}
-
-interface ColumnDrag {
-  readonly column: MatchesColumn;
-  readonly pointerId: number;
-  readonly startClientX: number;
-  readonly startWidth: number;
-  readonly restoreSettings: MatchesColumnSettings;
-  readonly startLeftPx: number;
-  readonly startRightPx: number;
-  readonly chPx: number;
-  readonly handle: HTMLDivElement;
-  currentWidth: number;
-  currentSettings: MatchesColumnSettings;
-  moved: boolean;
 }
 
 type MatchesGridStyle = CSSProperties & {
@@ -133,31 +96,7 @@ export function KwicPanel({
   const setScrub = useApp((state) => state.setScrub);
   const openReader = useApp((state) => state.openReader);
 
-  const portRef = useRef<HTMLDivElement | null>(null);
-  const leftHeadingRef = useRef<HTMLDivElement | null>(null);
   const nodeHeadingRef = useRef<HTMLDivElement | null>(null);
-  const rightHeadingRef = useRef<HTMLDivElement | null>(null);
-  const chRulerRef = useRef<HTMLSpanElement | null>(null);
-  const adjustButtonRef = useRef<HTMLButtonElement | null>(null);
-  const columnDragRef = useRef<ColumnDrag | null>(null);
-  const scrollFrameRef = useRef<number | null>(null);
-  const resizeFrameRef = useRef<number | null>(null);
-  const programmaticScrollRef = useRef<number | null>(null);
-  const logicalRef = useRef(0);
-  const selfPublishedRef = useRef<SelfPublishedCursor | null>(null);
-  const appliedRevealRef = useRef<object | null>(null);
-  const pendingRankRef = useRef<number | null>(null);
-  const identityRef = useRef('');
-  const announcementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const contextEscalationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const announcementPendingRef = useRef('');
-  const announcementAtRef = useRef(0);
-  const lastScrollTopRef = useRef(0);
-  const previousRowHeightRef = useRef(rowHeight);
-  const [viewport, setViewport] = useState({ width: 0, height: 0, chPx: 0 });
-  const [logical, setLogical] = useState(0);
-  const [announcement, setAnnouncement] = useState('');
-  const [columnsAdjustable, setColumnsAdjustable] = useState(false);
 
   const scopedFind = findScope(interaction);
   const findMode = scopedFind !== null;
@@ -214,7 +153,6 @@ export function KwicPanel({
   const currentContextTokens = kwic?.request?.contextTokens
     ?? resident?.contextTokens
     ?? MATCHES_CONTEXT_TOKENS;
-  const hasGrid = resident !== null && resident.total > 0;
   const total = resident?.total ?? 0;
   const readyRows = resident?.rows ?? [];
   const rows = useMemo(
@@ -240,6 +178,15 @@ export function KwicPanel({
     [rankedRows],
   );
 
+  const {
+    portRef, chRulerRef, viewport, logical, activeRank, visible,
+    physicalTop, physicalExtent, planeHeight, announcement, announce,
+    onScroll, moveToRank,
+  } = useMatchesScroll({
+    kwic, docs, layout, scrub, rowHeight, currentContextTokens,
+    rowAtRank, titleOf, requestWindow, setScrub,
+  });
+
   const multipleBooks = docs.length > 1;
   const layoutWidth = viewport.width > 0 ? widthClassFor(viewport.width) : presentation.width;
   const tokenPosition = useCallback((row: MatchesRowVM) => {
@@ -254,284 +201,9 @@ export function KwicPanel({
     `(${bookOrdinalByDoc.get(row.doc) ?? '—'}) ${row.title}`,
   [bookOrdinalByDoc]);
 
-  const announce = useCallback((text: string) => {
-    announcementPendingRef.current = text;
-    const elapsed = performance.now() - announcementAtRef.current;
-    if (elapsed >= ANNOUNCEMENT_INTERVAL_MS && announcementTimerRef.current === null) {
-      announcementAtRef.current = performance.now();
-      setAnnouncement(text);
-      return;
-    }
-    if (announcementTimerRef.current !== null) return;
-    announcementTimerRef.current = setTimeout(() => {
-      announcementTimerRef.current = null;
-      announcementAtRef.current = performance.now();
-      setAnnouncement(announcementPendingRef.current);
-    }, Math.max(0, ANNOUNCEMENT_INTERVAL_MS - elapsed));
-  }, []);
-
-  const announceRank = useCallback((rank: number, target: { readonly doc: string; readonly token: number }) => {
-    announce(
-      `Occurrence ${(rank + 1).toLocaleString()} of ${total.toLocaleString()}, `
-      + `${titleOf(target.doc)}, token ${(target.token + 1).toLocaleString()}`,
-    );
-  }, [announce, titleOf, total]);
-
-  const setLogicalPosition = useCallback((next: number, moveScroll: boolean) => {
-    const bounded = Math.max(0, Math.min(total, next));
-    logicalRef.current = bounded;
-    setLogical(bounded);
-    if (!moveScroll) return;
-    const port = portRef.current;
-    if (!port) return;
-    const top = matchesScrollTop(bounded, total, rowHeight);
-    if (Math.abs(port.scrollTop - top) <= SCROLL_TOLERANCE_PX) return;
-    port.scrollTop = top;
-    // Browsers may clamp or round a requested edge coordinate. Fence the
-    // value the port actually accepted so that its ensuing scroll event is
-    // not mistaken for user input and allowed to rewrite an external cursor.
-    programmaticScrollRef.current = port.scrollTop;
-    lastScrollTopRef.current = port.scrollTop;
-  }, [rowHeight, total]);
-
-  const requestRank = useCallback((rank: number, direction: -1 | 0 | 1) => {
-    if (total <= 0) return;
-    const bounded = Math.max(0, Math.min(total - 1, rank));
-    const size = matchesWindowSize(viewport.height, rowHeight);
-    const prefetchRank = matchesPrefetchRank(
-      bounded + 0.5,
-      total,
-      viewport.height,
-      resident,
-      direction,
-      rowHeight,
-    );
-    if (prefetchRank === null) return;
-    const request = kwic?.request;
-    if (
-      kwic?.state.status === 'pending'
-      && request?.anchor.kind === 'rank'
-      && request.before === size.before
-      && request.after === size.after
-      && request.contextTokens === currentContextTokens
-      && prefetchRank >= request.anchor.rank - request.before
-      && prefetchRank <= request.anchor.rank + request.after
-    ) return;
-    requestWindow(
-      { kind: 'rank', rank: prefetchRank },
-      { ...size, contextTokens: currentContextTokens },
-    );
-  }, [
-    currentContextTokens,
-    kwic?.request,
-    kwic?.state.status,
-    requestWindow,
-    resident,
-    rowHeight,
-    total,
-    viewport.height,
-  ]);
-
-  const publishLogicalCursor = useCallback((
-    nextLogical: number,
-    intent: ScrubIntent = { kind: 'drift', origin: 'matches' },
-  ) => {
-    const target = matchesTargetAtLogical(nextLogical, resident);
-    if (!target) return null;
-    const cursor = { doc: target.doc, token: target.token };
-    selfPublishedRef.current = { ...cursor, logical: nextLogical };
-    if (scrub?.doc !== cursor.doc || scrub.token !== cursor.token) {
-      setScrub(cursor, intent);
-    }
-    return cursor;
-  }, [resident, scrub, setScrub]);
-
-  const moveToRank = useCallback((rank: number, intent?: ScrubIntent) => {
-    if (total <= 0) return;
-    const bounded = Math.max(0, Math.min(total - 1, rank));
-    const nextLogical = bounded + 0.5;
-    const direction = Math.sign(nextLogical - logicalRef.current) as -1 | 0 | 1;
-    pendingRankRef.current = rowAtRank(bounded) ? null : bounded;
-    setLogicalPosition(nextLogical, true);
-    const target = publishLogicalCursor(nextLogical, intent);
-    if (target) announceRank(bounded, target);
-    requestRank(bounded, direction);
-  }, [announceRank, publishLogicalCursor, requestRank, rowAtRank, setLogicalPosition, total]);
-
-  useLayoutEffect(() => {
-    const port = portRef.current;
-    if (!port || typeof ResizeObserver === 'undefined') return undefined;
-    const measure = () => {
-      resizeFrameRef.current = null;
-      const rulerWidth = chRulerRef.current?.getBoundingClientRect().width ?? 0;
-      const next = {
-        width: port.clientWidth,
-        height: port.clientHeight,
-        chPx: rulerWidth > 0 ? rulerWidth / 10 : 0,
-      };
-      setViewport((current) => current.width === next.width
-        && current.height === next.height
-        && Math.abs(current.chPx - next.chPx) < 0.001
-        ? current
-        : next);
-    };
-    const observer = new ResizeObserver(() => {
-      if (resizeFrameRef.current === null) resizeFrameRef.current = requestAnimationFrame(measure);
-    });
-    observer.observe(port);
-    if (chRulerRef.current) observer.observe(chRulerRef.current);
-    measure();
-    return () => {
-      observer.disconnect();
-      if (resizeFrameRef.current !== null) cancelAnimationFrame(resizeFrameRef.current);
-    };
-  }, [hasGrid]);
-
-  useLayoutEffect(() => {
-    const previous = previousRowHeightRef.current;
-    previousRowHeightRef.current = rowHeight;
-    if (previous === rowHeight) return;
-    const port = portRef.current;
-    if (port === null || total <= 0) return;
-    const top = matchesScrollTop(logicalRef.current, total, rowHeight);
-    port.scrollTop = top;
-    programmaticScrollRef.current = port.scrollTop;
-    lastScrollTopRef.current = port.scrollTop;
-  }, [rowHeight, total]);
-
-  useEffect(() => {
-    const identity = kwic ? `${kwic.snapshot}\u001f${kwic.trackKey}` : '';
-    if (identityRef.current === identity) return;
-    identityRef.current = identity;
-    selfPublishedRef.current = null;
-    appliedRevealRef.current = null;
-    pendingRankRef.current = null;
-    setLogicalPosition(0, true);
-  }, [kwic?.snapshot, kwic?.trackKey, setLogicalPosition]);
-
-  useEffect(() => {
-    if (!layout || total <= 0 || !kwic) return;
-    const size = matchesWindowSize(viewport.height, rowHeight);
-    const pendingRank = pendingRankRef.current;
-    if (pendingRank !== null) {
-      const row = rowAtRank(pendingRank);
-      if (row) {
-        const target = { doc: row.doc, token: row.pos };
-        pendingRankRef.current = null;
-        selfPublishedRef.current = { ...target, logical: pendingRank + 0.5 };
-        if (scrub?.doc !== target.doc || scrub.token !== target.token) {
-          setScrub(target, { kind: 'drift', origin: 'matches' });
-        }
-        setLogicalPosition(pendingRank + 0.5, true);
-        announceRank(pendingRank, target);
-        return;
-      }
-      // Hold the last exact scrub value only while some replacement window is
-      // in flight. A settled error or superseding window that omitted this
-      // rank must release the fence so authoritative scrub state can recover.
-      if (kwic.state.status === 'pending') return;
-      pendingRankRef.current = null;
-    }
-
-    if (resident?.revealRank !== null
-      && resident?.revealRank !== undefined
-      && appliedRevealRef.current !== resident) {
-      appliedRevealRef.current = resident;
-      setLogicalPosition(resident.revealRank + 0.5, true);
-      return;
-    }
-    if (!scrub) {
-      requestWindow(
-        { kind: 'rank', rank: 0 },
-        { ...size, contextTokens: currentContextTokens },
-      );
-      return;
-    }
-    const selfPublished = selfPublishedRef.current;
-    const nextLogical = selfPublished?.doc === scrub.doc && selfPublished.token === scrub.token
-      ? selfPublished.logical
-      : (() => {
-          const globalToken = globalTokenForTarget(docs, layout, scrub);
-          return globalToken === null ? logicalRef.current : logicalForGlobalToken({
-            docs,
-            layout,
-            totalRows: total,
-            globalToken,
-            axis: kwic.axis,
-            resident,
-          });
-        })();
-    setLogicalPosition(nextLogical, true);
-    if (selfPublished?.doc !== scrub.doc || selfPublished.token !== scrub.token) {
-      requestWindow(
-        { kind: 'position', doc: scrub.doc, token: scrub.token },
-        { ...size, contextTokens: currentContextTokens },
-      );
-    }
-  }, [
-    announceRank,
-    currentContextTokens,
-    docs,
-    kwic,
-    layout,
-    requestWindow,
-    resident,
-    rowAtRank,
-    rowHeight,
-    scrub,
-    setLogicalPosition,
-    setScrub,
-    total,
-    viewport.height,
-  ]);
-
-  useEffect(() => () => {
-    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
-    if (resizeFrameRef.current !== null) cancelAnimationFrame(resizeFrameRef.current);
-    if (announcementTimerRef.current !== null) clearTimeout(announcementTimerRef.current);
-    if (contextEscalationTimerRef.current !== null) {
-      clearTimeout(contextEscalationTimerRef.current);
-    }
-  }, []);
-
-  const onScroll = useCallback(() => {
-    const port = portRef.current;
-    if (!port) return;
-    const expected = programmaticScrollRef.current;
-    if (expected !== null && Math.abs(port.scrollTop - expected) <= SCROLL_TOLERANCE_PX) {
-      programmaticScrollRef.current = null;
-      lastScrollTopRef.current = port.scrollTop;
-      return;
-    }
-    programmaticScrollRef.current = null;
-    if (Math.abs(port.scrollTop - lastScrollTopRef.current) <= SCROLL_TOLERANCE_PX) return;
-    lastScrollTopRef.current = port.scrollTop;
-    if (scrollFrameRef.current !== null) return;
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      scrollFrameRef.current = null;
-      const livePort = portRef.current;
-      if (!livePort || total <= 0) return;
-      const nextLogical = matchesLogicalAtScroll(livePort.scrollTop, total, rowHeight);
-      const direction = Math.sign(nextLogical - logicalRef.current) as -1 | 0 | 1;
-      setLogicalPosition(nextLogical, false);
-      const rank = Math.max(0, Math.min(total - 1, Math.floor(nextLogical)));
-      const target = publishLogicalCursor(nextLogical);
-      pendingRankRef.current = target === null ? rank : null;
-      if (target) announceRank(rank, target);
-      requestRank(rank, direction);
-    });
-  }, [announceRank, publishLogicalCursor, requestRank, rowHeight, setLogicalPosition, total]);
-
-  const activeRank = total > 0
-    ? Math.max(0, Math.min(total - 1, Math.floor(logical)))
-    : -1;
-  const visible = matchesVisibleRanks(logical, total, viewport.height, rowHeight);
   const renderedRows = rankedRows.filter(({ rank }) =>
     (rank >= visible.start && rank < visible.end) || rank === activeRank);
   const activeRowRendered = renderedRows.some(({ rank }) => rank === activeRank);
-  const physicalTop = matchesScrollTop(logical, total, rowHeight);
-  const physicalExtent = matchesPhysicalExtent(total, rowHeight);
-  const planeHeight = physicalExtent + viewport.height;
   const firstRow = rowAtRank(0);
   const lastRow = rowAtRank(total - 1);
   const firstMatchToken = layout && firstRow
@@ -612,10 +284,6 @@ export function KwicPanel({
   };
 
   useEffect(() => {
-    if (contextEscalationTimerRef.current !== null) {
-      clearTimeout(contextEscalationTimerRef.current);
-      contextEscalationTimerRef.current = null;
-    }
     if (
       kwic?.state.status !== 'ready'
       || resident === null
@@ -642,20 +310,14 @@ export function KwicPanel({
     const anchor = kwic.request?.anchor
       ?? { kind: 'rank' as const, rank: Math.max(0, activeRank) };
     const size = matchesWindowSize(viewport.height, rowHeight);
-    contextEscalationTimerRef.current = setTimeout(() => {
-      contextEscalationTimerRef.current = null;
+    const timer = setTimeout(() => {
       requestWindow(anchor, {
         before: kwic.request?.before ?? size.before,
         after: kwic.request?.after ?? size.after,
         contextTokens: nextContextTokens,
       });
     }, CONTEXT_ESCALATION_DELAY_MS);
-    return () => {
-      if (contextEscalationTimerRef.current !== null) {
-        clearTimeout(contextEscalationTimerRef.current);
-        contextEscalationTimerRef.current = null;
-      }
-    };
+    return () => clearTimeout(timer);
   }, [
     activeRank,
     currentContextTokens,
@@ -672,214 +334,15 @@ export function KwicPanel({
   ]);
   const columnsAtDefault = isDefaultMatchesColumns(view.columns);
 
-  const writeSettings = useCallback((settings: MatchesColumnSettings) => {
-    portRef.current?.style.setProperty('--kwic-template', templateFor(settings));
-  }, [templateFor]);
-
-  const cancelActiveColumnDrag = useCallback(() => {
-    const drag = columnDragRef.current;
-    if (!drag) return false;
-    columnDragRef.current = null;
-    writeSettings(drag.restoreSettings);
-    if (drag.column === 'left' || drag.column === 'right') {
-      const pair = proportionalPairFromPixels(
-        drag.restoreSettings.left,
-        drag.restoreSettings.right,
-      );
-      const restored = drag.column === 'left' ? pair.first : pair.second;
-      drag.handle.setAttribute('aria-valuenow', String(restored));
-      drag.handle.setAttribute('aria-valuetext', `${restored}% of context space`);
-    } else {
-      const restored = resolveFor(drag.restoreSettings)[drag.column];
-      const automatic = drag.restoreSettings[drag.column] === 'auto';
-      drag.handle.setAttribute('aria-valuenow', String(restored));
-      drag.handle.setAttribute(
-        'aria-valuetext',
-        `${restored} characters${automatic ? ', automatic' : ''}`,
-      );
-    }
-    try {
-      if (drag.handle.hasPointerCapture(drag.pointerId)) {
-        drag.handle.releasePointerCapture(drag.pointerId);
-      }
-    } catch {
-      // Synthetic PointerEvents do not always establish native capture.
-    }
-    return true;
-  }, [resolveFor, writeSettings]);
-
-  const beginColumnDrag = (
-    event: ReactPointerEvent<HTMLDivElement>,
-    column: MatchesColumn,
-  ) => {
-    if (!columnsAdjustable || !event.isPrimary || event.button !== 0) {
-      if (columnDragRef.current && event.pointerId !== columnDragRef.current.pointerId) {
-        cancelActiveColumnDrag();
-        announce('Column resize cancelled');
-      }
-      return;
-    }
-    if (columnDragRef.current) return;
-    const heading = event.currentTarget.parentElement;
-    if (!heading) return;
-    const chPx = viewport.chPx;
-    if (!(chPx > 0)) return;
-    const leftPx = leftHeadingRef.current?.getBoundingClientRect().width ?? 0;
-    const rightPx = rightHeadingRef.current?.getBoundingClientRect().width ?? 0;
-    const startWidth = column === 'left'
-      ? Math.max(0, leftPx / chPx - MATCHES_COLUMN_PADDING_CH)
-      : column === 'right'
-        ? Math.max(0, rightPx / chPx - MATCHES_COLUMN_PADDING_CH)
-        : displayedColumns[column];
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.focus({ preventScroll: true });
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Synthetic PointerEvents do not always establish native capture.
-    }
-    columnDragRef.current = {
-      column,
-      pointerId: event.pointerId,
-      startClientX: event.clientX,
-      startWidth,
-      restoreSettings: view.columns,
-      startLeftPx: leftPx,
-      startRightPx: rightPx,
-      chPx,
-      handle: event.currentTarget,
-      currentWidth: startWidth,
-      currentSettings: view.columns,
-      moved: false,
-    };
-  };
-
-  const moveColumnDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = columnDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const delta = event.clientX - drag.startClientX;
-    if (drag.column === 'left' || drag.column === 'right') {
-      const total = drag.startLeftPx + drag.startRightPx;
-      if (!(total > 2)) return;
-      const selected = drag.column === 'left' ? drag.startLeftPx : drag.startRightPx;
-      const target = Math.max(1, Math.min(total - 1, selected + delta));
-      const pair = drag.column === 'left'
-        ? proportionalPairFromPixels(target, total - target)
-        : proportionalPairFromPixels(total - target, target);
-      drag.currentSettings = {
-        ...drag.restoreSettings,
-        left: pair.first,
-        right: pair.second,
-      };
-      drag.currentWidth = drag.column === 'left' ? pair.first : pair.second;
-      event.currentTarget.setAttribute('aria-valuenow', String(drag.currentWidth));
-      event.currentTarget.setAttribute('aria-valuetext', `${drag.currentWidth}% of context space`);
-    } else {
-      const next = matchesColumnWidthFromDrag(
-        drag.column,
-        drag.startWidth,
-        delta,
-        drag.chPx,
-      );
-      if (next === drag.currentWidth) return;
-      drag.currentWidth = next;
-      drag.currentSettings = { ...drag.restoreSettings, [drag.column]: next };
-      event.currentTarget.setAttribute('aria-valuenow', String(next));
-      event.currentTarget.setAttribute('aria-valuetext', `${next} characters`);
-    }
-    drag.moved = true;
-    writeSettings(drag.currentSettings);
-  };
-
-  const endColumnDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = columnDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    columnDragRef.current = null;
-    try {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-    } catch {
-      // Synthetic PointerEvents do not always establish native capture.
-    }
-    if (!drag.moved) return;
-    if (drag.column === 'left' || drag.column === 'right') {
-      setContextWeights(drag.currentSettings.left, drag.currentSettings.right);
-      announce(`${drag.column} context share ${drag.currentWidth}%`);
-    } else {
-      setColumnWidth(drag.column, drag.currentWidth);
-      announce(`${drag.column} column width ${drag.currentWidth} characters`);
-    }
-  };
-
-  const cancelColumnDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = columnDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    cancelActiveColumnDrag();
-    announce('Column resize cancelled');
-  };
-
-  const onColumnKeyDown = (
-    event: KeyboardEvent<HTMLDivElement>,
-    column: MatchesColumn,
-  ) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      if (cancelActiveColumnDrag()) announce('Column resize cancelled');
-      else {
-        setColumnsAdjustable(false);
-        announce('Column widths locked');
-        requestAnimationFrame(() => adjustButtonRef.current?.focus({ preventScroll: true }));
-      }
-      return;
-    }
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      event.stopPropagation();
-      if (column === 'left' || column === 'right') setContextWeights(1, 1);
-      else resetColumn(column);
-      announce(`${column} column reset`);
-      return;
-    }
-    if (column === 'left' || column === 'right') {
-      const pair = proportionalPairFromPixels(view.columns.left, view.columns.right);
-      const current = column === 'left' ? pair.first : pair.second;
-      const next = matchesColumnWidthFromKey(
-        column,
-        current,
-        event.key,
-        event.shiftKey,
-      );
-      if (next === null) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setContextWeights(
-        column === 'left' ? next : 100 - next,
-        column === 'right' ? next : 100 - next,
-      );
-      announce(`${column} context share ${next}%`);
-      return;
-    }
-    const next = matchesColumnWidthFromKey(
-      column,
-      displayedColumns[column],
-      event.key,
-      event.shiftKey,
-    );
-    if (next === null) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setColumnWidth(column, next);
-    announce(`${column} column width ${next} characters`);
-  };
+  const {
+    leftHeadingRef, rightHeadingRef, adjustButtonRef, columnsAdjustable,
+    beginColumnDrag, moveColumnDrag, endColumnDrag, cancelColumnDrag,
+    onColumnKeyDown, toggleColumnsAdjustable, resetColumnWidths,
+  } = useMatchesColumnResize({
+    portRef, columns: view.columns, displayedColumns, chPx: viewport.chPx,
+    resolveFor, templateFor, announce, setColumnWidth, setContextWeights,
+    resetColumn, resetColumns,
+  });
 
   const resizeHandle = (column: MatchesColumn, label: string) => {
     const context = column === 'left' || column === 'right';
@@ -908,29 +371,6 @@ export function KwicPanel({
       />
     );
   };
-
-  const toggleColumnsAdjustable = () => {
-    const next = !columnsAdjustable;
-    if (!next) cancelActiveColumnDrag();
-    setColumnsAdjustable(next);
-    announce(next ? 'Column widths adjustable' : 'Column widths locked');
-    if (next) {
-      requestAnimationFrame(() => {
-        portRef.current?.querySelector<HTMLElement>('.kwic-column-resizer')
-          ?.focus({ preventScroll: true });
-      });
-    }
-  };
-
-  const resetColumnWidths = () => {
-    cancelActiveColumnDrag();
-    resetColumns();
-    announce('Column widths reset');
-  };
-
-  useEffect(() => () => {
-    cancelActiveColumnDrag();
-  }, [cancelActiveColumnDrag]);
 
   type MatchesHeaderColumn = MatchesColumn | 'token';
   const headerColumns: readonly DataGridColumn<MatchesHeaderColumn>[] = [
