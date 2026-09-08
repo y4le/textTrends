@@ -1461,7 +1461,8 @@ describe('the session bridge', () => {
     await flush();
     expect(store.getState().trends.size).toBe(2);
     port.emit(sessionState(null)); // worker restarting: snapshot gone
-    expect(trends().every((t) => t.cancelled)).toBe(true);
+    expect(live[0]!.cancelled).toBe(false); // completed work was already released
+    expect(live[1]!.cancelled).toBe(true);
     expect(store.getState().trends.size).toBe(0);
     expect(store.getState().snapshot).toBeNull();
   });
@@ -1735,6 +1736,49 @@ describe('the session bridge', () => {
 });
 
 describe('store query intent discipline', () => {
+  it.each(['success', 'error', 'cancelled'] as const)(
+    'releases a %s query while retaining cancellation for pending peers', async (outcome) => {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1');
+      f.store.getState().quickAdd('holmes, moriarty');
+      const [settled, pending] = f.trends();
+      if (outcome === 'success') settled!.resolve({ op: 'trend', trend: fakeTrend(3) });
+      else settled!.reject(outcome === 'cancelled'
+        ? new WorkerClientError('CANCELLED', 'cancelled')
+        : new Error('failed'));
+      await flush();
+
+      f.store.getState().runQueries();
+      expect(settled!.cancelled).toBe(false);
+      expect(pending!.cancelled).toBe(true);
+      const fresh = f.trends().slice(2);
+      f.runtime.dispose();
+      expect(settled!.cancelled).toBe(false);
+      expect(fresh.every((query) => query.cancelled)).toBe(true);
+    },
+  );
+
+  it('releases a completed query before a subscriber refreshes the lane', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('holmes, moriarty');
+    const [settled, pending] = f.trends();
+    const id = f.store.getState().series[0]!.id;
+    const unsubscribe = f.store.subscribe((state) => {
+      if (state.trends.get(id)?.status === 'ready') {
+        unsubscribe();
+        state.runQueries();
+      }
+    });
+    settled!.resolve({ op: 'trend', trend: fakeTrend(3) });
+    await flush();
+    expect(f.trends()).toHaveLength(4);
+    expect(settled!.cancelled).toBe(false);
+    expect(pending!.cancelled).toBe(true);
+    unsubscribe();
+    f.runtime.dispose();
+  });
+
   it('issued group/member ids stay wire-bounded for the LONGEST legal label (ids derive from slots, not labels)', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
@@ -2471,7 +2515,7 @@ describe('store query intent discipline', () => {
     f.store.getState().removeGroup(f.store.getState().series[0]!.id);
     expect(f.store.getState().trends.size).toBe(0);
     expect(f.store.getState().kwic).toBeNull();
-    expect(q.cancelled).toBe(true);
+    expect(q.cancelled).toBe(false); // settled before removal
     await flush();
     expect(f.store.getState().trends.size).toBe(0);
   });
@@ -3517,8 +3561,8 @@ describe('Company and Reading Destinations overview lanes', () => {
       snapshot: 's1',
       ranges: [{ doc: 'a', tokens: { start: 1, end: 3 } }],
     });
-    expect(companyQuery.cancelled).toBe(true);
-    expect(destinationsQuery.cancelled).toBe(true);
+    expect(companyQuery.cancelled).toBe(false); // settled residents need no cancel
+    expect(destinationsQuery.cancelled).toBe(false);
     expect(f.store.getState().company).toBe(companyResident);
     expect(f.store.getState().destinations).toBe(destinationsResident);
 
@@ -6673,7 +6717,7 @@ describe('dueling keyness query intent (slice-4)', () => {
     initialB.resolve(fakeKeynessPage(1, [9]));
     await flush();
     f.store.getState().loadMoreKeyness('a');
-    expect(initialA.cancelled).toBe(true);
+    expect(initialA.cancelled).toBe(false); // paging only cancels in-flight work
     expect(initialB.cancelled).toBe(false);
     expect(f.keynesses()).toHaveLength(3);
     expect((f.keynesses().at(-1)!.query as {

@@ -448,12 +448,16 @@ export function createAppRuntime(
       errorMessage: (error: unknown) => string = queryErrorMessage,
     ): void => {
       const handle = client.query(snapshotId, op);
-      lane.track(handle.cancel);
+      const untrack = lane.track(handle.cancel);
       void handle.result
+        // Release before delivery: a subscriber may synchronously refresh the
+        // lane when onReady/onError publishes the settled result.
         .then((data) => {
+          untrack();
           if (lease.isCurrent()) onReady(data);
         })
         .catch((e: unknown) => {
+          untrack();
           if (isCancelled(e) || !lease.isCurrent()) return;
           onError(errorMessage(e));
         });
