@@ -6,7 +6,10 @@ import { PresentationProvider } from './components/PresentationProvider.tsx';
 import { SeriesPaletteSync } from './components/SeriesPaletteSync.tsx';
 import { GuideProvider } from './components/guide/GuideProvider.tsx';
 import './lib/display-store.ts';
+// Styles are eager and ordered: feature slices retain their shared overrides.
 import './style/tokens.css';
+import './style/reader.css';
+import './style/query-scope.css';
 import './style/inputs.css';
 import './style/analysis-views.css';
 import './style/dock-settings.css';

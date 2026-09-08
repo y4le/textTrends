@@ -7,6 +7,8 @@ import { expect, it } from 'vitest';
 // A component must not change their order by importing its own stylesheet.
 const STYLE_ORDER = [
   'tokens.css',
+  'reader.css',
+  'query-scope.css',
   'inputs.css',
   'analysis-views.css',
   'dock-settings.css',

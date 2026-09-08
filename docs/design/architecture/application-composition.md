@@ -54,10 +54,16 @@ presentation ownership.
 
 ## Styles and scheduling
 
-Ten stylesheets load eagerly in `main.tsx` in the order pinned by
-`apps/web/test/style-order.test.ts`. Names indicate dominant responsibility;
-later files still overlap earlier features. Moving a rule requires checking
-the cascade, not assuming file boundaries isolate it. Historical split hashes
+Twelve stylesheets load eagerly in `main.tsx` in the order pinned by
+`apps/web/test/style-order.test.ts`. `tokens.css` owns tokens, document defaults,
+guide and application chrome;
+`reader.css` owns the contiguous Read/Atlas/Speed rules, followed by
+`query-scope.css` for query chrome and scope labels. This partition preserves
+rule order. Document scroll locking stays in the foundational sheet; dock
+controls and compact Reader integration retain their later shared overrides.
+Other names indicate dominant responsibility; later files still overlap
+earlier features. Moving a rule requires checking the cascade, not assuming
+file boundaries isolate it. Historical split hashes
 are not current CSS validation targets.
 
 Eager hidden-table queries remain deliberate pending measurement. Evaluate work
