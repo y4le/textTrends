@@ -5,6 +5,8 @@ import {
 } from '@texttrends/core';
 import type { KeynessViewV1 } from './app-state.ts';
 
+export const INVENTORY_MATTR_WINDOW = 500;
+
 export const DEFAULT_TREND_BINS: TrendBinsSpecV1 = Object.freeze({
   mode: 'per-doc',
   count: 40,
