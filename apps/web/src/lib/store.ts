@@ -111,7 +111,6 @@ import type {
   QueryResultDataV4,
   FrequencyListResultV1,
   KeynessResultV1,
-  WireSelectionV4,
 } from '../shared/analysis-contract.ts';
 import {
   clampMatchesColumnWidth,
@@ -126,7 +125,6 @@ import { pushLayer as pushLayerStack, replaceTopLayer, type Layer } from './laye
 import type { HistoryPort } from './history-port.ts';
 import { DEFAULT_TREND_VIEW } from './trend-view.ts';
 import type {
-  KwicRowView,
   QueryClient,
   SeriesIntent,
   SeriesTrendState,
@@ -140,13 +138,13 @@ import type {
   KeynessScope,
   RemovedNotebookGroup,
   ScrubTarget,
-  OccurrenceNavigationState,
   WorkspaceStorePort,
   SessionPort,
   AppState,
   AppRuntime,
 } from './app-state.ts';
 import { DEFAULT_TREND_BINS, DEFAULT_TREND_MEASURE, DEFAULT_KEYNESS_VIEW } from './app-defaults.ts';
+import { effectiveKeynessMinDocFreq, keynessSelections, reconcileKeynessView } from './keyness-view.ts';
 import { createWorkspacePersistence } from './workspace-persistence.ts';
 import { createNavigationController } from './navigation-controller.ts';
 
@@ -155,16 +153,6 @@ import { createNavigationController } from './navigation-controller.ts';
  * full Reader gets a larger reservoir for browser-measured pages. */
 const FOOTER_PASSAGE_MAX_TOKENS = 400;
 const READER_SOURCE_MAX_TOKENS = 4_096;
-
-/** The full occurrence key of a match row — stable and collision-free
- *  where `${seriesId}:${doc}:${pos}` is not: countOverlaps can emit two rows
- *  at one start that differ only by node end / contributing members. The
- *  encoding is an INJECTIVE JSON tuple: string fields have no delimiter-free
- *  contract, so concatenation could alias (seriesId 'a:b', doc 'c') with
- *  (seriesId 'a', doc 'b:c') (review-D). */
-export function kwicRowKey(r: KwicRowView): string {
-  return JSON.stringify([r.seriesId, r.groupId, r.doc, r.pos, r.node.start, r.node.end, r.members]);
-}
 
 /** The max compared/matches terms — one authority, shared with the kwic
  *  track cap so a series set can always be sent as matches tracks. */
@@ -195,98 +183,6 @@ function sameReaderTrackSet(
   return true;
 }
 
-export function reconcileKeynessView(
-  view: KeynessViewV1,
-  readyDocs: readonly string[],
-): KeynessViewV1 {
-  const documentA = view.documentA !== null && readyDocs.includes(view.documentA)
-    ? view.documentA
-    : readyDocs[0] ?? null;
-  const documentB = view.documentB !== null
-    && readyDocs.includes(view.documentB)
-    && view.documentB !== documentA
-    ? view.documentB
-    : readyDocs.find((doc) => doc !== documentA) ?? null;
-  const mode = readyDocs.length === 1
-    ? 'selection-rest'
-    : readyDocs.length >= 2
-      && view.mode === 'selection-rest'
-      && view.documentB === null
-      ? DEFAULT_KEYNESS_VIEW.mode
-      : view.mode;
-  if (
-    mode === view.mode
-    && documentA === view.documentA
-    && documentB === view.documentB
-  ) return view;
-  return { ...view, mode, documentA, documentB };
-}
-
-export function keynessSelections(
-  scope: KeynessScope,
-): { readonly a: WireSelectionV4; readonly b: WireSelectionV4 } | null {
-  const { view, readyDocs, selection, tokenCountOf } = scope;
-  if (view.mode === 'selection-rest') {
-    if (selection === null) return null;
-    const outside = selectionComplement(selection, readyDocs, tokenCountOf);
-    return outside === null
-      ? null
-      : {
-          a: detailSelection(readyDocs, selection),
-          b: outside,
-        };
-  }
-  if (
-    view.documentA === null ||
-    view.documentB === null ||
-    !readyDocs.includes(view.documentA) ||
-    !readyDocs.includes(view.documentB) ||
-    view.documentA === view.documentB
-  ) {
-    return null;
-  }
-  if (view.mode === 'documents') {
-    return {
-      a: { docs: [view.documentA] },
-      b: { docs: [view.documentB] },
-    };
-  }
-  if (view.restOn === 'b') {
-    const rest = readyDocs.filter((doc) => doc !== view.documentA);
-    return rest.length === 0
-      ? null
-      : { a: { docs: [view.documentA] }, b: { docs: rest } };
-  }
-  const rest = readyDocs.filter((doc) => doc !== view.documentB);
-  return rest.length === 0
-    ? null
-    : { a: { docs: rest }, b: { docs: [view.documentB] } };
-}
-
-/** In a range comparison, keep terms that occur on only one side reachable:
- * their combined range cannot exceed that side's number of document parts.
- * Other comparison modes preserve the authored document-range filter. */
-export function effectiveKeynessMinDocFreq(
-  view: KeynessViewV1,
-  pair: { readonly a: WireSelectionV4; readonly b: WireSelectionV4 },
-): number {
-  return effectiveKeynessMinDocFreqForParts(
-    view,
-    pair.a.docs.length,
-    pair.b.docs.length,
-  );
-}
-
-export function effectiveKeynessMinDocFreqForParts(
-  view: KeynessViewV1,
-  partsA: number,
-  partsB: number,
-): number {
-  if (view.mode !== 'selection-rest') return view.minDocFreqTotal;
-  const smallerSideParts = Math.min(partsA, partsB);
-  return Math.min(view.minDocFreqTotal, Math.max(1, smallerSideParts));
-}
-
 function keynessSideSelectionKey(
   scope: KeynessScope,
   side: 'a' | 'b',
@@ -312,25 +208,6 @@ function keynessTableIntentKey(
     view.pageLimit,
     side,
   ]);
-}
-
-export type { TrendView } from './trend-view.ts';
-
-export function occurrenceNavigationText(
-  navigation: OccurrenceNavigationState | null,
-): string {
-  if (navigation === null) return '';
-  const way = navigation.direction === 1 ? 'next' : 'previous';
-  switch (navigation.state.status) {
-    case 'pending': return `finding ${way} reference from any term`;
-    case 'ready': return `${way} reference from any term`;
-    case 'edge': return `no references from any term`;
-    case 'error': return `reference navigation failed: ${navigation.state.message}`;
-    default: {
-      const exhaustive: never = navigation.state;
-      return exhaustive;
-    }
-  }
 }
 
 type TrendCorpusState = Pick<

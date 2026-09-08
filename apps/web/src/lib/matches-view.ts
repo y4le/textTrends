@@ -1,7 +1,16 @@
-import { kwicRowKey } from './store.ts';
 import type { KwicRowView } from './app-state.ts';
 import type { SeriesStyleV1 } from '@texttrends/core';
 import { collapseTextWithMarks, segmentMarks } from './marks-view.ts';
+
+/** The full occurrence key of a match row — stable and collision-free
+ *  where `${seriesId}:${doc}:${pos}` is not: countOverlaps can emit two rows
+ *  at one start that differ only by node end / contributing members. The
+ *  encoding is an INJECTIVE JSON tuple: string fields have no delimiter-free
+ *  contract, so concatenation could alias (seriesId 'a:b', doc 'c') with
+ *  (seriesId 'a', doc 'b:c') (review-D). */
+export function kwicRowKey(r: KwicRowView): string {
+  return JSON.stringify([r.seriesId, r.groupId, r.doc, r.pos, r.node.start, r.node.end, r.members]);
+}
 
 export interface MatchesContextPart {
   readonly text: string;

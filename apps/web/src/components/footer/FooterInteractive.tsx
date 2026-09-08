@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useApp } from '../../lib/store-instance.ts';
-import { occurrenceNavigationText } from '../../lib/store.ts';
+import { occurrenceNavigationText } from '../../lib/occurrence-view.ts';
 import {
   advanceFooterShuttle,
   corpusProgress,

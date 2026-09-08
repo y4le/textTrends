@@ -1,5 +1,5 @@
 import type { KeynessRowV1, KeynessSideTotalsV1 } from '@texttrends/core';
-import { effectiveKeynessMinDocFreqForParts } from '../../lib/store.ts';
+import { effectiveKeynessMinDocFreqForParts } from '../../lib/keyness-view.ts';
 import type { KeynessViewV1 } from '../../lib/app-state.ts';
 import { formatRate } from '../../lib/rate-format.ts';
 import { InfoTooltip } from '../InfoTooltip.tsx';

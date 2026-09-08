@@ -195,6 +195,19 @@ describe('guided-learning import boundary', () => {
 });
 
 describe('application contract boundary', () => {
+  it('only the composition root imports the application runtime', () => {
+    const offenders: string[] = [];
+    for (const file of walk(SRC)) {
+      if (relative(SRC, file).split(sep).join('/') === 'lib/store-instance.ts') continue;
+      for (const spec of moduleSpecifiers(readFileSync(file, 'utf8'))) {
+        if (resolve(dirname(file), spec).replace(/\.tsx?$/, '') === join(SRC, 'lib/store')) {
+          offenders.push(relative(SRC, file));
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('imports shared contracts directly instead of through the runtime', () => {
     const parse = (file: string) => ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
     const contracts = new Set(['app-state.ts', 'app-defaults.ts', 'workspace-state.ts'].flatMap((file) =>

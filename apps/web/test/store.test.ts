@@ -18,11 +18,10 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createAppRuntime,
-  effectiveKeynessMinDocFreq,
-  reconcileKeynessView,
   MAX_SERIES,
-  occurrenceNavigationText,
 } from '../src/lib/store.ts';
+import { effectiveKeynessMinDocFreq, reconcileKeynessView } from '../src/lib/keyness-view.ts';
+import { occurrenceNavigationText } from '../src/lib/occurrence-view.ts';
 import { DEFAULT_KEYNESS_VIEW } from '../src/lib/app-defaults.ts';
 import {
   emptyLibraryWorkspace,

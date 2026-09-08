@@ -25,7 +25,7 @@ import {
 import { selectionTokenCount } from '../../lib/selection.ts';
 import {
   keynessSelections,
-} from '../../lib/store.ts';
+} from '../../lib/keyness-view.ts';
 import { useApp } from '../../lib/store-instance.ts';
 import { contextualSettingsEntry } from '../../lib/settings-entry.ts';
 import { guideAnchorProps } from '../../lib/guide/anchors.ts';

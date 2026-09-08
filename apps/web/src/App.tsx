@@ -23,7 +23,7 @@ import {
   type SettingsEntry,
 } from './lib/settings-entry.ts';
 import { SettingsEntryProvider } from './components/SettingsEntryContext.tsx';
-import { occurrenceNavigationText } from './lib/store.ts';
+import { occurrenceNavigationText } from './lib/occurrence-view.ts';
 import {
   advanceShortcutSequence,
   chordShortcutAllowed,
