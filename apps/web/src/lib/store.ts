@@ -22,14 +22,10 @@ import {
   type MatchesAnchorV1,
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,
-  FREQUENCY_FILTER_MAX_UNITS,
   INGEST_CAPS_V0,
   KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
   parseWorkspaceTrendView,
-  STOPLIST_EN_ID,
-  STOPLIST_EN_VERSION,
-  STOPLIST_MAX_TOP_N,
   TREND_MAX_ROWS,
   termGroupIdentity,
   type GroupMember,
@@ -92,7 +88,6 @@ import { OperationScope, type OperationLease } from './operation-lease.ts';
 import type {
   QueryOpV4,
   QueryResultDataV4,
-  FrequencyListResultV1,
 } from '../shared/analysis-contract.ts';
 import {
   clampMatchesColumnWidth,
@@ -111,7 +106,6 @@ import type {
   SeriesTrendState,
   MatchesWindowView,
   DestinationFocusIntent,
-  InventoryState,
   KeynessScope,
   RemovedNotebookGroup,
   ScrubTarget,
@@ -120,8 +114,9 @@ import type {
   AppState,
   AppRuntime,
 } from './app-state.ts';
-import { DEFAULT_TREND_BINS, DEFAULT_TREND_MEASURE, INVENTORY_MATTR_WINDOW } from './app-defaults.ts';
+import { DEFAULT_TREND_BINS, DEFAULT_TREND_MEASURE } from './app-defaults.ts';
 import { QueryLane } from './query-lane.ts';
+import { createVocabularyController } from './vocabulary-controller.ts';
 import { createCompareController } from './compare-controller.ts';
 import { createReaderController } from './reader-controller.ts';
 import { createWorkspacePersistence } from './workspace-persistence.ts';
@@ -288,12 +283,7 @@ export function createAppRuntime(
   // never cancels the resident baseline (ruling §2).
   const selectedTrendLane = new QueryLane(scope);
   const selectedDispersionLane = new QueryLane(scope);
-  // Vocabulary-wide analytics are independent of notebook query lanes.
-  const inventoryLane = new QueryLane(scope);
-  // Inputs presents stable, full-text facts. Its baseline query must be able
-  // to land even when a rapid range gesture supersedes the vocabulary lane.
-  const corpusInventoryLane = new QueryLane(scope);
-  const frequencyLane = new QueryLane(scope);
+  let vocabulary!: ReturnType<typeof createVocabularyController>;
   let compare!: ReturnType<typeof createCompareController>;
   // Full-reader pages are a distinct latest-wins presentation intent. Rapid
   // Next/Previous cannot race with trends or one another.
@@ -1586,6 +1576,41 @@ export function createAppRuntime(
     // The store starts EMPTY — the demo notebook is the composition root's
     // seeding decision (store-instance.ts), not baked model state.
     scheduleNavigationFooterPassage = scheduleFooterPassage;
+    vocabulary = createVocabularyController({
+      get, set, scope, issue: issueOn,
+      snapshotKey: () => snapKey(get().snapshot),
+      inventoryGeometryPatch(state, documents) {
+        const corpusTokenCounts = new Map(state.corpusTokenCounts);
+        for (const row of documents) {
+          if (Number.isSafeInteger(row.fullTokens) && row.fullTokens >= 0) {
+            corpusTokenCounts.set(row.doc, row.fullTokens);
+          }
+        }
+        return {
+          corpusTokenCounts,
+          positionHistory: clampPositionHistoryExtents(state.positionHistory, corpusTokenCounts),
+        };
+      },
+      onCorpusInventoryReady() {
+        const current = get();
+        const fitted = fitTrendBinsToCorpus(current, current.trendBins, true);
+        if (fitted === null) {
+          set({
+            trendSettingsNotice: `No trend bin mode can represent this corpus within the ${TREND_MAX_ROWS.toLocaleString()}-row result limit.`,
+          });
+        } else if (
+          fitted.mode !== current.trendBins.mode
+          || fitted.count !== current.trendBins.count
+        ) {
+          set({
+            trendBins: fitted,
+            trendSettingsNotice: trendGeometryNotice(current.trendBins, fitted),
+          });
+          runTrendLanesOnly();
+        }
+      },
+    });
+
     return {
       bootstrap: { phase: 'initializing' },
       projectSession: null,
@@ -1621,19 +1646,8 @@ export function createAppRuntime(
       linkedSelection: null,
       selectedTrends: new Map(),
       selectedDispersion: null,
-      inventory: null,
-      corpusInventory: null,
       corpusTokenCounts: new Map(),
-      frequencyView: {
-        schema: 'texttrends/frequency-view/2',
-        minCount: 1,
-        minDocFreq: 1,
-        classes: ['lexical'],
-        stoplistTopN: 0,
-        sort: { by: 'count', dir: -1 },
-        page: { offset: 0, limit: 100 },
-      },
-      frequency: null,
+      ...vocabulary.initial,
       ...compare.initial,
       trendViewPreference: DEFAULT_TREND_VIEW,
       trendView: DEFAULT_TREND_VIEW,
@@ -2939,458 +2953,9 @@ export function createAppRuntime(
         runMatchesWindow();
       },
 
-      runInventory() {
-        inventoryLane.supersede();
-        const { snapshot, linkedSelection, corpusInventory } = get();
-        if (!snapshot) {
-          corpusInventoryLane.supersede();
-          set({ inventory: null, corpusInventory: null });
-          return;
-        }
-        const issuedKey = snapKey(snapshot);
-        const issuedSelection = linkedSelection;
-
-        // Full-corpus inventory is a separate resident lane. Clearing a range
-        // can reveal the authenticated baseline immediately, and creating a
-        // range never cancels a baseline that is still landing.
-        if (issuedSelection === null) {
-          if (
-            corpusInventory?.snapshot === snapshot.snapshot
-            && corpusInventory.state.status !== 'error'
-          ) {
-            set({ inventory: corpusInventory });
-            return;
-          }
-          corpusInventoryLane.supersede();
-          const pending: InventoryState = {
-            snapshot: snapshot.snapshot,
-            selection: null,
-            state: { status: 'pending' },
-          };
-          const lease = corpusInventoryLane.ops.begin(
-            () => snapKey(get().snapshot) === issuedKey,
-          );
-          set({ inventory: pending, corpusInventory: pending });
-          issueOn(
-            corpusInventoryLane,
-            snapshot.snapshot,
-            {
-              op: 'inventory',
-              selection: { docs: [...snapshot.readyDocs] },
-              request: {
-                method: 'inventory/1',
-                rhythmBinsPerDoc: 0,
-                mattrWindow: INVENTORY_MATTR_WINDOW,
-              },
-            },
-            lease,
-            (data) => {
-              if (data.op !== 'inventory') return;
-              const ready: InventoryState = {
-                snapshot: snapshot.snapshot,
-                selection: null,
-                state: { status: 'ready', result: data.inventory },
-              };
-              set((state) => {
-                const corpusTokenCounts = new Map(state.corpusTokenCounts);
-                for (const row of data.inventory.documents) {
-                  if (Number.isSafeInteger(row.fullTokens) && row.fullTokens >= 0) {
-                    corpusTokenCounts.set(row.doc, row.fullTokens);
-                  }
-                }
-                return {
-                  corpusInventory: ready,
-                  inventory: state.linkedSelection === null ? ready : state.inventory,
-                  corpusTokenCounts,
-                  positionHistory: clampPositionHistoryExtents(
-                    state.positionHistory,
-                    corpusTokenCounts,
-                  ),
-                };
-              });
-              const current = get();
-              const fitted = fitTrendBinsToCorpus(current, current.trendBins, true);
-              if (fitted === null) {
-                set({
-                  trendSettingsNotice: `No trend bin mode can represent this corpus within the ${TREND_MAX_ROWS.toLocaleString()}-row result limit.`,
-                });
-              } else if (
-                fitted.mode !== current.trendBins.mode
-                || fitted.count !== current.trendBins.count
-              ) {
-                set({
-                  trendBins: fitted,
-                  trendSettingsNotice: trendGeometryNotice(current.trendBins, fitted),
-                });
-                runTrendLanesOnly();
-              }
-            },
-            (message) => {
-              const error: InventoryState = {
-                snapshot: snapshot.snapshot,
-                selection: null,
-                state: { status: 'error', message },
-              };
-              set((state) => ({
-                corpusInventory: error,
-                inventory: state.linkedSelection === null ? error : state.inventory,
-              }));
-            },
-          );
-          return;
-        }
-
-        const lease = inventoryLane.ops.begin(
-          () => snapKey(get().snapshot) === issuedKey,
-          () => get().linkedSelection === issuedSelection,
-        );
-        set({
-          inventory: {
-            snapshot: snapshot.snapshot,
-            selection: issuedSelection,
-            state: { status: 'pending' },
-          },
-        });
-        issueOn(
-          inventoryLane,
-          snapshot.snapshot,
-          {
-            op: 'inventory',
-            selection: detailSelection(snapshot.readyDocs, issuedSelection),
-            request: {
-              method: 'inventory/1',
-              rhythmBinsPerDoc: 0,
-              mattrWindow: INVENTORY_MATTR_WINDOW,
-            },
-          },
-          lease,
-          (data) => {
-            if (data.op !== 'inventory') return;
-            set((state) => {
-              const corpusTokenCounts = new Map(state.corpusTokenCounts);
-              for (const row of data.inventory.documents) {
-                if (Number.isSafeInteger(row.fullTokens) && row.fullTokens >= 0) {
-                  corpusTokenCounts.set(row.doc, row.fullTokens);
-                }
-              }
-              return {
-                inventory: {
-                  snapshot: snapshot.snapshot,
-                  selection: issuedSelection,
-                  state: { status: 'ready', result: data.inventory },
-                },
-                corpusTokenCounts,
-                positionHistory: clampPositionHistoryExtents(
-                  state.positionHistory,
-                  corpusTokenCounts,
-                ),
-              };
-            });
-          },
-          (message) => set({
-            inventory: {
-              snapshot: snapshot.snapshot,
-              selection: issuedSelection,
-              state: { status: 'error', message },
-            },
-          }),
-        );
-      },
-
-      runFrequency(retainResident = false) {
-        frequencyLane.supersede();
-        const {
-          snapshot,
-          linkedSelection,
-          frequencyView,
-          frequency: currentFrequency,
-        } = get();
-        if (!snapshot) {
-          set({ frequency: null });
-          return;
-        }
-        const issuedKey = snapKey(snapshot);
-        const issuedSelection = linkedSelection;
-        const issuedView = frequencyView;
-        const resident = retainResident
-          && currentFrequency?.snapshot === snapshot.snapshot
-          && currentFrequency.selection === issuedSelection
-          ? currentFrequency.resident
-            ?? (currentFrequency.state.status === 'ready'
-              ? currentFrequency.state.result
-              : null)
-          : null;
-        const lease = frequencyLane.ops.begin(
-          () => snapKey(get().snapshot) === issuedKey,
-          () => get().linkedSelection === issuedSelection,
-          () => get().frequencyView === issuedView,
-        );
-        set({
-          frequency: {
-            snapshot: snapshot.snapshot,
-            selection: issuedSelection,
-            view: issuedView,
-            resident,
-            state: { status: 'pending' },
-          },
-        });
-        issueOn(
-          frequencyLane,
-          snapshot.snapshot,
-          {
-            op: 'freq-list',
-            selection: detailSelection(snapshot.readyDocs, issuedSelection),
-            request: {
-              method: 'freq-list/2',
-              filter: {
-                minCount: issuedView.minCount,
-                minDocFreq: issuedView.minDocFreq,
-                classes: issuedView.classes,
-                ...(issuedView.stoplistTopN === 0 ? {} : {
-                  stoplist: {
-                    id: STOPLIST_EN_ID,
-                    version: STOPLIST_EN_VERSION,
-                    topN: issuedView.stoplistTopN,
-                  },
-                }),
-                ...(issuedView.filter === undefined
-                  ? {}
-                  : { text: issuedView.filter }),
-              },
-              sort: issuedView.sort,
-              page: issuedView.page,
-              dispersion: true,
-            },
-          },
-          lease,
-          (data) => {
-            if (data.op !== 'freq-list') return;
-            set({
-              frequency: {
-                snapshot: snapshot.snapshot,
-                selection: issuedSelection,
-                view: issuedView,
-                resident: data.frequency,
-                state: { status: 'ready', result: data.frequency },
-              },
-            });
-          },
-          (message) => set({
-            frequency: {
-              snapshot: snapshot.snapshot,
-              selection: issuedSelection,
-              view: issuedView,
-              resident: null,
-              state: { status: 'error', message },
-            },
-          }),
-        );
-      },
-
-      loadMoreFrequency() {
-        const { snapshot, linkedSelection, frequencyView, frequency } = get();
-        const resident = frequency?.resident
-          ?? (frequency?.state.status === 'ready' ? frequency.state.result : null);
-        if (
-          !snapshot
-          || resident === null
-          || frequency?.state.status !== 'ready'
-          || resident.rows.length >= resident.total
-        ) {
-          return;
-        }
-        const issuedKey = snapKey(snapshot);
-        const issuedSelection = linkedSelection;
-        const issuedView = frequencyView;
-        const offset = issuedView.page.offset + resident.rows.length;
-        const limit = Math.min(
-          issuedView.page.limit,
-          resident.total - resident.rows.length,
-        );
-        if (!Number.isSafeInteger(offset + limit) || limit < 1) return;
-
-        frequencyLane.supersede();
-        const lease = frequencyLane.ops.begin(
-          () => snapKey(get().snapshot) === issuedKey,
-          () => get().linkedSelection === issuedSelection,
-          () => get().frequencyView === issuedView,
-        );
-        set({
-          frequency: {
-            snapshot: snapshot.snapshot,
-            selection: issuedSelection,
-            view: issuedView,
-            resident,
-            state: { status: 'pending' },
-          },
-        });
-        issueOn(
-          frequencyLane,
-          snapshot.snapshot,
-          {
-            op: 'freq-list',
-            selection: detailSelection(snapshot.readyDocs, issuedSelection),
-            request: {
-              method: 'freq-list/2',
-              filter: {
-                minCount: issuedView.minCount,
-                minDocFreq: issuedView.minDocFreq,
-                classes: issuedView.classes,
-                ...(issuedView.stoplistTopN === 0 ? {} : {
-                  stoplist: {
-                    id: STOPLIST_EN_ID,
-                    version: STOPLIST_EN_VERSION,
-                    topN: issuedView.stoplistTopN,
-                  },
-                }),
-                ...(issuedView.filter === undefined
-                  ? {}
-                  : { text: issuedView.filter }),
-              },
-              sort: issuedView.sort,
-              page: { offset, limit },
-              dispersion: true,
-            },
-          },
-          lease,
-          (data) => {
-            if (data.op !== 'freq-list') return;
-            const next = data.frequency;
-            if (
-              next.total !== resident.total
-              || next.totalTokens !== resident.totalTokens
-              || next.parts !== resident.parts
-              || next.selection !== resident.selection
-              || (next.rows.length === 0 && resident.rows.length < resident.total)
-            ) {
-              set({
-                frequency: {
-                  snapshot: snapshot.snapshot,
-                  selection: issuedSelection,
-                  view: issuedView,
-                  resident,
-                  state: {
-                    status: 'error',
-                    message: 'Vocabulary changed while more rows were loading. Refresh the view to continue.',
-                  },
-                },
-              });
-              return;
-            }
-            const result: FrequencyListResultV1 = {
-              ...next,
-              rows: [...resident.rows, ...next.rows],
-            };
-            set({
-              frequency: {
-                snapshot: snapshot.snapshot,
-                selection: issuedSelection,
-                view: issuedView,
-                resident: result,
-                state: { status: 'ready', result },
-              },
-            });
-          },
-          (message) => set({
-            frequency: {
-              snapshot: snapshot.snapshot,
-              selection: issuedSelection,
-              view: issuedView,
-              resident,
-              state: { status: 'error', message },
-            },
-          }),
-        );
-      },
+      ...vocabulary.actions,
 
       ...compare.actions,
-
-      setFrequencySort(by) {
-        const current = get().frequencyView;
-        const dir = current.sort.by === by
-          ? (current.sort.dir === 1 ? -1 : 1)
-          : (by === 'key' || by === 'class' ? 1 : -1);
-        set({
-          frequencyView: {
-            ...current,
-            sort: { by, dir },
-            page: { ...current.page, offset: 0 },
-          },
-        });
-        get().runFrequency();
-      },
-
-      setFrequencyFilter(filter) {
-        const normalized = filter?.query.normalize('NFC') ?? '';
-        if (normalized.length > FREQUENCY_FILTER_MAX_UNITS) return;
-        if (filter?.mode === 'regex' && normalized !== '') {
-          try {
-            new RegExp(normalized, 'u');
-          } catch {
-            return;
-          }
-        }
-        const current = get().frequencyView;
-        const nextFilter = filter === null || normalized === ''
-          ? undefined
-          : { mode: filter.mode, query: normalized } as const;
-        if (
-          current.filter?.mode === nextFilter?.mode
-          && current.filter?.query === nextFilter?.query
-        ) return;
-        const { filter: _oldFilter, ...withoutFilter } = current;
-        set({
-          frequencyView: nextFilter === undefined
-            ? {
-                ...withoutFilter,
-                page: { ...current.page, offset: 0 },
-              }
-            : {
-                ...current,
-                filter: nextFilter,
-                page: { ...current.page, offset: 0 },
-              },
-        });
-        get().runFrequency(true);
-      },
-
-      setFrequencyStoplistTopN(topN) {
-        if (
-          !Number.isSafeInteger(topN)
-          || topN < 0
-          || topN > STOPLIST_MAX_TOP_N
-        ) {
-          return;
-        }
-        const current = get().frequencyView;
-        if (current.stoplistTopN === topN) return;
-        set({
-          frequencyView: {
-            ...current,
-            stoplistTopN: topN,
-            page: { ...current.page, offset: 0 },
-          },
-        });
-        get().runFrequency(true);
-      },
-
-      setFrequencyPage(offset) {
-        const current = get().frequencyView;
-        if (
-          !Number.isSafeInteger(offset) ||
-          offset < 0 ||
-          !Number.isSafeInteger(offset + current.page.limit)
-        ) {
-          return;
-        }
-        set({
-          frequencyView: {
-            ...current,
-            page: { ...current.page, offset },
-          },
-        });
-        get().runFrequency();
-      },
 
       addFrequencyTerm(key) {
         const label = key.normalize('NFC');
@@ -3934,9 +3499,7 @@ export function createAppRuntime(
       destinationsLane.supersede();
       selectedTrendLane.supersede();
       selectedDispersionLane.supersede();
-      inventoryLane.supersede();
-      corpusInventoryLane.supersede();
-      frequencyLane.supersede();
+      vocabulary.dispose();
       compare.dispose();
       reader.dispose();
       occurrenceLane.supersede();

@@ -13,6 +13,7 @@ corpus arrays and source text remain behind the worker boundary.
 | `workspace-state.ts` | Durable projection, unavailable-source references, exact referential prefilter for semantic saves |
 | `workspace-persistence.ts` | Connection, hydration baseline, debounce, retry pause, restore suspension/drain, stale-save fencing, visibility flush, disposal |
 | `navigation-controller.ts` | Initial URL normalization, layer registry, Back/Forward, history writes, focus return |
+| `vocabulary-controller.ts` | Vocabulary settings/pagination and three independent frequency, range-inventory, and baseline-inventory lanes |
 | `compare-controller.ts` | Compare initial state, four query lanes, selection/settings and pagination intent, cold-restore/demo reconciliation |
 | `reader-controller.ts` | Reader initial state, actions, page-query lane, fitted-page walk, seek session, and disposal |
 | `query-lane.ts` | Shared latest-wins lease and best-effort transport cancellation mechanism |
@@ -76,6 +77,11 @@ Compare consumes a derived scope and the shared query issuer. Its reconciliation
 methods return a view for atomic session/workspace publication; the runtime
 retains the cross-slice geometry subscription and snapshot refresh order. Neither
 controller reads state during construction or owns a second store.
+
+Vocabulary publishes shared token counts and clamped position history through a
+named runtime patch, atomically with its inventory result. Only full-corpus
+inventory landing triggers trend-bin normalization; range work never cancels
+that baseline. Notebook creation and Matches navigation remain runtime actions.
 
 Pure comparison policy, Matches row keys, and occurrence status text live in
 their domain modules. Only the composition root imports the runtime in product
