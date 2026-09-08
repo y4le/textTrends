@@ -8,7 +8,7 @@ implemented.
 Portable [workspace backup and restore](workspace-backup.md) includes original
 library sources, active workspace intent, and display/reading settings.
 The [design index](README.md) owns their current contracts; this page contains
-only remaining work and explicit deferrals (reconciled September 5, 2026).
+only remaining work and explicit deferrals (reconciled September 7, 2026).
 
 ## Publication and validation
 
@@ -29,7 +29,6 @@ These are candidates for scoped work, not shipped behavior or a delivery order.
 | Opportunity | Required decision or evidence |
 | --- | --- |
 | Result export | Choose complete-result versus displayed-row scope; include methods, filters, document ids/titles, corpus identity, and completeness. Tested provenance formatters have no production consumer. |
-| First-use simplification | Reduce competing acquisition choices; offer explicit Track a term and Read paths after import. Preserve returning-user access. |
 | Visible measurement captions | Reflect active bins/denominator/smoothing; label Compare's log₂ scale and independent rankings. |
 | Compact results | Test a smaller initial destination list with Show more and clearer Company filtering; simplify initial Vocabulary columns without losing analytical access. |
 | Large Inputs/library management | Extend existing literal library search with active-text search, sort, multiselect, and bulk activation/deactivation; expose selection counts. Temporary sort must not rewrite declared order. |
@@ -41,15 +40,15 @@ These are candidates for scoped work, not shipped behavior or a delivery order.
 
 ## Architecture follow-ups
 
-Reader lifecycle now lives in its own controller. Vocabulary/Compare query
-controllers remain candidates for extraction from the composed runtime.
-Preserve initialization, lease ownership, identity fences, and explicit disposal.
-Distinct query lanes have distinct product policies;
-a generic registry solely to shorten a file is not a design goal.
+Reader, Compare, and Vocabulary queries now have focused controllers inside the
+single composed runtime. Speed browser playback has a dedicated hook. Preserve
+initialization, lane-specific policies, shared geometry publication and disposal
+when these owners change; a generic query registry is not a design goal.
 
-Measure hidden-table work during import and range changes before altering eager
-scheduling. Compare work avoided, first-result time, and tab-switch latency.
-Current local gates passed; they do not demonstrate an optimization need.
+The [hidden-query baseline](hidden-query-measurement.md) now records import and
+range-change traffic, successful request-to-result clocks, and later tab rendering.
+Eager scheduling remains in place. A controlled deferred comparison is the next
+measurement if latency warrants it; the baseline does not establish causal savings.
 
 Treat small normalization/locality cleanup and recurring UI primitives as
 in-path work when a feature touches their owners. Do not preserve old helper

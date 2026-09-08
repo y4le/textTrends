@@ -7,6 +7,12 @@ claim that formal 10M/50M-token tiers pass. Run commands from the repo root;
 Historical six-volume Sherlock samples predate the current nine-volume corpus
 and cannot be reproduced byte-for-byte with today's fixture.
 
+## Hidden query scheduling
+
+The [hidden-query measurement](hidden-query-measurement.md) records query traffic
+and rendering clocks during import, selection, and later tab visits. It preserves
+the eager policy and defines the evidence needed for a controlled alternative.
+
 ## Occurrence streaming promotion gate
 
 Keep bounded materialization unless a fresh-process adversarial run on the

@@ -85,8 +85,8 @@ that baseline. Notebook creation and Matches navigation remain runtime actions.
 
 Pure comparison policy, Matches row keys, and occurrence status text live in
 their domain modules. Only the composition root imports the runtime in product
-code; the import-boundary test enforces this direction. Remaining query
-extraction is tracked in [open work](../current-roadmap.md#architecture-follow-ups).
+code; the import-boundary test enforces this direction. Further extraction should follow concrete ownership needs in
+[open work](../current-roadmap.md#architecture-follow-ups).
 
 Guide tests require one visible publisher and effective highlight per semantic
 anchor, not a prescribed component filename. Keep source-level checks for real
@@ -107,7 +107,8 @@ earlier features. Moving a rule requires checking the cascade, not assuming
 file boundaries isolate it. Historical split hashes
 are not current CSS validation targets.
 
-Eager hidden-table queries remain deliberate pending measurement. Evaluate work
+Eager hidden-table queries remain deliberate after an
+[observational baseline](../hidden-query-measurement.md). Evaluate work
 avoided, first-result time, and tab-switch latency together before changing
 scheduling. Preserve lane-specific product policies rather than introducing a
 generic registry to shorten the runtime. Current local evidence is in

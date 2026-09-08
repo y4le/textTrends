@@ -1,0 +1,456 @@
+{
+  "date": "2026-09-07",
+  "platform": "Linux aarch64",
+  "node": "24.14.1",
+  "browser": "Chromium 149.0.7827.0",
+  "fixture": "checked-in nine-text Sherlock Holmes sample",
+  "measuredProductTree": "4d016ab7cd01706cf0ea203a247d62abefcf526b",
+  "method": "hidden-query-measurement.md",
+  "samples": [
+    {
+      "repetition": 1,
+      "importFirstTrendMs": 889.5,
+      "importTabs": {
+        "vocabularyMs": 307.30000019073486,
+        "compareMs": 306.2000002861023
+      },
+      "rangeFirstTrendMs": 111.40000009536743,
+      "rangeTabs": {
+        "vocabularyMs": 15.400000095367432,
+        "compareMs": 10.599999904632568
+      },
+      "importQueries": {
+        "inventory": {
+          "issued": 25,
+          "cancelled": 22,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 3,
+            "min": 57.5,
+            "median": 232.2000002861023,
+            "p95": 266.90000009536743,
+            "max": 266.90000009536743
+          }
+        },
+        "freq-list": {
+          "issued": 9,
+          "cancelled": 8,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 1,
+            "min": 330.40000009536743,
+            "median": 330.40000009536743,
+            "p95": 330.40000009536743,
+            "max": 330.40000009536743
+          }
+        },
+        "keyness": {
+          "issued": 16,
+          "cancelled": 14,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 2,
+            "min": 326.2999997138977,
+            "median": 326.2999999523163,
+            "p95": 326.30000019073486,
+            "max": 326.30000019073486
+          }
+        }
+      },
+      "rangeQueries": {
+        "inventory": {
+          "issued": 3,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 3,
+            "min": 29.799999713897705,
+            "median": 53.799999713897705,
+            "p95": 117,
+            "max": 117
+          }
+        },
+        "freq-list": {
+          "issued": 1,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 1,
+            "min": 93.7999997138977,
+            "median": 93.7999997138977,
+            "p95": 93.7999997138977,
+            "max": 93.7999997138977
+          }
+        },
+        "keyness": {
+          "issued": 2,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 2,
+            "min": 117.60000038146973,
+            "median": 117.7000002861023,
+            "p95": 117.80000019073486,
+            "max": 117.80000019073486
+          }
+        }
+      }
+    },
+    {
+      "repetition": 2,
+      "importFirstTrendMs": 803,
+      "importTabs": {
+        "vocabularyMs": 305.09999990463257,
+        "compareMs": 306.7000002861023
+      },
+      "rangeFirstTrendMs": 124.90000009536743,
+      "rangeTabs": {
+        "vocabularyMs": 9.899999618530273,
+        "compareMs": 10.5
+      },
+      "importQueries": {
+        "inventory": {
+          "issued": 25,
+          "cancelled": 22,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 3,
+            "min": 38.200000286102295,
+            "median": 147.30000019073486,
+            "p95": 147.59999990463257,
+            "max": 147.59999990463257
+          }
+        },
+        "freq-list": {
+          "issued": 9,
+          "cancelled": 8,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 1,
+            "min": 164.69999980926514,
+            "median": 164.69999980926514,
+            "p95": 164.69999980926514,
+            "max": 164.69999980926514
+          }
+        },
+        "keyness": {
+          "issued": 16,
+          "cancelled": 14,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 2,
+            "min": 164.2000002861023,
+            "median": 164.30000019073486,
+            "p95": 164.40000009536743,
+            "max": 164.40000009536743
+          }
+        }
+      },
+      "rangeQueries": {
+        "inventory": {
+          "issued": 3,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 3,
+            "min": 30.90000009536743,
+            "median": 50.80000019073486,
+            "p95": 129.59999990463257,
+            "max": 129.59999990463257
+          }
+        },
+        "freq-list": {
+          "issued": 1,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 1,
+            "min": 99.80000019073486,
+            "median": 99.80000019073486,
+            "p95": 99.80000019073486,
+            "max": 99.80000019073486
+          }
+        },
+        "keyness": {
+          "issued": 2,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 2,
+            "min": 130.09999990463257,
+            "median": 130.14999985694885,
+            "p95": 130.19999980926514,
+            "max": 130.19999980926514
+          }
+        }
+      }
+    },
+    {
+      "repetition": 3,
+      "importFirstTrendMs": 875.5999999046326,
+      "importTabs": {
+        "vocabularyMs": 309.40000009536743,
+        "compareMs": 307.59999990463257
+      },
+      "rangeFirstTrendMs": 135.7999997138977,
+      "rangeTabs": {
+        "vocabularyMs": 16.5,
+        "compareMs": 11.800000190734863
+      },
+      "importQueries": {
+        "inventory": {
+          "issued": 25,
+          "cancelled": 22,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 3,
+            "min": 40.69999980926514,
+            "median": 164.7999997138977,
+            "p95": 165.09999990463257,
+            "max": 165.09999990463257
+          }
+        },
+        "freq-list": {
+          "issued": 9,
+          "cancelled": 8,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 1,
+            "min": 207.5,
+            "median": 207.5,
+            "p95": 207.5,
+            "max": 207.5
+          }
+        },
+        "keyness": {
+          "issued": 16,
+          "cancelled": 14,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 2,
+            "min": 206.69999980926514,
+            "median": 206.89999985694885,
+            "p95": 207.09999990463257,
+            "max": 207.09999990463257
+          }
+        }
+      },
+      "rangeQueries": {
+        "inventory": {
+          "issued": 3,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 3,
+            "min": 29,
+            "median": 29,
+            "p95": 162.90000009536743,
+            "max": 162.90000009536743
+          }
+        },
+        "freq-list": {
+          "issued": 1,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 1,
+            "min": 136.59999990463257,
+            "median": 136.59999990463257,
+            "p95": 136.59999990463257,
+            "max": 136.59999990463257
+          }
+        },
+        "keyness": {
+          "issued": 2,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 2,
+            "min": 163.59999990463257,
+            "median": 163.59999990463257,
+            "p95": 163.59999990463257,
+            "max": 163.59999990463257
+          }
+        }
+      }
+    },
+    {
+      "repetition": 4,
+      "importFirstTrendMs": 1080.6999998092651,
+      "importTabs": {
+        "vocabularyMs": 310.80000019073486,
+        "compareMs": 306.90000009536743
+      },
+      "rangeFirstTrendMs": 122.7999997138977,
+      "rangeTabs": {
+        "vocabularyMs": 10,
+        "compareMs": 11.099999904632568
+      },
+      "importQueries": {
+        "inventory": {
+          "issued": 25,
+          "cancelled": 22,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 3,
+            "min": 37.90000009536743,
+            "median": 171.2000002861023,
+            "p95": 171.40000009536743,
+            "max": 171.40000009536743
+          }
+        },
+        "freq-list": {
+          "issued": 9,
+          "cancelled": 8,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 1,
+            "min": 213.80000019073486,
+            "median": 213.80000019073486,
+            "p95": 213.80000019073486,
+            "max": 213.80000019073486
+          }
+        },
+        "keyness": {
+          "issued": 16,
+          "cancelled": 14,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 2,
+            "min": 213.30000019073486,
+            "median": 213.4500002861023,
+            "p95": 213.60000038146973,
+            "max": 213.60000038146973
+          }
+        }
+      },
+      "rangeQueries": {
+        "inventory": {
+          "issued": 3,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 3,
+            "min": 30.700000286102295,
+            "median": 56,
+            "p95": 125.2000002861023,
+            "max": 125.2000002861023
+          }
+        },
+        "freq-list": {
+          "issued": 1,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 1,
+            "min": 107.19999980926514,
+            "median": 107.19999980926514,
+            "p95": 107.19999980926514,
+            "max": 107.19999980926514
+          }
+        },
+        "keyness": {
+          "issued": 2,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 2,
+            "min": 125.80000019073486,
+            "median": 125.85000014305115,
+            "p95": 125.90000009536743,
+            "max": 125.90000009536743
+          }
+        }
+      }
+    },
+    {
+      "repetition": 5,
+      "importFirstTrendMs": 840.5999999046326,
+      "importTabs": {
+        "vocabularyMs": 309.90000009536743,
+        "compareMs": 307.5
+      },
+      "rangeFirstTrendMs": 114.30000019073486,
+      "rangeTabs": {
+        "vocabularyMs": 15.300000190734863,
+        "compareMs": 10.300000190734863
+      },
+      "importQueries": {
+        "inventory": {
+          "issued": 25,
+          "cancelled": 22,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 3,
+            "min": 46.40000009536743,
+            "median": 127.7999997138977,
+            "p95": 128.2000002861023,
+            "max": 128.2000002861023
+          }
+        },
+        "freq-list": {
+          "issued": 9,
+          "cancelled": 8,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 1,
+            "min": 166.60000038146973,
+            "median": 166.60000038146973,
+            "p95": 166.60000038146973,
+            "max": 166.60000038146973
+          }
+        },
+        "keyness": {
+          "issued": 16,
+          "cancelled": 14,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 2,
+            "min": 166.19999980926514,
+            "median": 166.24999976158142,
+            "p95": 166.2999997138977,
+            "max": 166.2999997138977
+          }
+        }
+      },
+      "rangeQueries": {
+        "inventory": {
+          "issued": 3,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 3,
+            "min": 31.09999990463257,
+            "median": 31.40000009536743,
+            "p95": 118.30000019073486,
+            "max": 118.30000019073486
+          }
+        },
+        "freq-list": {
+          "issued": 1,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 1,
+            "min": 92.69999980926514,
+            "median": 92.69999980926514,
+            "p95": 92.69999980926514,
+            "max": 92.69999980926514
+          }
+        },
+        "keyness": {
+          "issued": 2,
+          "cancelled": 0,
+          "errors": 0,
+          "postToResultMs": {
+            "n": 2,
+            "min": 118.90000009536743,
+            "median": 118.95000004768372,
+            "p95": 119,
+            "max": 119
+          }
+        }
+      }
+    }
+  ]
+}
