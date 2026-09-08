@@ -44,27 +44,11 @@ import { trendBinLimits } from './trend-settings.ts';
 import { COMPARE_MAX_RESIDENT_ROWS } from './compare-scroll.ts';
 import type { CapturedTrack } from './track-legend.ts';
 import { footerPassageServes } from './footer-view.ts';
-import {
-  readerCursorToken,
-  readerPlaceFor,
-  sameReaderCursor,
-  sameReaderPlace,
-  type ReaderOpenIntent,
-  type ReaderAnchorKind,
-  type ReaderPlace,
-} from './reader-intent.ts';
-import {
-  adjacentReadableDocumentAtRelativePosition,
-  adjacentReadableDocument,
-  readyReaderDocumentOrder,
-} from './reader-order.ts';
+import { sameReaderPlace } from './reader-intent.ts';
 import {
   atlasAvailable,
-  DEFAULT_ATLAS_NORMALIZATION,
-  DEFAULT_READER_SCALE,
   type AtlasNormalization,
 } from './reader-view.ts';
-import { preservedReadingCursor, publishedReadingToken } from './reader-cursor.ts';
 import {
   clampPositionHistoryExtents,
   EMPTY_POSITION_HISTORY,
@@ -105,7 +89,7 @@ import {
   type PrimaryInteraction,
 } from './interaction.ts';
 import { clampRsvpPacing, RSVP_PACING_DEFAULTS, type RsvpPacing } from '@texttrends/rsvp';
-import { LatestOperation, OperationScope, type OperationLease } from './operation-lease.ts';
+import { OperationScope, type OperationLease } from './operation-lease.ts';
 import type {
   QueryOpV4,
   QueryResultDataV4,
@@ -121,7 +105,6 @@ import {
   type MatchesColumnSettings,
 } from './matches-columns.ts';
 import { SessionCommandError, type AnalysisPhase, type SessionState } from './project-session.ts';
-import { pushLayer as pushLayerStack, replaceTopLayer, type Layer } from './layers.ts';
 import type { HistoryPort } from './history-port.ts';
 import { DEFAULT_TREND_VIEW } from './trend-view.ts';
 import type {
@@ -130,7 +113,6 @@ import type {
   SeriesTrendState,
   MatchesWindowView,
   DestinationFocusIntent,
-  ReaderNavigationTarget,
   InventoryState,
   KeynessViewV1,
   KeynessTableState,
@@ -145,6 +127,8 @@ import type {
 } from './app-state.ts';
 import { DEFAULT_TREND_BINS, DEFAULT_TREND_MEASURE, DEFAULT_KEYNESS_VIEW } from './app-defaults.ts';
 import { effectiveKeynessMinDocFreq, keynessSelections, reconcileKeynessView } from './keyness-view.ts';
+import { QueryLane } from './query-lane.ts';
+import { createReaderController } from './reader-controller.ts';
 import { createWorkspacePersistence } from './workspace-persistence.ts';
 import { createNavigationController } from './navigation-controller.ts';
 
@@ -152,7 +136,6 @@ import { createNavigationController } from './navigation-controller.ts';
  * The footer is latency-sensitive and only renders one clipped passage; the
  * full Reader gets a larger reservoir for browser-measured pages. */
 const FOOTER_PASSAGE_MAX_TOKENS = 400;
-const READER_SOURCE_MAX_TOKENS = 4_096;
 
 /** The max compared/matches terms — one authority, shared with the kwic
  *  track cap so a series set can always be sent as matches tracks. */
@@ -165,23 +148,6 @@ export const INVENTORY_MATTR_WINDOW = 500;
  *  extra generation fence is cheap and matches the session contract. */
 const snapKey = (s: SnapshotInfo | null): string | null =>
   s ? JSON.stringify([s.generation, s.snapshot]) : null;
-
-/** Query residency follows the complete effective matching set. Order,
- * labels, and styles are presentation-only; membership and matching identity
- * are not. */
-function sameReaderTrackSet(
-  captured: readonly CapturedTrack[],
-  effective: readonly CapturedTrack[],
-): boolean {
-  if (captured.length !== effective.length) return false;
-  const capturedById = new Map(captured.map((track) => [track.seriesId, track.identity]));
-  const effectiveById = new Map(effective.map((track) => [track.seriesId, track.identity]));
-  if (capturedById.size !== captured.length || effectiveById.size !== effective.length) return false;
-  for (const [seriesId, identity] of capturedById) {
-    if (effectiveById.get(seriesId) !== identity) return false;
-  }
-  return true;
-}
 
 function keynessSideSelectionKey(
   scope: KeynessScope,
@@ -318,53 +284,6 @@ function retainTrendTokenCounts(
   return next;
 }
 
-function adjacentReaderDocument(
-  state: Pick<AppState, 'corpusTokenCounts' | 'projectSession' | 'snapshot'>,
-  doc: string,
-  direction: 1 | -1,
-): ReaderNavigationTarget | null {
-  const readyDocs = state.snapshot?.readyDocs;
-  if (!readyDocs) return null;
-  return adjacentReadableDocument(
-    readyReaderDocumentOrder(
-      state.projectSession?.project.data.order,
-      readyDocs,
-    ),
-    doc,
-    direction,
-    (candidate) => state.corpusTokenCounts.get(candidate),
-  );
-}
-
-/** One query-intent lane: latest-wins ownership plus the in-flight transport
- *  cancels it may best-effort clean up. Superseding is ONE operation, so no
- *  call site can cancel without invalidating or invalidate without cancelling. */
-class QueryLane {
-  private readonly cancels = new Set<() => void>();
-  readonly ops: LatestOperation;
-  constructor(scope: OperationScope) {
-    this.ops = new LatestOperation(scope);
-  }
-  /** Cancel + drop every tracked request and supersede outstanding leases.
-   *  Cancellation is best-effort by contract — one throwing cancel must not
-   *  abort the supersession (or teardown) of its peers. */
-  supersede(): void {
-    for (const c of this.cancels) {
-      try {
-        c();
-      } catch {
-        // The request either settles normally or its lease is already dead.
-      }
-    }
-    this.cancels.clear();
-    this.ops.invalidate();
-  }
-  track(cancel: () => void): () => void {
-    this.cancels.add(cancel);
-    return () => this.cancels.delete(cancel);
-  }
-}
-
 export function createAppRuntime(
   client: QueryClient,
   opts?: {
@@ -417,7 +336,7 @@ export function createAppRuntime(
   const keynessInventoryBLane = new QueryLane(scope);
   // Full-reader pages are a distinct latest-wins presentation intent. Rapid
   // Next/Previous cannot race with trends or one another.
-  const readerLane = new QueryLane(scope);
+  let reader!: ReturnType<typeof createReaderController>;
   // Exact any-term stepping is independent of Reader/footer passage work.
   const occurrenceLane = new QueryLane(scope);
   // Temporary corpus Find is notebook-independent and must not race with the
@@ -453,19 +372,6 @@ export function createAppRuntime(
   // the durable workspace so async completion order cannot choose Book 2.
   let pendingKeynessResetDoc: string | null = null;
   let restoringCompareDocs: readonly string[] | null = null;
-  let readerWalk: {
-    readonly snapshot: string;
-    readonly doc: string;
-    readonly geometry: string;
-    boundaries: number[];
-    index: number;
-  } | null = null;
-  let readerSeekSession: {
-    readonly doc: string;
-    readonly origin: ScrubTarget | null;
-    readonly tokenCount: number;
-  } | null = null;
-
   const clearPositionHistoryTimer = (): void => {
     if (positionHistoryTimer !== null) {
       clearTimeout(positionHistoryTimer);
@@ -526,65 +432,9 @@ export function createAppRuntime(
   };
 
   const navigation = createNavigationController(opts?.history ?? null, newLayerId);
-  const { rememberLayer, writeNavigation, freshLayer, requestBack } = navigation;
   // Assigned during Zustand initialization; navigation callbacks start only after bind.
   let scheduleNavigationFooterPassage!: (target: ScrubTarget) => void;
   const store = create<AppState>((set, get) => {
-    const replaceReaderTarget = (
-      target: ReaderNavigationTarget,
-      anchor: ReaderAnchorKind = 'position',
-      from?: ReaderOpenIntent['from'],
-      options: {
-        readonly preview?: boolean;
-      } = {},
-    ): void => {
-      const place = get().readerPlace;
-      const cursor = target.cursor;
-      const origin = from ?? place?.from;
-      const sameTarget = place !== null
-        && target.doc === place.doc
-        && anchor === place.anchor
-        && origin === place.from
-        && sameReaderCursor(cursor, place.cursor);
-      if (
-        place === null
-        || !get().snapshot?.readyDocs.includes(target.doc)
-        || !Number.isSafeInteger(cursor.token)
-        || cursor.token < 0
-        || (cursor.kind === 'before' && cursor.token < 1)
-      ) return;
-      if (sameTarget) return;
-      const readerIndex = get().layers.findLastIndex((layer) => layer.kind === 'reader');
-      const readerLayer = get().layers[readerIndex];
-      if (readerIndex < 0 || readerLayer?.kind !== 'reader') return;
-      const sameDocument = target.doc === place.doc;
-      const nextPlace: ReaderPlace = {
-        ...place,
-        doc: target.doc,
-        cursor: { ...cursor },
-        anchor,
-        from: origin ?? place.from,
-      };
-      const nextLayer: Layer = {
-        ...readerLayer,
-        target: Object.freeze(nextPlace),
-      };
-      const layers = get().layers.map((layer, index) =>
-        index === readerIndex ? nextLayer : layer);
-      rememberLayer(nextLayer, layers);
-      writeNavigation(
-        'replace',
-        get().place,
-        layers,
-        {
-          preserveReaderNavigation: sameDocument,
-          writeHistory: options.preview !== true,
-        },
-      );
-      if (!sameDocument) readerWalk = null;
-      get().runReader();
-    };
-
     /** Issue ONE guarded query on a lane: track its cancel, deliver only while
      *  the lease holds, swallow typed cancellation, surface real failures. The
      *  caller's onReady narrows the op discriminant and writes its own state. */
@@ -878,6 +728,22 @@ export function createAppRuntime(
 
     const identitiesCurrent = (pairs: readonly (readonly [string, string])[]): boolean =>
       pairs.every(([id, ident]) => identityOf(id) === ident);
+
+    reader = createReaderController({
+      get, set, scope, issue: issueOn, navigation,
+      atlasNormalization: opts?.atlasNormalization,
+      snapshotKey: () => snapKey(get().snapshot),
+      effectiveTrackSpecs,
+      identitiesCurrent,
+      recordPositionJump: recordPositionJumpNow,
+      readingPositionPatch: (target, origin) => {
+        const current = get().scrub;
+        if (current?.doc === target.doc && current.token === target.token) return {};
+        occurrenceLane.supersede();
+        if (origin !== undefined) schedulePositionSettle(target, origin);
+        return { scrub: target, occurrenceNavigation: null, matchesReveal: null };
+      },
+    });
 
     /** Company/Destinations are set analyses, not notebook-order analyses.
      * Canonical series-id order keeps rename and reorder presentation-only and
@@ -1987,13 +1853,7 @@ export function createAppRuntime(
       positionHistory: EMPTY_POSITION_HISTORY,
       footerPassage: null,
       occurrenceNavigation: null,
-      readerPlace: null,
-      readerScale: DEFAULT_READER_SCALE,
-      atlasNormalization: opts?.atlasNormalization ?? DEFAULT_ATLAS_NORMALIZATION,
-      readerPage: null,
-      readerVisibleRange: null,
-      readerCursorToken: null,
-      readerNavigation: null,
+      ...reader.initial,
 
       quickAdd(input) {
         const state = get();
@@ -2474,7 +2334,7 @@ export function createAppRuntime(
         });
         scheduleFooterPassage(target);
         if (get().readerPlace !== null) {
-          replaceReaderTarget({
+          reader.replaceTarget({
             doc: target.doc,
             cursor: { kind: 'around', token: target.token },
           }, 'position');
@@ -2709,7 +2569,7 @@ export function createAppRuntime(
             get().requestMatchesWindow({ kind: 'position', doc: hit.doc, token: hit.token });
             const liveReader = get().readerPlace;
             if (liveReader?.snapshot === snapshot.snapshot) {
-              replaceReaderTarget({
+              reader.replaceTarget({
                 doc: hit.doc,
                 cursor: { kind: 'around', token: hit.token },
               }, 'occurrence', 'occurrence');
@@ -2878,7 +2738,7 @@ export function createAppRuntime(
           || token < 0
           || token >= mode.docTokenCount
         ) return;
-        replaceReaderTarget({ doc: mode.doc, cursor: { kind: 'from', token } });
+        reader.replaceTarget({ doc: mode.doc, cursor: { kind: 'from', token } });
       },
 
       exitRsvp(token) {
@@ -2901,7 +2761,7 @@ export function createAppRuntime(
           matchesReveal: null,
           interactionError: null,
         });
-        replaceReaderTarget({ doc, cursor: { kind: 'from', token } });
+        reader.replaceTarget({ doc, cursor: { kind: 'from', token } });
         // runReader clears presentation state while the exact return page is
         // loading; publish the cursor after navigation so the fitted page can
         // preserve and render the Speed exit position.
@@ -3091,7 +2951,7 @@ export function createAppRuntime(
               groupId: chosen.group.id,
             });
             if (issuedReader !== null) {
-              replaceReaderTarget({
+              reader.replaceTarget({
                 doc: hit.doc,
                 cursor: { kind: 'around', token: hit.token },
               }, 'occurrence', 'occurrence');
@@ -3116,536 +2976,7 @@ export function createAppRuntime(
         );
       },
 
-      openReader(intent, returnFocusTo = `place-${get().place}-heading`) {
-        if (get().interaction.kind === 'rsvp') return;
-        const snapshot = get().snapshot;
-        const place = readerPlaceFor(
-          intent,
-          snapshot?.snapshot ?? null,
-          snapshot?.readyDocs ?? [],
-        );
-        if (place) {
-          // Entrances from analytical evidence always begin in readable prose.
-          // Subsequent movement inside Reader uses replaceReaderTarget and
-          // deliberately leaves this transient scale untouched.
-          set({ readerScale: 'read' });
-          const origin: PositionHistoryOrigin = intent.from === 'kwic'
-            ? 'matches'
-            : intent.from === 'footer'
-              ? 'seek'
-              : intent.from;
-          const target = { doc: intent.doc, token: intent.token };
-          const previous = get().scrub;
-          recordPositionJumpNow(previous, target, origin);
-          if (previous?.doc !== target.doc || previous.token !== target.token) {
-            occurrenceLane.supersede();
-            set({ scrub: target, occurrenceNavigation: null, matchesReveal: null });
-          }
-          const next = freshLayer(
-            'reader',
-            Object.freeze(place),
-            returnFocusTo,
-          );
-          const replacing = get().layers.at(-1)?.kind === 'reader';
-          const layers = replacing
-            ? replaceTopLayer(get().layers, next)
-            : pushLayerStack(get().layers, next);
-          rememberLayer(next, layers);
-          writeNavigation(replacing ? 'replace' : 'push', get().place, layers);
-          get().runReader();
-        }
-      },
-
-      stepReaderDocument(direction) {
-        const state = get();
-        const snapshot = state.snapshot;
-        const place = state.readerPlace;
-        if (
-          state.interaction.kind === 'rsvp'
-          || snapshot === null
-          || place === null
-          || (direction !== -1 && direction !== 1)
-        ) return null;
-        const order = readyReaderDocumentOrder(
-          state.projectSession?.project.data.order ?? [],
-          snapshot.readyDocs,
-        );
-        const token = state.scrub?.doc === place.doc
-          ? state.scrub.token
-          : readerCursorToken(place.cursor);
-        const target = adjacentReadableDocumentAtRelativePosition(
-          order,
-          place.doc,
-          direction,
-          token,
-          (doc) => state.corpusTokenCounts.get(doc),
-        );
-        if (target === null) return null;
-        get().setScrub(target, { kind: 'jump', origin: 'reader' });
-        replaceReaderTarget({
-          doc: target.doc,
-          cursor: { kind: 'around', token: target.token },
-        }, 'position');
-        return target;
-      },
-
-      selectAtlasPosition(target, anchor, descend = false) {
-        const state = get();
-        const snapshot = state.snapshot;
-        const tokenCount = state.corpusTokenCounts.get(target.doc);
-        if (
-          state.interaction.kind === 'rsvp'
-          || state.readerScale !== 'atlas'
-          || state.readerPlace === null
-          || snapshot === null
-          || state.readerPlace.snapshot !== snapshot.snapshot
-          || !snapshot.readyDocs.includes(target.doc)
-          || !Number.isSafeInteger(target.token)
-          || target.token < 0
-          || tokenCount === undefined
-          || target.token >= tokenCount
-          || (anchor !== 'occurrence' && anchor !== 'position')
-        ) return;
-        if (state.scrub?.doc !== target.doc || state.scrub.token !== target.token) {
-          get().setScrub(
-            target,
-            descend
-              ? { kind: 'jump', origin: 'reader' }
-              : { kind: 'drift', origin: 'reader' },
-          );
-        }
-        replaceReaderTarget({
-          doc: target.doc,
-          cursor: { kind: 'around', token: target.token },
-        }, anchor);
-        if (descend) get().setReaderScale('read');
-      },
-
-      setReaderScale(scale) {
-        const state = get();
-        if (
-          state.interaction.kind === 'rsvp'
-          || state.readerPlace === null
-          || scale === state.readerScale
-          || (scale === 'atlas' && !atlasAvailable(state.snapshot?.readyDocs ?? []))
-        ) return;
-        if (scale === 'atlas') {
-          // The Atlas consumes resident dispersion. Cancel an unfinished prose
-          // request, but retain a settled page for a query-free return to Read.
-          readerLane.supersede();
-          set({
-            readerScale: scale,
-            readerPage: state.readerPage?.state.status === 'ready' ? state.readerPage : null,
-            readerVisibleRange:
-              state.readerPage?.state.status === 'ready' ? state.readerVisibleRange : null,
-            readerCursorToken:
-              state.readerPage?.state.status === 'ready' ? state.readerCursorToken : null,
-            readerNavigation:
-              state.readerPage?.state.status === 'ready' ? state.readerNavigation : null,
-          });
-          return;
-        }
-        set({ readerScale: scale });
-        const current = get();
-        const effectiveTracks = effectiveTrackSpecs(current.series);
-        const pageIsResident = current.readerPage !== null
-          && sameReaderPlace(current.readerPage.place, current.readerPlace)
-          && current.readerPage.state.status === 'ready'
-          && effectiveTracks !== null
-          && sameReaderTrackSet(current.readerPage.tracks, effectiveTracks.captured);
-        if (!pageIsResident) current.runReader();
-      },
-
-      setAtlasNormalization(normalization) {
-        set((state) => state.atlasNormalization === normalization
-          ? state
-          : { atlasNormalization: normalization });
-      },
-
-      setReaderVisibleRange(range) {
-        const state = get();
-        if (state.interaction.kind === 'rsvp' || state.readerScale !== 'read') return;
-        const place = state.readerPlace;
-        const source = state.readerPage
-          && place
-          && sameReaderPlace(state.readerPage.place, place)
-          && state.readerPage.state.status === 'ready'
-          ? state.readerPage.state.page
-          : null;
-        if (
-          source === null
-          || range.snapshot !== state.readerPage?.snapshot
-          || range.doc !== source.doc
-          || range.doc !== place?.doc
-          || !Number.isSafeInteger(range.tokens.start)
-          || !Number.isSafeInteger(range.tokens.end)
-          || range.tokens.start < source.tokens.start
-          || range.tokens.end > source.tokens.end
-          || range.tokens.start >= range.tokens.end
-          || range.geometry.length === 0
-        ) return;
-
-        if (
-          readerWalk === null
-          || readerWalk.snapshot !== range.snapshot
-          || readerWalk.doc !== range.doc
-          || readerWalk.geometry !== range.geometry
-        ) {
-          readerWalk = {
-            snapshot: range.snapshot,
-            doc: range.doc,
-            geometry: range.geometry,
-            boundaries: [range.tokens.start, range.tokens.end],
-            index: 0,
-          };
-        } else {
-          const walk = readerWalk;
-          const existing = walk.boundaries.findIndex((boundary, index) =>
-            boundary === range.tokens.start
-            && walk.boundaries[index + 1] === range.tokens.end);
-          if (existing >= 0) {
-            walk.index = existing;
-          } else if (walk.boundaries.at(-1) === range.tokens.start) {
-            walk.boundaries.push(range.tokens.end);
-            walk.index = walk.boundaries.length - 2;
-          } else if (walk.boundaries[0] === range.tokens.end) {
-            walk.boundaries.unshift(range.tokens.start);
-            walk.index = 0;
-          } else {
-            walk.boundaries = [range.tokens.start, range.tokens.end];
-            walk.index = 0;
-          }
-        }
-        const MAX_READER_BOUNDARIES = 257;
-        if (readerWalk.boundaries.length > MAX_READER_BOUNDARIES) {
-          if (readerWalk.index > MAX_READER_BOUNDARIES / 2) {
-            readerWalk.boundaries.shift();
-            readerWalk.index--;
-          } else {
-            readerWalk.boundaries.pop();
-          }
-        }
-        const previousStart = readerWalk.index > 0
-          ? readerWalk.boundaries[readerWalk.index - 1]
-          : null;
-        const preservedCursor = preservedReadingCursor(
-          state.readerCursorToken,
-          range.tokens,
-        );
-        const selectionToken = publishedReadingToken(
-          preservedCursor,
-          place.cursor,
-          range.tokens,
-        );
-        const selectionChanged = state.scrub?.doc !== source.doc
-          || state.scrub.token !== selectionToken;
-        if (selectionChanged) occurrenceLane.supersede();
-        if (selectionChanged) {
-          schedulePositionSettle(
-            { doc: source.doc, token: selectionToken },
-            'reader',
-          );
-        }
-        set({
-          readerVisibleRange: range,
-          readerCursorToken: preservedCursor,
-          readerNavigation: {
-            previous: previousStart !== null && previousStart !== undefined
-              ? { doc: source.doc, cursor: { kind: 'from', token: previousStart } }
-              : range.tokens.start === 0
-                ? adjacentReaderDocument(state, source.doc, -1)
-                : { doc: source.doc, cursor: { kind: 'before', token: range.tokens.start } },
-            next: range.tokens.end === source.docTokenCount
-              ? adjacentReaderDocument(state, source.doc, 1)
-              : { doc: source.doc, cursor: { kind: 'from', token: range.tokens.end } },
-          },
-          ...(selectionChanged
-            ? {
-                scrub: { doc: source.doc, token: selectionToken },
-                occurrenceNavigation: null,
-                matchesReveal: null,
-              }
-            : {}),
-        });
-      },
-
-      setReadingCursor(token) {
-        const state = get();
-        const place = state.readerPlace;
-        const page = state.readerPage;
-        const visible = state.readerVisibleRange;
-        if (
-          state.interaction.kind === 'rsvp'
-          || state.readerScale !== 'read'
-          || place === null
-          || page === null
-          || page.state.status !== 'ready'
-          || visible === null
-          || page.snapshot !== visible.snapshot
-          || page.snapshot !== place.snapshot
-          || page.state.page.doc !== place.doc
-          || visible.doc !== place.doc
-          || !Number.isSafeInteger(token)
-          || token < visible.tokens.start
-          || token >= visible.tokens.end
-        ) return;
-        const changed = state.scrub?.doc !== place.doc || state.scrub.token !== token;
-        if (changed) {
-          occurrenceLane.supersede();
-          schedulePositionSettle({ doc: place.doc, token }, 'reader');
-        }
-        set({
-          readerCursorToken: token,
-          ...(changed
-            ? {
-                scrub: { doc: place.doc, token },
-                occurrenceNavigation: null,
-                matchesReveal: null,
-              }
-            : {}),
-        });
-      },
-
-      refitReaderAt(token) {
-        const state = get();
-        if (state.interaction.kind === 'rsvp' || state.readerScale !== 'read') return;
-        const visible = state.readerVisibleRange;
-        const source = state.readerPage?.state.status === 'ready'
-          ? state.readerPage.state.page
-          : null;
-        if (
-          visible === null
-          || source === null
-          || visible.snapshot !== state.readerPage?.snapshot
-          || visible.doc !== source.doc
-          || token !== visible.tokens.start
-          || token < source.tokens.start
-          || token >= source.tokens.end
-        ) return;
-        replaceReaderTarget({ doc: source.doc, cursor: { kind: 'from', token } });
-      },
-
-      seekReader(token, phase = 'commit') {
-        const state = get();
-        const place = state.readerPlace;
-        const session = readerSeekSession;
-        // A rejected commit must still end the prior gesture. Otherwise a
-        // later seek could record history from an abandoned, stale origin.
-        if (phase === 'commit') readerSeekSession = null;
-        const readyPage = state.readerPage
-          && place
-          && sameReaderPlace(state.readerPage.place, place)
-          && state.readerPage.state.status === 'ready'
-          ? state.readerPage.state.page
-          : null;
-        const tokenCount = session !== null && session.doc === place?.doc
-          ? session.tokenCount
-          : readyPage?.docTokenCount
-          ?? (place === null ? undefined : state.corpusTokenCounts.get(place.doc));
-        if (
-          state.interaction.kind === 'rsvp'
-          || state.readerScale !== 'read'
-          || place === null
-          || tokenCount === undefined
-          || !Number.isSafeInteger(token)
-          || token < 0
-          || token >= tokenCount
-        ) return;
-        const target = { doc: place.doc, token };
-        let activeSession = session !== null && session.doc === place.doc
-          ? session
-          : null;
-        if (phase === 'start' || (phase === 'preview' && activeSession === null)) {
-          activeSession = {
-            doc: place.doc,
-            origin: state.scrub,
-            tokenCount,
-          };
-          readerSeekSession = activeSession;
-        }
-        if (phase === 'commit') {
-          const origin = activeSession?.origin ?? state.scrub;
-          if (origin?.doc !== target.doc || origin.token !== target.token) {
-            recordPositionJumpNow(origin, target, 'seek');
-          }
-        }
-        const changed = state.scrub?.doc !== place.doc || state.scrub.token !== token;
-        if (changed) occurrenceLane.supersede();
-        const visible = state.readerVisibleRange;
-        if (
-          visible !== null
-          && visible.snapshot === place.snapshot
-          && visible.doc === place.doc
-          && token >= visible.tokens.start
-          && token < visible.tokens.end
-        ) {
-          set({
-            readerCursorToken: token,
-            ...(changed
-              ? {
-                  scrub: target,
-                  occurrenceNavigation: null,
-                  matchesReveal: null,
-                }
-              : {}),
-          });
-          return;
-        }
-        if (changed) {
-          set({
-            scrub: target,
-            occurrenceNavigation: null,
-            matchesReveal: null,
-          });
-        }
-        replaceReaderTarget(
-          { doc: place.doc, cursor: { kind: 'from', token } },
-          'position',
-          undefined,
-          activeSession === null ? {} : { preview: true },
-        );
-      },
-
-      navigateReader(target) {
-        if (get().interaction.kind === 'rsvp' || get().readerScale !== 'read') return;
-        const { readerPlace: place, readerNavigation: navigation, readerPage } = get();
-        const destination: ReaderNavigationTarget | null = place === null
-          ? null
-          : 'doc' in target
-            ? target
-            : { doc: place.doc, cursor: target };
-        const readyPage = readerPage
-          && place
-          && sameReaderPlace(readerPage.place, place)
-          && readerPage.state.status === 'ready'
-          ? readerPage.state.page
-          : null;
-        const boundaryCursor = destination !== null
-          && destination.doc === place?.doc
-          && ((destination.cursor.kind === 'from' && destination.cursor.token === 0)
-          || (
-            destination.cursor.kind === 'before'
-            && readyPage !== null
-            && destination.cursor.token === readyPage.docTokenCount
-          ));
-        const matchesNavigation = (candidate: ReaderNavigationTarget | null): boolean =>
-          destination !== null
-          && candidate !== null
-          && destination.doc === candidate.doc
-          && sameReaderCursor(destination.cursor, candidate.cursor);
-        if (
-          !place
-          || destination === null
-          || !navigation
-          || (
-            !boundaryCursor
-            && !matchesNavigation(navigation.previous)
-            && !matchesNavigation(navigation.next)
-          )
-        ) return;
-        replaceReaderTarget(destination);
-      },
-
-      retryReader() {
-        if (get().readerPlace) get().runReader();
-      },
-
-      closeReader() {
-        readerSeekSession = null;
-        requestBack();
-      },
-
-      runReader() {
-        readerLane.supersede();
-        const { snapshot, readerPlace: place, readerScale, series } = get();
-        if (
-          !snapshot
-          || !place
-          || place.snapshot !== snapshot.snapshot
-          || !snapshot.readyDocs.includes(place.doc)
-        ) {
-          set({
-            readerPage: null,
-            readerVisibleRange: null,
-            readerCursorToken: null,
-            readerNavigation: null,
-          });
-          return;
-        }
-        if (readerScale === 'atlas') return;
-        const tracks = effectiveTrackSpecs(series);
-        if (tracks === null) {
-          set({
-            readerPage: null,
-            readerVisibleRange: null,
-            readerCursorToken: null,
-            readerNavigation: null,
-          });
-          return;
-        }
-        const issuedKey = snapKey(snapshot);
-        const issuedPlace = place;
-        const lease = readerLane.ops.begin(
-          () => snapKey(get().snapshot) === issuedKey,
-          () => sameReaderPlace(get().readerPlace, issuedPlace),
-          () => identitiesCurrent(tracks.identities),
-        );
-        set({
-          readerPage: {
-            snapshot: snapshot.snapshot,
-            place: issuedPlace,
-            tracks: tracks.captured,
-            state: { status: 'pending' },
-          },
-          readerVisibleRange: null,
-          readerCursorToken: null,
-        });
-        issueOn(
-          readerLane,
-          snapshot.snapshot,
-          {
-            op: 'reader-page',
-            tracks: tracks.wire,
-            request: {
-              method: 'reader-page/1',
-              doc: issuedPlace.doc,
-              cursor: issuedPlace.cursor,
-              maxTokens: READER_SOURCE_MAX_TOKENS,
-            },
-          },
-          lease,
-          (data) => {
-            if (data.op !== 'reader-page') return;
-            if (data.page.doc !== issuedPlace.doc) {
-              set({
-                readerPage: {
-                  snapshot: snapshot.snapshot,
-                  place: issuedPlace,
-                  tracks: tracks.captured,
-                  state: { status: 'error', message: 'reader returned the wrong document' },
-                },
-              });
-              return;
-            }
-            set({
-              readerPage: {
-                snapshot: snapshot.snapshot,
-                place: issuedPlace,
-                tracks: tracks.captured,
-                state: { status: 'ready', page: data.page },
-              },
-            });
-          },
-          (message) => set({
-            readerPage: {
-              snapshot: snapshot.snapshot,
-              place: issuedPlace,
-              tracks: tracks.captured,
-              state: { status: 'error', message },
-            },
-          }),
-        );
-      },
+      ...reader.actions,
 
       runFooterPassage() {
         const target = get().scrub;
@@ -5022,8 +4353,8 @@ export function createAppRuntime(
 
   navigation.bind(store, {
     isDisposed: () => disposed,
-    supersedeReader: () => readerLane.supersede(),
-    resetReaderSeek: () => { readerSeekSession = null; },
+    supersedeReader: () => reader.supersede(),
+    resetReaderSeek: () => reader.resetSeek(),
     scheduleFooterPassage: (target) => scheduleNavigationFooterPassage(target),
     runFooterPassage: () => store.getState().runFooterPassage(),
     runReader: () => store.getState().runReader(),
@@ -5177,7 +4508,7 @@ export function createAppRuntime(
         : store.getState().trendViewPreference,
     });
     if (prevKey !== nextKey) {
-      readerLane.supersede();
+      reader.supersede();
       occurrenceLane.supersede();
       findLane.supersede();
       findTrendLane.supersede();
@@ -5290,7 +4621,7 @@ export function createAppRuntime(
       keynessBLane.supersede();
       keynessInventoryALane.supersede();
       keynessInventoryBLane.supersede();
-      readerLane.supersede();
+      reader.dispose();
       occurrenceLane.supersede();
       findLane.supersede();
       findTrendLane.supersede();

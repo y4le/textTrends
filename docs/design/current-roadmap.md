@@ -41,9 +41,10 @@ These are candidates for scoped work, not shipped behavior or a delivery order.
 
 ## Architecture follow-ups
 
-Reader and vocabulary/query controllers remain candidates for extraction from
-the composed runtime. Preserve initialization, lease ownership, identity fences,
-and explicit disposal. Distinct query lanes have distinct product policies;
+Reader lifecycle now lives in its own controller. Vocabulary/Compare query
+controllers remain candidates for extraction from the composed runtime.
+Preserve initialization, lease ownership, identity fences, and explicit disposal.
+Distinct query lanes have distinct product policies;
 a generic registry solely to shorten a file is not a design goal.
 
 Measure hidden-table work during import and range changes before altering eager

@@ -13,7 +13,9 @@ corpus arrays and source text remain behind the worker boundary.
 | `workspace-state.ts` | Durable projection, unavailable-source references, exact referential prefilter for semantic saves |
 | `workspace-persistence.ts` | Connection, hydration baseline, debounce, retry pause, restore suspension/drain, stale-save fencing, visibility flush, disposal |
 | `navigation-controller.ts` | Initial URL normalization, layer registry, Back/Forward, history writes, focus return |
-| `store.ts` | Runtime composition, session bridge, notebook actions, query/Reader interaction |
+| `reader-controller.ts` | Reader initial state, actions, page-query lane, fitted-page walk, seek session, and disposal |
+| `query-lane.ts` | Shared latest-wins lease and best-effort transport cancellation mechanism |
+| `store.ts` | Runtime composition, session bridge, notebook/query/Find/Speed actions, shared cursor and position history |
 
 Persistence connects before session attachment and establishes its baseline
 after restore. Source replacement is synchronous so persistence sees the final
@@ -44,8 +46,28 @@ Shared geometry and pointer types remain pure library modules.
 `WorkbenchFooter` composes the strip; `footer/FooterInteractive` owns input and
 navigation. `QuerySurface` composes Terms; `terms/TermControls` owns buttons and
 actions. These boundaries preserve props, lifetimes, and pure gesture helpers.
-Further Reader/query extraction must preserve initialization, ownership, and
-disposal; [open work](../current-roadmap.md#architecture-follow-ups) records it.
+
+`KwicPanel` retains view models, markup, and ARIA. `matches/useMatchesScroll`
+owns viewport measurement, native/programmatic scroll fencing, cursor
+publication, prefetch, and announcements. `matches/useMatchesColumnResize`
+consumes that measurement and owns pointer/keyboard resizing and focus cleanup.
+Each hook cancels its own frames and timers; context escalation stays a focused
+effect in the panel.
+
+The Reader controller is constructed inside Zustand initialization after query
+and matching capabilities exist, without reading state during construction.
+Navigation binds after initialization. The controller owns Reader queries and
+local state; Find and Speed stay in the composed runtime and call its target
+replacement method. A named reading-position patch capability performs shared
+occurrence cancellation and optional history scheduling, returning cursor state
+for one atomic publication with Reader fields. Fitted-page publication does not
+schedule footer passage work. Snapshot invalidation remains ordered in the
+runtime; disposal closes the shared scope before cancelling controller queries.
+
+Pure comparison policy, Matches row keys, and occurrence status text live in
+their domain modules. Only the composition root imports the runtime in product
+code; the import-boundary test enforces this direction. Remaining query
+extraction is tracked in [open work](../current-roadmap.md#architecture-follow-ups).
 
 Guide tests require one visible publisher and effective highlight per semantic
 anchor, not a prescribed component filename. Keep source-level checks for real
