@@ -16,6 +16,7 @@
     "src",
     "test",
     "e2e",
+    "bench",
     "vite.config.ts",
     "playwright.config.ts"
   ]

@@ -162,3 +162,74 @@ work by at least 2× or peak memory by at least 30%. Heavy isolated future
 kernels are plausible candidates; basic counts and Matches have no such case.
 A native-core rewrite additionally needs a product requirement for a native
 core and a successful end-to-end prototype.
+
+## Synthetic engine scale, September 8, 2026
+
+**Shipped caps reject the 50M-token fixture.** The 1M and 10M fixtures pass
+admission with the shipped limits. The separate 50M engine run explicitly
+raises only aggregate source/text caps to 512 MiB/512 Mi UTF-16 units. It does
+not establish 50M-token product support or change the application caps.
+
+```sh
+node apps/web/bench/scale.mjs 1000000,10000000,50000000 /tmp/texttrends-scale.json
+```
+
+Requires Node 24 with its experimental TypeScript transform, invoked by the
+parent for parameter-property support, and built workspace packages. Each
+size/mode starts a fresh process running the real `WorkerEngineV4`. Source
+creation is bounded to 200,000 tokens per document; documents use distinct
+seeded xorshift32 streams over 1,024 four-letter ASCII words with Zipf exponent
+1, sentences every 20 tokens and paragraphs every 100. The source-length
+formula is checked against actual segmentation; a full-corpus Inventory
+verifies the exact requested token count in every admitted run.
+
+The harness includes source generation, extraction, indexing, incremental
+binding and publication in its cold ingest clock. It uses task-queue yields,
+structured-clones cache writes and discards them, and transfers query result
+buffers through structuredClone. This exercises engine allocation without
+keeping an artificial in-memory artifact cache. It does not time browser
+message transport, IndexedDB I/O, rendering, or physical devices. Ingest and
+binding are measured together; these data cannot assign individual allocation
+costs to clone, verification, segmentation or index construction.
+
+The parent samples Linux `/proc/<pid>/status` at requested 1 ms intervals only
+between explicit child ready/result signals. Each phase supplies post-GC
+baseline and retained `process.memoryUsage()`; peak RSS is a sampled lower
+bound including that phase's work and final GC. Sampling counts are retained;
+non-Linux peaks are unmeasured. RSS deltas include allocator retention and
+must not be described as live object bytes. Source is generated after the
+baseline, so ingest residency includes extracted text as well as indexes.
+
+Each operation records two warmups followed by five measured repetitions.
+Queries share the production executor's caches in the documented order
+Inventory → Trends → dispersion → Vocabulary → Compare → Reader. Their
+medians describe warm analytics; the first warmup remains in the artifact to
+show cold cost. The one tracked term is vocabulary rank 901 and stays below
+the occurrence cap. This does not cover frequent-term cap pressure, phrase
+matching, mixed scripts, or realistic literary structure. Cold ingest has one
+sample per size, not a statistical latency distribution.
+
+| Fixture / admission | Cold ingest + bind | Sampled peak RSS | Post-GC RSS increase |
+| --- | ---: | ---: | ---: |
+| 1M / shipped caps | 1,548 ms | 244 MiB | 115 MiB |
+| 10M / shipped caps | 8,575 ms | 622 MiB | 462 MiB |
+| 50M / shipped caps | Rejected in 64 ms | 106 MiB at admission | — |
+| 50M / engine override | 127,474 ms | 1,900 MiB | 1,769 MiB |
+
+| Warm query median | 1M | 10M | 50M engine override |
+| --- | ---: | ---: | ---: |
+| Inventory | 21.3 ms | 103.1 ms | 563.0 ms |
+| Trends | 0.4 ms | 3.0 ms | 3.1 ms |
+| Dispersion | 0.6 ms | 2.1 ms | 1.3 ms |
+| Vocabulary | 4.5 ms | 11.3 ms | 301.1 ms |
+| Compare | 4.7 ms | 11.7 ms | 403.6 ms |
+| Reader page | 0.3 ms | 0.5 ms | 0.9 ms |
+
+[Raw phase samples](measurements/engine-scale-2026-09-08.json) record Node,
+host, per-run load averages, source revision and harness hashes, seed, caps,
+source size and memory fields. This capture shared the host with functional
+browser tests and external work; wall times include that contention. Memory
+is sampled from the benchmark child alone. These are local scaling
+observations, not CI budgets or browser-tier validation. The next validation
+step is attributable browser worker/IndexedDB memory on representative sources;
+these data do not justify raising the product cap or replacing the engine.

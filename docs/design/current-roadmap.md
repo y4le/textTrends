@@ -8,7 +8,7 @@ implemented.
 Portable [workspace backup and restore](workspace-backup.md) includes original
 library sources, active workspace intent, and display/reading settings.
 The [design index](README.md) owns their current contracts; this page contains
-only remaining work and explicit deferrals (reconciled September 7, 2026).
+only remaining work and explicit deferrals (reconciled September 8, 2026).
 
 ## Publication and validation
 
@@ -16,9 +16,11 @@ only remaining work and explicit deferrals (reconciled September 7, 2026).
   export or history rewrite, exclude private sources and generated derivatives,
   update dependent builds/tests, and add repository licensing and notices.
   No publication cut or license choice is implied by documentation cleanup.
-- Measure the formal 1M/10M/50M-token tiers and worker transient/retained memory.
-  Current local browser and 66-text Atlas evidence does not establish those
-  tiers. Larger-scale residency needs measurements before architecture claims.
+- Validate formal browser tiers and attributable worker/IndexedDB memory on
+  representative sources. The [synthetic engine measurements](benchmarks.md#synthetic-engine-scale-september-8-2026)
+  now cover 1M/10M with shipped caps and a separate 50M cap override, with
+  transient/retained process memory. Shipped caps reject the 50M fixture;
+  engine-only observations do not establish browser-tier support.
 - Validate the tour with new readers and perform physical-device and
   screen-reader checks. Automated compact WebKit coverage is narrower evidence.
 
@@ -41,14 +43,17 @@ These are candidates for scoped work, not shipped behavior or a delivery order.
 ## Architecture follow-ups
 
 Reader, Compare, and Vocabulary queries now have focused controllers inside the
-single composed runtime. Speed browser playback has a dedicated hook. Preserve
+single composed runtime. Trends issuance has shared typed helpers; query delivery
+correlates live operation and snapshot identities. Inputs acquisition and App
+utility/shortcut lifetimes have focused hooks, as does Speed playback. Preserve
 initialization, lane-specific policies, shared geometry publication and disposal
 when these owners change; a generic query registry is not a design goal.
 
 The [hidden-query baseline](hidden-query-measurement.md) now records import and
 range-change traffic, successful request-to-result clocks, and later tab rendering.
-Eager scheduling remains in place. A controlled deferred comparison is the next
-measurement if latency warrants it; the baseline does not establish causal savings.
+The paired module-readiness experiment removed the cold Suspense retry plateau
+without changing eager scheduling. A controlled deferred-query comparison remains
+conditional on query latency; tab-render savings do not establish scheduling savings.
 
 Treat small normalization/locality cleanup and recurring UI primitives as
 in-path work when a feature touches their owners. Do not preserve old helper

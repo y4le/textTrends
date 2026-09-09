@@ -95,6 +95,17 @@ node --expose-gc packages/cli/src/main.ts bench-company text/sherlock
 node --expose-gc packages/cli/src/main.ts bench-destinations text/sherlock
 ```
 
+For reproducible synthetic worker-engine tiers (Node 24), run:
+
+```sh
+node apps/web/bench/scale.mjs 1000000,10000000,50000000 /tmp/texttrends-scale.json
+```
+
+The parent records each product-cap admission and runs an explicitly labelled
+engine-cap override when admission rejects a tier. This does not change product
+limits. The [method and limitations](design/benchmarks.md#synthetic-engine-scale-september-8-2026)
+explain the source fixture, cold ingest clock, warm query samples and RSS fields.
+
 The occurrence harness measures successful near-cap construction and typed cap
 rejection; phase-local RSS sampling requires Linux `/proc`. Use
 [benchmark methodology and gates](design/benchmarks.md) before interpreting a
