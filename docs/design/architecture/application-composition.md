@@ -57,6 +57,13 @@ Shared geometry and pointer types remain pure library modules.
 navigation. `QuerySurface` composes Terms; `terms/TermControls` owns buttons and
 actions. These boundaries preserve props, lifetimes, and pure gesture helpers.
 
+`inputs/useLibraryAcquisition` owns library inspection, acquisition, activation,
+removal and demo loading. Inspection epochs reject stale refresh results and
+unmount invalidates view publication; durable operations retain the process-wide
+library lease until their own finally block completes. `ProjectPanel` retains
+file-input reset, disclosures, drag/drop, reordering, confirmations for active
+workspace reset, markup and ARIA.
+
 `KwicPanel` retains view models, markup, and ARIA. `matches/useMatchesScroll`
 owns viewport measurement, native/programmatic scroll fencing, cursor
 publication, prefetch, and announcements. `matches/useMatchesColumnResize`

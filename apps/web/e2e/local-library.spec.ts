@@ -441,3 +441,23 @@ test(`damaged active references survive autosave and explicit ${removal} deletio
   expect((await readSavedWorkspace(page))?.corpus.docs.some((doc) => doc.library === damaged.library)).toBe(false);
 });
 }
+
+test('a failed file read releases acquisition so the same input can be retried', async ({ page }) => {
+  await page.goto('./?fresh=1');
+  const input = page.getByLabel('Add files — import and analyze', { exact: true });
+  await expect(input).toBeAttached();
+  await page.evaluate(() => {
+    const original = File.prototype.arrayBuffer;
+    File.prototype.arrayBuffer = function () {
+      File.prototype.arrayBuffer = original;
+      return Promise.reject(new Error('fixture file read failed'));
+    };
+  });
+  const file = { name: 'retry.txt', mimeType: 'text/plain', buffer: Buffer.from('A quiet fox crossed the field.') };
+  await input.setInputFiles(file);
+  await expect(page.getByText('fixture file read failed', { exact: true })).toBeVisible();
+  await expect(input).toBeEnabled();
+  await input.setInputFiles(file);
+  await awaitReadyCount(page, 1);
+  await expect(page.getByRole('button', { name: 'Remove retry from active inputs', exact: true })).toBeVisible();
+});
