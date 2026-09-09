@@ -199,6 +199,7 @@ bound including that phase's work and final GC. Sampling counts are retained;
 non-Linux peaks are unmeasured. RSS deltas include allocator retention and
 must not be described as live object bytes. Source is generated after the
 baseline, so ingest residency includes extracted text as well as indexes.
+Query-phase retained memory also includes the one just-delivered result.
 
 Each operation records two warmups followed by five measured repetitions.
 Queries share the production executor's caches in the documented order
@@ -229,7 +230,9 @@ sample per size, not a statistical latency distribution.
 host, per-run load averages, source revision and harness hashes, seed, caps,
 source size and memory fields. This capture shared the host with functional
 browser tests and external work; wall times include that contention. Memory
-is sampled from the benchmark child alone. These are local scaling
+is sampled from the benchmark child alone. The capture predates this commit
+and records a modified tree; all three harness hashes match the committed files.
+These are local scaling
 observations, not CI budgets or browser-tier validation. The next validation
 step is attributable browser worker/IndexedDB memory on representative sources;
 these data do not justify raising the product cap or replacing the engine.

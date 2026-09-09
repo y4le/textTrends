@@ -65,7 +65,7 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 2);
   await gotoPlace(page, 'compare');
-  await expect(page.getByRole('region', { name: 'Compare' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Compare', exact: true })).toBeVisible({ timeout: 30_000 });
 
   await page.getByRole('button', { name: 'Compare settings' }).click();
   const settings = page.getByRole('form', { name: 'Compare settings' });
