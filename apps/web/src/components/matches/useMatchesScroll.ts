@@ -220,7 +220,10 @@ export function useMatchesScroll({
   }, [kwic?.snapshot, kwic?.trackKey, setLogicalPosition]);
 
   useEffect(() => {
-    if (!layout || total <= 0 || !kwic) return;
+    // A remount starts with zero geometry. Wait for the layout measurement
+    // before requesting a window; otherwise it replaces a resident viewport
+    // window with the smaller default window during navigation alone.
+    if (!layout || total <= 0 || !kwic || viewport.height <= 0) return;
     const size = matchesWindowSize(viewport.height, rowHeight);
     const pendingRank = pendingRankRef.current;
     if (pendingRank !== null) {

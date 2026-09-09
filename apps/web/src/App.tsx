@@ -1,3 +1,4 @@
+import { ActivePlace, PlaceLoading } from './places/ActivePlace.tsx';
 import {
   lazy,
   Suspense,
@@ -52,21 +53,6 @@ import {
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
 );
-const InputsPlace = lazy(() =>
-  import('./places/InputsPlace.tsx').then(({ InputsPlace: placeBody }) => ({ default: placeBody })),
-);
-const VocabularyPlace = lazy(() =>
-  import('./places/VocabularyPlace.tsx').then(({ VocabularyPlace: placeBody }) => ({ default: placeBody })),
-);
-const ComparePlace = lazy(() =>
-  import('./places/ComparePlace.tsx').then(({ ComparePlace: placeBody }) => ({ default: placeBody })),
-);
-const TrendsPlace = lazy(() =>
-  import('./places/TrendsPlace.tsx').then(({ TrendsPlace: placeBody }) => ({ default: placeBody })),
-);
-const MatchesPlace = lazy(() =>
-  import('./places/MatchesPlace.tsx').then(({ MatchesPlace: placeBody }) => ({ default: placeBody })),
-);
 const SettingsPane = lazy(() =>
   import('./components/SettingsPane.tsx').then(({ SettingsPane: pane }) => ({ default: pane })),
 );
@@ -118,31 +104,13 @@ function PlaceSurface({
     >
       <ErrorBoundary resetKey={place} {...(place === 'inputs' ? {} : { onReturn: () => { setPlace('inputs'); focusAfterRender('place-inputs-heading'); } })}>
         <Suspense
-          fallback={(
-            <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>
-              loading {PLACE_HEADING[place]}…
-            </p>
-          )}
+          fallback={<PlaceLoading place={place} />}
         >
           {children}
         </Suspense>
       </ErrorBoundary>
     </section>
   );
-}
-
-function ActivePlace({ place }: { readonly place: Place }) {
-  switch (place) {
-    case 'inputs': return <InputsPlace />;
-    case 'trends': return <TrendsPlace />;
-    case 'matches': return <MatchesPlace />;
-    case 'vocabulary': return <VocabularyPlace />;
-    case 'compare': return <ComparePlace />;
-    default: {
-      const exhaustive: never = place;
-      return exhaustive;
-    }
-  }
 }
 
 function NoInputsPlace({ onOpenInputs }: { readonly onOpenInputs: () => void }) {
@@ -1119,7 +1087,7 @@ export function App() {
                             focusAfterRender('place-inputs-heading');
                           }} />
                         )
-                      : <ActivePlace place={place} />}
+                      : <ActivePlace key={place} place={place} />}
                   </PlaceSurface>
                 </SettingsEntryProvider>
               )}

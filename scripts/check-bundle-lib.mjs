@@ -21,7 +21,7 @@ export const ENTRY_GZIP_BUDGET_BYTES = 90_000;
 
 /** Compile-time e2e facade names that must be dead-code-eliminated from the
  *  production bundle (M6 consult; formerly a shell grep in CI). */
-const FACADE_SENTINELS = ['ttE2E', 'ttHarness'];
+const FACADE_SENTINELS = ['ttE2E', 'ttHarness', 'tt:module:', 'tt:render:'];
 
 /** Canonical workbench places are route-level lazy boundaries. Keep this list
  * in lockstep with apps/web/src/lib/places.ts. */

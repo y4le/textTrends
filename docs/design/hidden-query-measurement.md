@@ -81,3 +81,56 @@ also remains after queries settle, while warm visits are much faster; query
 scheduling alone cannot be assumed to remove that cost. The next investigation
 should separate first-visit module/rendering delay from query delay and compare
 an explicitly deferred policy under the decision rule above.
+
+## First-place module readiness, September 8, 2026
+
+The follow-up `cold-place.bench.spec.ts` separates module evaluation, the
+place's first React render, the first region mutation, the target table/path's
+DOM insertion, and a visible layout opportunity. Resource timings record each
+new JS request. Each tab window asserts zero analysis requests; warm controls
+revisit all three places. The source timing marks are guarded by `__TT_E2E__`
+and the production bundle checker rejects their marker strings.
+
+The initial five-context probe found Vocabulary/Compare modules ready in
+24.4/17.1 ms median, while their table DOM arrived in 307.5/307.5 ms. The
+installed React 19.2.7 source delays Suspense retry-lane commits until 300 ms
+after the latest fallback commit. Early render marks followed by the delayed
+DOM, with no tab queries, identify this fallback retry path as the cause of
+the plateau. Trends had a second pair of nested lazy boundaries and reached
+its first chart DOM in 342.9 ms median.
+
+Place modules now resolve explicitly and publish readiness through component
+state. Warm visits synchronously read a resolved module cache; concurrent
+loads share one promise, rejected promises are evicted, and an effect-local
+liveness guard prevents an obsolete load from replacing a newer destination.
+The semantic place section and focus target remain mounted during loading.
+Load failures still reach the existing error boundary. Dynamic import retry
+also depends on the browser's module cache; the Reload app action remains the
+recovery for cached network/evaluation failures.
+
+Trends statically imports its chart and distribution into the lazy place
+chunk, removing the redundant inner boundaries. Reader, utility panes and the
+place descendant fallback retain Suspense. Query scheduling remains eager.
+
+Five interleaved pairs alternated legacy/explicit order on the same working
+tree, changing only the App and TrendsPlace module-loading policy. Each run
+rebuilt the production-shaped artifact and used a fresh context. Local tests
+were sequential; external host workload remained uncontrolled and is recorded
+alongside the [paired samples](measurements/cold-place-2026-09-08.json).
+
+| Click → visible layout median | Suspense modules | Explicit readiness |
+| --- | ---: | ---: |
+| Cold Trends | 357.3 ms | 141.3 ms |
+| Cold Vocabulary | 311.9 ms | 66.9 ms |
+| Cold Compare | 310.8 ms | 34.2 ms |
+| Warm Trends | 89.4 ms | 59.4 ms |
+| Warm Vocabulary | 27.5 ms | 19.0 ms |
+| Warm Compare | 11.0 ms | 15.6 ms |
+
+The cold improvement holds without prefetching; warm Compare's median changed
+by 4.6 ms in this sample. These are local observations, not new CI latency
+budgets. The explicit readiness path is adopted; eager analysis scheduling is
+unchanged. Faster navigation also exposed a Matches remount requesting a
+24-row default window before measuring its 30-row viewport. Its scroll owner
+now waits for positive measured height; the existing navigation-only test
+continues to require zero new queries after initial viewport acquisition.

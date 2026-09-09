@@ -254,3 +254,36 @@ test('compact tabs keep every available destination complete in portrait and lan
   expect(await page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(568);
 });
+
+test('a slow place module preserves its focus target and cannot replace a later destination', async ({ page }) => {
+  await page.goto('./?fresh=1');
+  await awaitAllReady(page, { loadDemo: true });
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  await page.route('**/VocabularyPlace-*.js', async (route) => { await pending; await route.continue(); });
+  try {
+    await page.getByRole('link', { name: 'Vocabulary', exact: true }).click();
+    const region = page.getByRole('region', { name: 'Vocabulary', exact: true });
+    await expect(region.getByText('loading Vocabulary…', { exact: true })).toBeVisible();
+    await region.focus();
+    await expect(region).toBeFocused();
+    await page.getByRole('link', { name: 'Compare', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Compare', exact: true })).toBeVisible();
+    release();
+    await expect(page.locator('.compare-axis-table').first()).toBeVisible();
+    await expectOnlyCanonicalPlace(page, 'compare');
+    await page.getByRole('link', { name: 'Vocabulary', exact: true }).click();
+    await expect(page.getByRole('table', { name: 'Vocabulary frequency list' })).toBeVisible();
+  } finally { release(); }
+});
+
+test('a failed place module reaches the recoverable view boundary', async ({ page }) => {
+  await page.goto('./?fresh=1');
+  await awaitAllReady(page, { loadDemo: true });
+  await page.route('**/VocabularyPlace-*.js', (route) => route.abort('failed'));
+  await page.getByRole('link', { name: 'Vocabulary', exact: true }).click();
+  await expect(page.getByRole('alert', { name: 'View unavailable' })).toBeVisible();
+  await page.getByRole('button', { name: 'Return to Inputs', exact: true }).click();
+  await expectOnlyCanonicalPlace(page, 'inputs');
+  await expect(page.getByRole('alert', { name: 'View unavailable' })).toHaveCount(0);
+});

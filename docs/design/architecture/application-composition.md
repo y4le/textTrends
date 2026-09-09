@@ -47,6 +47,13 @@ ordinary navigation, and teardown.
 
 ## View boundaries
 
+`places/ActivePlace` owns explicit lazy module readiness. A finite module cache
+shares in-flight loads, exposes synchronous warm values and evicts rejected
+promises. Keyed place mounts fence obsolete completions; the outer semantic
+section retains its focus target during loading. Trends loads its always-used
+chart/distribution with its place chunk. Reader, utility panes and descendant
+fallbacks retain Suspense. See the [first-place measurements](../hidden-query-measurement.md#first-place-module-readiness-september-8-2026).
+
 `TrendPanel` derives data and composes controls. `trends/ScrubSurface` owns
 pointer, keyboard, touch range, and cursor interaction; its parent does not
 subscribe to cursor motion and supplies stable chart children. `TrendCharts`

@@ -1,0 +1,1212 @@
+{
+  "schema": "texttrends/cold-place-comparison/1",
+  "capturedAt": "2026-09-09T00:00:03.974749+00:00",
+  "baseCommit": "e8ff1889d3575c8e5cf78e9478d8cb1b52ed923e",
+  "method": "Five interleaved pairs; alternate pair order. Same working tree except App and TrendsPlace loader policy. Fresh browser context and production-shaped build per run; no concurrent local tests. Host load recorded; external workload uncontrolled. No query scheduling changes.",
+  "sourceHashes": {
+    "suspense": {
+      "apps/web/src/App.tsx": "6fb45bc995e65f5c21a82d1243cba4259fcdad81b91b49b3d1a50fdc6ccd7e7f",
+      "apps/web/src/places/TrendsPlace.tsx": "4f0c83843506b4cc42ce4082b90e3ccfa57199f399de2e52310536e6ffc94f64"
+    },
+    "explicit": {
+      "apps/web/src/App.tsx": "228e069e5d5cdb085eb13f7e24247fcaad6b73b0f2441fdabde1e0818ce945f9",
+      "apps/web/src/places/TrendsPlace.tsx": "aa5bd8d2b9dd3c236f9e0e78d21400485bf441efb071494315bb14310827ff99"
+    }
+  },
+  "runs": [
+    {
+      "policy": "suspense",
+      "loadAverage": [
+        62.48974609375,
+        63.63623046875,
+        56.5576171875
+      ],
+      "repetition": 1,
+      "browser": "149.0.7827.0",
+      "coldTrends": {
+        "moduleMs": 26.800000190734863,
+        "renderMs": [
+          27.300000190734863,
+          55,
+          107.90000009536743
+        ],
+        "firstMutationMs": 8.599999904632568,
+        "domMs": 327.80000019073486,
+        "visibleMs": 366,
+        "resources": [
+          {
+            "name": "TrendsPlace-DA4nWtGC.js",
+            "startMs": 2.700000286102295,
+            "endMs": 9.900000095367432
+          },
+          {
+            "name": "TrendPanel-3o7RXokc.js",
+            "startMs": 27.800000190734863,
+            "endMs": 50.40000009536743
+          },
+          {
+            "name": "trend-row-storage-CyJDXnuO.js",
+            "startMs": 28,
+            "endMs": 50
+          },
+          {
+            "name": "TrendDistribution-b_A1Hsx_.js",
+            "startMs": 28.5,
+            "endMs": 50.5
+          }
+        ]
+      },
+      "coldVocabulary": {
+        "moduleMs": 22.40000009536743,
+        "renderMs": [
+          22.5,
+          74.09999990463257,
+          79.09999990463257
+        ],
+        "firstMutationMs": 10.400000095367432,
+        "domMs": 305.80000019073486,
+        "visibleMs": 310.5,
+        "resources": [
+          {
+            "name": "VocabularyPlace-C1nZnwH8.js",
+            "startMs": 1.8000001907348633,
+            "endMs": 11
+          },
+          {
+            "name": "vocabulary-column-storage-pLuHzbna.js",
+            "startMs": 2.3000001907348633,
+            "endMs": 10.5
+          },
+          {
+            "name": "DataGridHeader-BeWa5lkk.js",
+            "startMs": 2.5,
+            "endMs": 10.800000190734863
+          }
+        ]
+      },
+      "coldCompare": {
+        "moduleMs": 16.600000381469727,
+        "renderMs": [
+          16.90000009536743
+        ],
+        "firstMutationMs": 7.700000286102295,
+        "domMs": 306,
+        "visibleMs": 310.80000019073486,
+        "resources": [
+          {
+            "name": "ComparePlace-e1BbESB7.js",
+            "startMs": 2.700000286102295,
+            "endMs": 12.5
+          },
+          {
+            "name": "compare-view-CYcF-TWZ.js",
+            "startMs": 2.9000000953674316,
+            "endMs": 12.200000286102295
+          },
+          {
+            "name": "GuideLink-Pxzz18cT.js",
+            "startMs": 3,
+            "endMs": 10.100000381469727
+          }
+        ]
+      },
+      "warmTrends": {
+        "moduleMs": -1904.2999997138977,
+        "renderMs": [
+          1.700000286102295
+        ],
+        "firstMutationMs": 85.40000009536743,
+        "domMs": 85.40000009536743,
+        "visibleMs": 94.10000038146973,
+        "resources": []
+      },
+      "warmVocabulary": {
+        "moduleMs": -1623.4000000953674,
+        "renderMs": [
+          1
+        ],
+        "firstMutationMs": 16.90000009536743,
+        "domMs": 16.90000009536743,
+        "visibleMs": 23.699999809265137,
+        "resources": []
+      },
+      "warmCompare": {
+        "moduleMs": -1285,
+        "renderMs": [
+          1.0999999046325684
+        ],
+        "firstMutationMs": 16.5,
+        "domMs": 16.5,
+        "visibleMs": 21,
+        "resources": []
+      }
+    },
+    {
+      "policy": "explicit",
+      "loadAverage": [
+        62.630859375,
+        63.619140625,
+        56.666015625
+      ],
+      "repetition": 1,
+      "browser": "149.0.7827.0",
+      "coldTrends": {
+        "moduleMs": 27.800000190734863,
+        "renderMs": [
+          29.100000381469727
+        ],
+        "firstMutationMs": 5.600000381469727,
+        "domMs": 104.40000009536743,
+        "visibleMs": 141.30000019073486,
+        "resources": [
+          {
+            "name": "TrendsPlace-3aPW0b3s.js",
+            "startMs": 6.100000381469727,
+            "endMs": 15.700000286102295
+          },
+          {
+            "name": "trend-row-storage-CyJDXnuO.js",
+            "startMs": 6.300000190734863,
+            "endMs": 14.700000286102295
+          }
+        ]
+      },
+      "coldVocabulary": {
+        "moduleMs": 42.19999980926514,
+        "renderMs": [
+          42.5
+        ],
+        "firstMutationMs": 14.5,
+        "domMs": 56.799999713897705,
+        "visibleMs": 66.89999961853027,
+        "resources": [
+          {
+            "name": "VocabularyPlace-CvT2d4aa.js",
+            "startMs": 15,
+            "endMs": 26.59999990463257
+          },
+          {
+            "name": "vocabulary-column-storage-pLuHzbna.js",
+            "startMs": 18.09999990463257,
+            "endMs": 32.799999713897705
+          },
+          {
+            "name": "DataGridHeader-BeWa5lkk.js",
+            "startMs": 18.299999713897705,
+            "endMs": 33
+          }
+        ]
+      },
+      "coldCompare": {
+        "moduleMs": 22.09999990463257,
+        "renderMs": [
+          22.5
+        ],
+        "firstMutationMs": 7.599999904632568,
+        "domMs": 28.300000190734863,
+        "visibleMs": 31,
+        "resources": [
+          {
+            "name": "ComparePlace-BWCmJOUx.js",
+            "startMs": 8,
+            "endMs": 13.599999904632568
+          },
+          {
+            "name": "compare-view-CYcF-TWZ.js",
+            "startMs": 8.200000286102295,
+            "endMs": 19.200000286102295
+          },
+          {
+            "name": "GuideLink-Pxzz18cT.js",
+            "startMs": 8.400000095367432,
+            "endMs": 19.09999990463257
+          }
+        ]
+      },
+      "warmTrends": {
+        "moduleMs": -921.6999998092651,
+        "renderMs": [
+          1.1000003814697266
+        ],
+        "firstMutationMs": 55.80000019073486,
+        "domMs": 55.90000009536743,
+        "visibleMs": 59.40000009536743,
+        "resources": []
+      },
+      "warmVocabulary": {
+        "moduleMs": -779.4000000953674,
+        "renderMs": [
+          1.1999998092651367
+        ],
+        "firstMutationMs": 13.299999713897705,
+        "domMs": 13.299999713897705,
+        "visibleMs": 20.09999990463257,
+        "resources": []
+      },
+      "warmCompare": {
+        "moduleMs": -800.7000002861023,
+        "renderMs": [
+          1
+        ],
+        "firstMutationMs": 19.09999990463257,
+        "domMs": 19.09999990463257,
+        "visibleMs": 22.299999713897705,
+        "resources": []
+      }
+    },
+    {
+      "policy": "explicit",
+      "loadAverage": [
+        62.962890625,
+        63.6630859375,
+        56.75537109375
+      ],
+      "repetition": 2,
+      "browser": "149.0.7827.0",
+      "coldTrends": {
+        "moduleMs": 23.600000381469727,
+        "renderMs": [
+          24
+        ],
+        "firstMutationMs": 6.300000190734863,
+        "domMs": 84.2000002861023,
+        "visibleMs": 111.40000009536743,
+        "resources": [
+          {
+            "name": "TrendsPlace-3aPW0b3s.js",
+            "startMs": 6.700000286102295,
+            "endMs": 10.600000381469727
+          },
+          {
+            "name": "trend-row-storage-CyJDXnuO.js",
+            "startMs": 13.200000286102295,
+            "endMs": 16.200000286102295
+          }
+        ]
+      },
+      "coldVocabulary": {
+        "moduleMs": 40.200000286102295,
+        "renderMs": [
+          44.10000038146973
+        ],
+        "firstMutationMs": 13.400000095367432,
+        "domMs": 57.80000019073486,
+        "visibleMs": 72.2000002861023,
+        "resources": [
+          {
+            "name": "VocabularyPlace-CvT2d4aa.js",
+            "startMs": 14,
+            "endMs": 21.700000286102295
+          },
+          {
+            "name": "vocabulary-column-storage-pLuHzbna.js",
+            "startMs": 14.300000190734863,
+            "endMs": 28.5
+          },
+          {
+            "name": "DataGridHeader-BeWa5lkk.js",
+            "startMs": 14.300000190734863,
+            "endMs": 28.700000286102295
+          }
+        ]
+      },
+      "coldCompare": {
+        "moduleMs": 20.699999809265137,
+        "renderMs": [
+          21.59999990463257
+        ],
+        "firstMutationMs": 5.299999713897705,
+        "domMs": 34.59999990463257,
+        "visibleMs": 49.59999990463257,
+        "resources": [
+          {
+            "name": "ComparePlace-BWCmJOUx.js",
+            "startMs": 5.599999904632568,
+            "endMs": 12.799999713897705
+          },
+          {
+            "name": "compare-view-CYcF-TWZ.js",
+            "startMs": 6.799999713897705,
+            "endMs": 15.699999809265137
+          },
+          {
+            "name": "GuideLink-Pxzz18cT.js",
+            "startMs": 6.900000095367432,
+            "endMs": 15.599999904632568
+          }
+        ]
+      },
+      "warmTrends": {
+        "moduleMs": -903.2999997138977,
+        "renderMs": [
+          4
+        ],
+        "firstMutationMs": 57,
+        "domMs": 59,
+        "visibleMs": 63.700000286102295,
+        "resources": []
+      },
+      "warmVocabulary": {
+        "moduleMs": -930.6999998092651,
+        "renderMs": [
+          1.9000000953674316
+        ],
+        "firstMutationMs": 11.900000095367432,
+        "domMs": 11.900000095367432,
+        "visibleMs": 15.5,
+        "resources": []
+      },
+      "warmCompare": {
+        "moduleMs": -970.8000001907349,
+        "renderMs": [
+          0.7999997138977051
+        ],
+        "firstMutationMs": 27.5,
+        "domMs": 27.5,
+        "visibleMs": 29.09999990463257,
+        "resources": []
+      }
+    },
+    {
+      "policy": "suspense",
+      "loadAverage": [
+        63.76708984375,
+        63.818359375,
+        56.8427734375
+      ],
+      "repetition": 2,
+      "browser": "149.0.7827.0",
+      "coldTrends": {
+        "moduleMs": 21.5,
+        "renderMs": [
+          22,
+          54.40000009536743
+        ],
+        "firstMutationMs": 5.100000381469727,
+        "domMs": 337.40000009536743,
+        "visibleMs": 361.1000003814697,
+        "resources": [
+          {
+            "name": "TrendsPlace-DA4nWtGC.js",
+            "startMs": 2,
+            "endMs": 5.400000095367432
+          },
+          {
+            "name": "TrendPanel-3o7RXokc.js",
+            "startMs": 23.700000286102295,
+            "endMs": 33.200000286102295
+          },
+          {
+            "name": "trend-row-storage-CyJDXnuO.js",
+            "startMs": 25,
+            "endMs": 35
+          },
+          {
+            "name": "TrendDistribution-b_A1Hsx_.js",
+            "startMs": 27.800000190734863,
+            "endMs": 38.30000019073486
+          }
+        ]
+      },
+      "coldVocabulary": {
+        "moduleMs": 17.800000190734863,
+        "renderMs": [
+          18,
+          42,
+          55.700000286102295
+        ],
+        "firstMutationMs": 12.700000286102295,
+        "domMs": 305.7000002861023,
+        "visibleMs": 311.30000019073486,
+        "resources": [
+          {
+            "name": "VocabularyPlace-C1nZnwH8.js",
+            "startMs": 1.4000000953674316,
+            "endMs": 8.599999904632568
+          },
+          {
+            "name": "vocabulary-column-storage-pLuHzbna.js",
+            "startMs": 1.5999999046325684,
+            "endMs": 8.300000190734863
+          },
+          {
+            "name": "DataGridHeader-BeWa5lkk.js",
+            "startMs": 1.700000286102295,
+            "endMs": 8.700000286102295
+          }
+        ]
+      },
+      "coldCompare": {
+        "moduleMs": 18.800000190734863,
+        "renderMs": [
+          19.300000190734863
+        ],
+        "firstMutationMs": 6,
+        "domMs": 303.80000019073486,
+        "visibleMs": 308.90000009536743,
+        "resources": [
+          {
+            "name": "ComparePlace-e1BbESB7.js",
+            "startMs": 1.6000003814697266,
+            "endMs": 10.5
+          },
+          {
+            "name": "compare-view-CYcF-TWZ.js",
+            "startMs": 1.8000001907348633,
+            "endMs": 10.400000095367432
+          },
+          {
+            "name": "GuideLink-Pxzz18cT.js",
+            "startMs": 1.9000000953674316,
+            "endMs": 10.100000381469727
+          }
+        ]
+      },
+      "warmTrends": {
+        "moduleMs": -1850.6000003814697,
+        "renderMs": [
+          1.0999999046325684
+        ],
+        "firstMutationMs": 51.799999713897705,
+        "domMs": 51.799999713897705,
+        "visibleMs": 57,
+        "resources": []
+      },
+      "warmVocabulary": {
+        "moduleMs": -1638.4000000953674,
+        "renderMs": [
+          1.299999713897705
+        ],
+        "firstMutationMs": 32,
+        "domMs": 32.19999980926514,
+        "visibleMs": 45.59999990463257,
+        "resources": []
+      },
+      "warmCompare": {
+        "moduleMs": -1260.5,
+        "renderMs": [
+          0.9000000953674316
+        ],
+        "firstMutationMs": 7.900000095367432,
+        "domMs": 7.900000095367432,
+        "visibleMs": 11,
+        "resources": []
+      }
+    },
+    {
+      "policy": "suspense",
+      "loadAverage": [
+        64.17626953125,
+        63.921875,
+        56.9892578125
+      ],
+      "repetition": 3,
+      "browser": "149.0.7827.0",
+      "coldTrends": {
+        "moduleMs": 18.59999990463257,
+        "renderMs": [
+          18.899999618530273,
+          57.09999990463257,
+          142.59999990463257,
+          177.5
+        ],
+        "firstMutationMs": 9.299999713897705,
+        "domMs": 236.39999961853027,
+        "visibleMs": 261.09999990463257,
+        "resources": [
+          {
+            "name": "TrendsPlace-DA4nWtGC.js",
+            "startMs": 3,
+            "endMs": 10.899999618530273
+          },
+          {
+            "name": "TrendPanel-3o7RXokc.js",
+            "startMs": 19.899999618530273,
+            "endMs": 30.299999713897705
+          },
+          {
+            "name": "trend-row-storage-CyJDXnuO.js",
+            "startMs": 20.199999809265137,
+            "endMs": 30.399999618530273
+          },
+          {
+            "name": "TrendDistribution-b_A1Hsx_.js",
+            "startMs": 22.699999809265137,
+            "endMs": 44.09999990463257
+          }
+        ]
+      },
+      "coldVocabulary": {
+        "moduleMs": 38.90000009536743,
+        "renderMs": [
+          39.19999980926514
+        ],
+        "firstMutationMs": 24.59999990463257,
+        "domMs": 314.40000009536743,
+        "visibleMs": 320.80000019073486,
+        "resources": [
+          {
+            "name": "VocabularyPlace-C1nZnwH8.js",
+            "startMs": 5,
+            "endMs": 17.800000190734863
+          },
+          {
+            "name": "vocabulary-column-storage-pLuHzbna.js",
+            "startMs": 6,
+            "endMs": 17.800000190734863
+          },
+          {
+            "name": "DataGridHeader-BeWa5lkk.js",
+            "startMs": 6.400000095367432,
+            "endMs": 17.699999809265137
+          }
+        ]
+      },
+      "coldCompare": {
+        "moduleMs": 40,
+        "renderMs": [
+          44
+        ],
+        "firstMutationMs": 18.199999809265137,
+        "domMs": 314.30000019073486,
+        "visibleMs": 327.5,
+        "resources": [
+          {
+            "name": "ComparePlace-e1BbESB7.js",
+            "startMs": 3.5,
+            "endMs": 20.90000009536743
+          },
+          {
+            "name": "compare-view-CYcF-TWZ.js",
+            "startMs": 5.699999809265137,
+            "endMs": 20.800000190734863
+          },
+          {
+            "name": "GuideLink-Pxzz18cT.js",
+            "startMs": 6,
+            "endMs": 20.800000190734863
+          }
+        ]
+      },
+      "warmTrends": {
+        "moduleMs": -1858.6999998092651,
+        "renderMs": [
+          1.200000286102295
+        ],
+        "firstMutationMs": 105.09999990463257,
+        "domMs": 105.09999990463257,
+        "visibleMs": 115.80000019073486,
+        "resources": []
+      },
+      "warmVocabulary": {
+        "moduleMs": -1595,
+        "renderMs": [
+          3.799999713897705
+        ],
+        "firstMutationMs": 21.59999990463257,
+        "domMs": 21.59999990463257,
+        "visibleMs": 29.299999713897705,
+        "resources": []
+      },
+      "warmCompare": {
+        "moduleMs": -1146.5999999046326,
+        "renderMs": [
+          0.9000000953674316
+        ],
+        "firstMutationMs": 10.200000286102295,
+        "domMs": 10.200000286102295,
+        "visibleMs": 12.200000286102295,
+        "resources": []
+      }
+    },
+    {
+      "policy": "explicit",
+      "loadAverage": [
+        66.46875,
+        64.46044921875,
+        57.2783203125
+      ],
+      "repetition": 3,
+      "browser": "149.0.7827.0",
+      "coldTrends": {
+        "moduleMs": 37,
+        "renderMs": [
+          42.80000019073486
+        ],
+        "firstMutationMs": 11.300000190734863,
+        "domMs": 121.2000002861023,
+        "visibleMs": 154.60000038146973,
+        "resources": [
+          {
+            "name": "TrendsPlace-3aPW0b3s.js",
+            "startMs": 11.700000286102295,
+            "endMs": 23.200000286102295
+          },
+          {
+            "name": "trend-row-storage-CyJDXnuO.js",
+            "startMs": 11.900000095367432,
+            "endMs": 23
+          }
+        ]
+      },
+      "coldVocabulary": {
+        "moduleMs": 22.199999809265137,
+        "renderMs": [
+          22.5
+        ],
+        "firstMutationMs": 12.699999809265137,
+        "domMs": 25.5,
+        "visibleMs": 43.5,
+        "resources": [
+          {
+            "name": "VocabularyPlace-CvT2d4aa.js",
+            "startMs": 13.199999809265137,
+            "endMs": 19.199999809265137
+          },
+          {
+            "name": "vocabulary-column-storage-pLuHzbna.js",
+            "startMs": 15,
+            "endMs": 19
+          },
+          {
+            "name": "DataGridHeader-BeWa5lkk.js",
+            "startMs": 15.399999618530273,
+            "endMs": 19.09999990463257
+          }
+        ]
+      },
+      "coldCompare": {
+        "moduleMs": 21.299999713897705,
+        "renderMs": [
+          21.59999990463257
+        ],
+        "firstMutationMs": 7.699999809265137,
+        "domMs": 26.899999618530273,
+        "visibleMs": 34.19999980926514,
+        "resources": [
+          {
+            "name": "ComparePlace-BWCmJOUx.js",
+            "startMs": 8.099999904632568,
+            "endMs": 18.899999618530273
+          },
+          {
+            "name": "compare-view-CYcF-TWZ.js",
+            "startMs": 8.299999713897705,
+            "endMs": 18.899999618530273
+          },
+          {
+            "name": "GuideLink-Pxzz18cT.js",
+            "startMs": 8.399999618530273,
+            "endMs": 18.699999809265137
+          }
+        ]
+      },
+      "warmTrends": {
+        "moduleMs": -911.9000000953674,
+        "renderMs": [
+          0.8000001907348633
+        ],
+        "firstMutationMs": 49.09999990463257,
+        "domMs": 49.09999990463257,
+        "visibleMs": 53.40000009536743,
+        "resources": []
+      },
+      "warmVocabulary": {
+        "moduleMs": -749.4000000953674,
+        "renderMs": [
+          1
+        ],
+        "firstMutationMs": 15.699999809265137,
+        "domMs": 15.699999809265137,
+        "visibleMs": 19,
+        "resources": []
+      },
+      "warmCompare": {
+        "moduleMs": -707.9000000953674,
+        "renderMs": [
+          2
+        ],
+        "firstMutationMs": 8.400000095367432,
+        "domMs": 8.400000095367432,
+        "visibleMs": 10.199999809265137,
+        "resources": []
+      }
+    },
+    {
+      "policy": "explicit",
+      "loadAverage": [
+        64.74365234375,
+        64.150390625,
+        57.25390625
+      ],
+      "repetition": 4,
+      "browser": "149.0.7827.0",
+      "coldTrends": {
+        "moduleMs": 17.59999990463257,
+        "renderMs": [
+          18
+        ],
+        "firstMutationMs": 4.5,
+        "domMs": 67.19999980926514,
+        "visibleMs": 90,
+        "resources": [
+          {
+            "name": "TrendsPlace-3aPW0b3s.js",
+            "startMs": 5,
+            "endMs": 12.099999904632568
+          },
+          {
+            "name": "trend-row-storage-CyJDXnuO.js",
+            "startMs": 7.900000095367432,
+            "endMs": 13.900000095367432
+          }
+        ]
+      },
+      "coldVocabulary": {
+        "moduleMs": 45.09999990463257,
+        "renderMs": [
+          45.40000009536743
+        ],
+        "firstMutationMs": 12.900000095367432,
+        "domMs": 58.5,
+        "visibleMs": 74,
+        "resources": [
+          {
+            "name": "VocabularyPlace-CvT2d4aa.js",
+            "startMs": 13.199999809265137,
+            "endMs": 36.799999713897705
+          },
+          {
+            "name": "vocabulary-column-storage-pLuHzbna.js",
+            "startMs": 14.900000095367432,
+            "endMs": 37
+          },
+          {
+            "name": "DataGridHeader-BeWa5lkk.js",
+            "startMs": 14.900000095367432,
+            "endMs": 37.09999990463257
+          }
+        ]
+      },
+      "coldCompare": {
+        "moduleMs": 20.199999809265137,
+        "renderMs": [
+          20.59999990463257
+        ],
+        "firstMutationMs": 4.799999713897705,
+        "domMs": 23.799999713897705,
+        "visibleMs": 25.90000009536743,
+        "resources": [
+          {
+            "name": "ComparePlace-BWCmJOUx.js",
+            "startMs": 5.099999904632568,
+            "endMs": 7.900000095367432
+          },
+          {
+            "name": "compare-view-CYcF-TWZ.js",
+            "startMs": 8.599999904632568,
+            "endMs": 10.400000095367432
+          },
+          {
+            "name": "GuideLink-Pxzz18cT.js",
+            "startMs": 10.099999904632568,
+            "endMs": 15.099999904632568
+          }
+        ]
+      },
+      "warmTrends": {
+        "moduleMs": -848.6999998092651,
+        "renderMs": [
+          1
+        ],
+        "firstMutationMs": 44,
+        "domMs": 44,
+        "visibleMs": 47.30000019073486,
+        "resources": []
+      },
+      "warmVocabulary": {
+        "moduleMs": -801.8000001907349,
+        "renderMs": [
+          0.8999996185302734
+        ],
+        "firstMutationMs": 11.699999809265137,
+        "domMs": 11.699999809265137,
+        "visibleMs": 15.599999904632568,
+        "resources": []
+      },
+      "warmCompare": {
+        "moduleMs": -726.9000000953674,
+        "renderMs": [
+          2
+        ],
+        "firstMutationMs": 12.599999904632568,
+        "domMs": 12.599999904632568,
+        "visibleMs": 15.599999904632568,
+        "resources": []
+      }
+    },
+    {
+      "policy": "suspense",
+      "loadAverage": [
+        63.64306640625,
+        63.931640625,
+        57.22021484375
+      ],
+      "repetition": 4,
+      "browser": "149.0.7827.0",
+      "coldTrends": {
+        "moduleMs": 16.90000009536743,
+        "renderMs": [
+          17.200000286102295,
+          33.59999990463257,
+          56.80000019073486
+        ],
+        "firstMutationMs": 7.099999904632568,
+        "domMs": 335.7000002861023,
+        "visibleMs": 357.30000019073486,
+        "resources": [
+          {
+            "name": "TrendsPlace-DA4nWtGC.js",
+            "startMs": 2.700000286102295,
+            "endMs": 5.5
+          },
+          {
+            "name": "TrendPanel-3o7RXokc.js",
+            "startMs": 18.200000286102295,
+            "endMs": 27.300000190734863
+          },
+          {
+            "name": "trend-row-storage-CyJDXnuO.js",
+            "startMs": 18.90000009536743,
+            "endMs": 27.800000190734863
+          },
+          {
+            "name": "TrendDistribution-b_A1Hsx_.js",
+            "startMs": 20,
+            "endMs": 30.300000190734863
+          }
+        ]
+      },
+      "coldVocabulary": {
+        "moduleMs": 55.19999980926514,
+        "renderMs": [
+          56
+        ],
+        "firstMutationMs": 15.5,
+        "domMs": 308.40000009536743,
+        "visibleMs": 311.90000009536743,
+        "resources": [
+          {
+            "name": "VocabularyPlace-C1nZnwH8.js",
+            "startMs": 1.8000001907348633,
+            "endMs": 25.59999990463257
+          },
+          {
+            "name": "vocabulary-column-storage-pLuHzbna.js",
+            "startMs": 2,
+            "endMs": 25.800000190734863
+          },
+          {
+            "name": "DataGridHeader-BeWa5lkk.js",
+            "startMs": 2.0999999046325684,
+            "endMs": 25.699999809265137
+          }
+        ]
+      },
+      "coldCompare": {
+        "moduleMs": 14.099999904632568,
+        "renderMs": [
+          14.300000190734863
+        ],
+        "firstMutationMs": 4.199999809265137,
+        "domMs": 302.5,
+        "visibleMs": 309.30000019073486,
+        "resources": [
+          {
+            "name": "ComparePlace-e1BbESB7.js",
+            "startMs": 1.4000000953674316,
+            "endMs": 6.699999809265137
+          },
+          {
+            "name": "compare-view-CYcF-TWZ.js",
+            "startMs": 1.5,
+            "endMs": 6.5
+          },
+          {
+            "name": "GuideLink-Pxzz18cT.js",
+            "startMs": 1.6999998092651367,
+            "endMs": 6.199999809265137
+          }
+        ]
+      },
+      "warmTrends": {
+        "moduleMs": -1717.5,
+        "renderMs": [
+          1.1999998092651367
+        ],
+        "firstMutationMs": 80.19999980926514,
+        "domMs": 80.19999980926514,
+        "visibleMs": 89.40000009536743,
+        "resources": []
+      },
+      "warmVocabulary": {
+        "moduleMs": -1408.6000003814697,
+        "renderMs": [
+          0.7999997138977051
+        ],
+        "firstMutationMs": 9.5,
+        "domMs": 9.5,
+        "visibleMs": 17.5,
+        "resources": []
+      },
+      "warmCompare": {
+        "moduleMs": -1036.4000000953674,
+        "renderMs": [
+          1.1999998092651367
+        ],
+        "firstMutationMs": 8.599999904632568,
+        "domMs": 8.599999904632568,
+        "visibleMs": 10.699999809265137,
+        "resources": []
+      }
+    },
+    {
+      "policy": "suspense",
+      "loadAverage": [
+        61.12548828125,
+        63.388671875,
+        57.115234375
+      ],
+      "repetition": 5,
+      "browser": "149.0.7827.0",
+      "coldTrends": {
+        "moduleMs": 15.100000381469727,
+        "renderMs": [
+          15.900000095367432,
+          38.700000286102295,
+          46.60000038146973
+        ],
+        "firstMutationMs": 7.100000381469727,
+        "domMs": 326.5,
+        "visibleMs": 348.30000019073486,
+        "resources": [
+          {
+            "name": "TrendsPlace-DA4nWtGC.js",
+            "startMs": 2.9000000953674316,
+            "endMs": 8.800000190734863
+          },
+          {
+            "name": "TrendPanel-3o7RXokc.js",
+            "startMs": 16.40000009536743,
+            "endMs": 26.100000381469727
+          },
+          {
+            "name": "trend-row-storage-CyJDXnuO.js",
+            "startMs": 16.700000286102295,
+            "endMs": 26.200000286102295
+          },
+          {
+            "name": "TrendDistribution-b_A1Hsx_.js",
+            "startMs": 17.100000381469727,
+            "endMs": 26.5
+          }
+        ]
+      },
+      "coldVocabulary": {
+        "moduleMs": 29.59999990463257,
+        "renderMs": [
+          32.90000009536743
+        ],
+        "firstMutationMs": 17.5,
+        "domMs": 308.59999990463257,
+        "visibleMs": 315.09999990463257,
+        "resources": [
+          {
+            "name": "VocabularyPlace-C1nZnwH8.js",
+            "startMs": 3.4000000953674316,
+            "endMs": 11.300000190734863
+          },
+          {
+            "name": "DataGridHeader-BeWa5lkk.js",
+            "startMs": 3.8000001907348633,
+            "endMs": 11
+          },
+          {
+            "name": "vocabulary-column-storage-pLuHzbna.js",
+            "startMs": 3.8000001907348633,
+            "endMs": 10.800000190734863
+          }
+        ]
+      },
+      "coldCompare": {
+        "moduleMs": 21.90000009536743,
+        "renderMs": [
+          22.200000286102295
+        ],
+        "firstMutationMs": 13.100000381469727,
+        "domMs": 310.6000003814697,
+        "visibleMs": 313.7000002861023,
+        "resources": [
+          {
+            "name": "ComparePlace-e1BbESB7.js",
+            "startMs": 3.5,
+            "endMs": 9.5
+          },
+          {
+            "name": "compare-view-CYcF-TWZ.js",
+            "startMs": 4.700000286102295,
+            "endMs": 9.400000095367432
+          },
+          {
+            "name": "GuideLink-Pxzz18cT.js",
+            "startMs": 5.100000381469727,
+            "endMs": 9.100000381469727
+          }
+        ]
+      },
+      "warmTrends": {
+        "moduleMs": -1802.7999997138977,
+        "renderMs": [
+          2.0999999046325684
+        ],
+        "firstMutationMs": 55.90000009536743,
+        "domMs": 55.90000009536743,
+        "visibleMs": 62.59999990463257,
+        "resources": []
+      },
+      "warmVocabulary": {
+        "moduleMs": -1499.5,
+        "renderMs": [
+          6.5
+        ],
+        "firstMutationMs": 23.90000009536743,
+        "domMs": 23.90000009536743,
+        "visibleMs": 27.5,
+        "resources": []
+      },
+      "warmCompare": {
+        "moduleMs": -1109.2000002861023,
+        "renderMs": [
+          0.8999996185302734
+        ],
+        "firstMutationMs": 7.5,
+        "domMs": 7.5,
+        "visibleMs": 9,
+        "resources": []
+      }
+    },
+    {
+      "policy": "explicit",
+      "loadAverage": [
+        58.84130859375,
+        62.83056640625,
+        57.0009765625
+      ],
+      "repetition": 5,
+      "browser": "149.0.7827.0",
+      "coldTrends": {
+        "moduleMs": 46.80000019073486,
+        "renderMs": [
+          51.59999990463257
+        ],
+        "firstMutationMs": 10.199999809265137,
+        "domMs": 125.5,
+        "visibleMs": 172.19999980926514,
+        "resources": [
+          {
+            "name": "TrendsPlace-3aPW0b3s.js",
+            "startMs": 10.599999904632568,
+            "endMs": 40.40000009536743
+          },
+          {
+            "name": "trend-row-storage-CyJDXnuO.js",
+            "startMs": 12.199999809265137,
+            "endMs": 40.30000019073486
+          }
+        ]
+      },
+      "coldVocabulary": {
+        "moduleMs": 20.300000190734863,
+        "renderMs": [
+          21
+        ],
+        "firstMutationMs": 9,
+        "domMs": 28.5,
+        "visibleMs": 46.5,
+        "resources": [
+          {
+            "name": "VocabularyPlace-CvT2d4aa.js",
+            "startMs": 9.400000095367432,
+            "endMs": 17.300000190734863
+          },
+          {
+            "name": "vocabulary-column-storage-pLuHzbna.js",
+            "startMs": 10.100000381469727,
+            "endMs": 17.100000381469727
+          },
+          {
+            "name": "DataGridHeader-BeWa5lkk.js",
+            "startMs": 10.200000286102295,
+            "endMs": 17.200000286102295
+          }
+        ]
+      },
+      "coldCompare": {
+        "moduleMs": 23.799999713897705,
+        "renderMs": [
+          24.299999713897705
+        ],
+        "firstMutationMs": 5.799999713897705,
+        "domMs": 46.19999980926514,
+        "visibleMs": 64.09999990463257,
+        "resources": [
+          {
+            "name": "ComparePlace-BWCmJOUx.js",
+            "startMs": 6.299999713897705,
+            "endMs": 14.5
+          },
+          {
+            "name": "compare-view-CYcF-TWZ.js",
+            "startMs": 6.5,
+            "endMs": 14.599999904632568
+          },
+          {
+            "name": "GuideLink-Pxzz18cT.js",
+            "startMs": 6.799999713897705,
+            "endMs": 14.599999904632568
+          }
+        ]
+      },
+      "warmTrends": {
+        "moduleMs": -871.8999996185303,
+        "renderMs": [
+          1.8000001907348633
+        ],
+        "firstMutationMs": 71.7000002861023,
+        "domMs": 71.80000019073486,
+        "visibleMs": 80.80000019073486,
+        "resources": []
+      },
+      "warmVocabulary": {
+        "moduleMs": -862.5999999046326,
+        "renderMs": [
+          3.700000286102295
+        ],
+        "firstMutationMs": 27,
+        "domMs": 27.200000286102295,
+        "visibleMs": 31.59999990463257,
+        "resources": []
+      },
+      "warmCompare": {
+        "moduleMs": -801.4000000953674,
+        "renderMs": [
+          0.8000001907348633
+        ],
+        "firstMutationMs": 6.199999809265137,
+        "domMs": 6.199999809265137,
+        "visibleMs": 8.199999809265137,
+        "resources": []
+      }
+    }
+  ]
+}

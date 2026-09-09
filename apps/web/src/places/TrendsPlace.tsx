@@ -1,15 +1,12 @@
-import { lazy, Suspense } from 'react';
-import { useApp } from '../lib/store-instance.ts';
+// Passive timing marks are removed from the normal production build.
+if (__TT_E2E__) performance.mark('tt:module:trends');
 
-const TrendPanel = lazy(() =>
-  import('../components/TrendPanel.tsx').then(({ TrendPanel: panel }) => ({ default: panel })),
-);
-const TrendDistribution = lazy(() =>
-  import('../components/trends/TrendDistribution.tsx')
-    .then(({ TrendDistribution: distribution }) => ({ default: distribution })),
-);
+import { useApp } from '../lib/store-instance.ts';
+import { TrendPanel } from '../components/TrendPanel.tsx';
+import { TrendDistribution } from '../components/trends/TrendDistribution.tsx';
 
 export function TrendsPlace() {
+  if (__TT_E2E__) performance.mark('tt:render:trends');
   const series = useApp((state) => state.series);
   const trackTerm = () => {
     const openEntry = (attempt: number) => {
@@ -43,18 +40,8 @@ export function TrendsPlace() {
           )
         : (
             <>
-              <Suspense
-                fallback={(
-                  <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>
-                    loading analysis view…
-                  </p>
-                )}
-              >
-                <TrendPanel />
-              </Suspense>
-              <Suspense fallback={null}>
-                <TrendDistribution />
-              </Suspense>
+              <TrendPanel />
+              <TrendDistribution />
             </>
           )}
     </div>
