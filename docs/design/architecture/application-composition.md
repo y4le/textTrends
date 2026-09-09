@@ -139,3 +139,12 @@ generic registry to shorten the runtime. Current local evidence is in
 `provenance.ts` is a tested deferred capability without a production export
 surface. Result completeness still needs a product decision. Portable source
 and workspace restoration follows the [backup contract](../workspace-backup.md).
+
+### App interaction lifetimes
+
+`components/app/useUtilityPanes.ts` owns utility-pane state, return-focus capture
+and restoration, and the existing Find/Speed-reader handoffs.
+`useWorkbenchShortcuts.ts` owns chord prefixes, timeout cleanup and keyboard
+announcements. App keeps command meaning, route/reader composition and its
+document listener, so these extractions follow resource lifetimes without
+creating a second application controller.

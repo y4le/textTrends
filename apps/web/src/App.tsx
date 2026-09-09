@@ -1,4 +1,3 @@
-import { ActivePlace, PlaceLoading } from './places/ActivePlace.tsx';
 import {
   lazy,
   Suspense,
@@ -10,6 +9,9 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { useWorkbenchShortcuts } from './components/app/useWorkbenchShortcuts.ts';
+import { useUtilityPanes } from './components/app/useUtilityPanes.ts';
+import { ActivePlace, PlaceLoading } from './places/ActivePlace.tsx';
 import { useApp } from './lib/store-instance.ts';
 import { StatusBar } from './components/StatusBar.tsx';
 import { HeaderActions } from './components/HeaderActions.tsx';
@@ -18,22 +20,16 @@ import { WorkspaceSaveStatus } from './components/WorkspaceSaveStatus.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { WorkbenchTabs } from './components/WorkbenchTabs.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
-import {
-  globalSettingsEntry,
-  type SettingsContext,
-  type SettingsEntry,
-} from './lib/settings-entry.ts';
+import { globalSettingsEntry } from './lib/settings-entry.ts';
 import { SettingsEntryProvider } from './components/SettingsEntryContext.tsx';
 import { occurrenceNavigationText } from './lib/occurrence-view.ts';
 import {
-  advanceShortcutSequence,
   chordShortcutAllowed,
   interactionShortcutAllowed,
   rootShortcutAllowed,
   shortcutMatches,
   type ShortcutId,
   type ShortcutHelpContext,
-  type ShortcutSequenceState,
 } from './lib/shortcuts.ts';
 import { HelpPane } from './components/HelpPane.tsx';
 import { termFocusControlId } from './lib/query-surface.ts';
@@ -67,18 +63,6 @@ const SpeedSettingsPane = lazy(() =>
   import('./components/reader/SpeedSettingsPane.tsx')
     .then(({ SpeedSettingsPane: pane }) => ({ default: pane })),
 );
-
-type OpenUtilityPane =
-  | { readonly kind: 'settings'; readonly entry: SettingsEntry }
-  | { readonly kind: 'debug' }
-  | { readonly kind: 'reader-controls' }
-  | { readonly kind: 'speed-settings'; readonly restSummary: string }
-  | { readonly kind: 'help'; readonly context: ShortcutHelpContext };
-
-interface CloseUtilityPaneOptions {
-  readonly restoreFocus?: boolean;
-  readonly onSettled?: (interactive: boolean) => void;
-}
 
 const focusAfterRender = (id: string) => {
   requestAnimationFrame(() => {
@@ -183,14 +167,9 @@ export function App() {
     && pendingInputCount === 0;
   const readerOpen = readerPlace !== null;
   const [readerKeyboardStatus, setReaderKeyboardStatus] = useState('');
-  const [utilityPane, setUtilityPane] = useState<OpenUtilityPane | null>(null);
-  const utilityPaneReturnFocus = useRef<HTMLElement | null>(null);
   const findReturnFocus = useRef<HTMLElement | null>(null);
   const restoreFindFocus = useRef(false);
   const previousFindScope = useRef(findScope(interaction) !== null);
-  const shortcutSequence = useRef<ShortcutSequenceState | null>(null);
-  const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [keyboardNavigationStatus, setKeyboardNavigationStatus] = useState('');
   const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation);
 
   useLayoutEffect(() => {
@@ -224,77 +203,18 @@ export function App() {
     replacePlace('inputs');
   }, [activeTextCount, place, project, replacePlace, routeStatus]);
 
-  const clearShortcutSequence = useCallback(() => {
-    shortcutSequence.current = null;
-    if (shortcutSequenceTimer.current !== null) {
-      clearTimeout(shortcutSequenceTimer.current);
-      shortcutSequenceTimer.current = null;
-    }
-  }, []);
-  const openHelp = (context: ShortcutHelpContext, fromUtilityPane = false) => {
+  const {
+    shortcutSequence, clearShortcutSequence, dispatchSequence,
+    keyboardNavigationStatus, setKeyboardNavigationStatus,
+  } = useWorkbenchShortcuts(readerOpen);
+  const onUtilityOpen = useCallback(() => {
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
-    if (!fromUtilityPane) {
-      utilityPaneReturnFocus.current = interaction.kind === 'find'
-        ? findReturnFocus.current
-        : document.activeElement instanceof HTMLElement
-          ? document.activeElement
-          : null;
-    }
-    if (interaction.kind === 'find') exitInteraction();
-    if (interaction.kind === 'rsvp') setRsvpPlaying(false);
-    setUtilityPane({ kind: 'help', context });
-  };
-  const openSettingsEntry = useCallback((
-    entry: SettingsEntry,
-    returnFocus: HTMLElement | null = null,
-    fromUtilityPane = false,
-  ) => {
-    clearShortcutSequence();
-    setKeyboardNavigationStatus('');
-    if (!fromUtilityPane) {
-      utilityPaneReturnFocus.current = returnFocus ?? (interaction.kind === 'find'
-        ? findReturnFocus.current
-        : document.activeElement instanceof HTMLElement
-          ? document.activeElement
-          : null);
-    }
-    if (interaction.kind === 'find') exitInteraction();
-    if (interaction.kind === 'rsvp') setRsvpPlaying(false);
-    setUtilityPane({ kind: 'settings', entry });
-  }, [clearShortcutSequence, exitInteraction, interaction.kind, setRsvpPlaying]);
-  const openSettings = (
-    context: SettingsContext = place,
-    returnFocus: HTMLElement | null = null,
-  ) => openSettingsEntry(globalSettingsEntry(context), returnFocus);
-  const openDebug = (fromUtilityPane = false) => {
-    clearShortcutSequence();
-    setKeyboardNavigationStatus('');
-    if (!fromUtilityPane) {
-      utilityPaneReturnFocus.current = interaction.kind === 'find'
-        ? findReturnFocus.current
-        : document.activeElement instanceof HTMLElement
-          ? document.activeElement
-          : null;
-    }
-    if (interaction.kind === 'find') exitInteraction();
-    if (interaction.kind === 'rsvp') setRsvpPlaying(false);
-    setUtilityPane({ kind: 'debug' });
-  };
-  const openReaderControls = (returnFocus: HTMLElement) => {
-    clearShortcutSequence();
-    setKeyboardNavigationStatus('');
-    utilityPaneReturnFocus.current = returnFocus;
-    setUtilityPane({ kind: 'reader-controls' });
-  };
-  const openSpeedSettings = (returnFocus: HTMLElement, restSummary: string) => {
-    if (interaction.kind !== 'rsvp') return;
-    clearShortcutSequence();
-    setKeyboardNavigationStatus('');
-    utilityPaneReturnFocus.current = returnFocus;
-    setRsvpPlaying(false);
-    setUtilityPane({ kind: 'speed-settings', restSummary });
-  };
+  }, [clearShortcutSequence]);
+  const {
+    utilityPane, utilityPaneReturnFocus, openHelp, openSettingsEntry, openSettings,
+    openDebug, openReaderControls, openSpeedSettings, closeUtilityPane, dismissForFind,
+  } = useUtilityPanes({ onOpen: onUtilityOpen, findReturnFocus });
   const focusFindInput = (selectAll = false) => {
     requestAnimationFrame(() => {
       const input = document.getElementById(FIND_INPUT_ID);
@@ -316,36 +236,13 @@ export function App() {
           : null;
       findReturnFocus.current = active;
     }
-    if (fromUtilityPane) setUtilityPane(null);
+    if (fromUtilityPane) dismissForFind();
     enterFind();
     focusFindInput(selectAll);
   };
   const closeFind = () => {
     restoreFindFocus.current = true;
     exitInteraction();
-  };
-  const closeUtilityPane = (options: CloseUtilityPaneOptions = {}) => {
-    const target = utilityPaneReturnFocus.current;
-    const targetId = target?.id ?? '';
-    setUtilityPane(null);
-    const restore = (attempt: number) => {
-      const root = document.getElementById('root');
-      if (root?.inert && attempt < 3) {
-        requestAnimationFrame(() => restore(attempt + 1));
-        return;
-      }
-      const interactive = root?.inert !== true;
-      if (options.restoreFocus !== false && interactive) {
-        const connectedTarget = target?.isConnected
-          ? target
-          : targetId === ''
-            ? null
-            : document.getElementById(targetId);
-        connectedTarget?.focus({ preventScroll: true });
-      }
-      options.onSettled?.(interactive);
-    };
-    requestAnimationFrame(() => restore(0));
   };
   const startGuideFromHelp = (id: GuideId) => {
     const originPlace = useApp.getState().place;
@@ -506,35 +403,7 @@ export function App() {
       return;
     }
     if (!dispatchSequences || context !== 'workbench') return;
-    const advanced = advanceShortcutSequence(
-      shortcutSequence.current,
-      event,
-      context,
-      performance.now(),
-    );
-    if (advanced.kind === 'none') {
-      if (shortcutSequence.current !== null) {
-        clearShortcutSequence();
-        setKeyboardNavigationStatus('');
-      }
-      return;
-    }
-    event.preventDefault();
-    if (advanced.kind === 'matched') {
-      clearShortcutSequence();
-      runWorkbenchShortcut(advanced.id);
-      return;
-    }
-    clearShortcutSequence();
-    shortcutSequence.current = advanced.state;
-    setKeyboardNavigationStatus(`${advanced.state.prefix}…`);
-    shortcutSequenceTimer.current = setTimeout(() => {
-      if (shortcutSequence.current?.expiresAt === advanced.state.expiresAt) {
-        shortcutSequence.current = null;
-        shortcutSequenceTimer.current = null;
-        setKeyboardNavigationStatus('');
-      }
-    }, Math.max(0, advanced.state.expiresAt - performance.now()));
+    dispatchSequence(event, context, runWorkbenchShortcut);
   };
   const handleInteractionShortcut = (
     event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent,
@@ -679,15 +548,6 @@ export function App() {
         ?.focus({ preventScroll: true });
     });
   }, [interaction.kind, place, readerOpen]);
-
-  useEffect(() => () => {
-    if (shortcutSequenceTimer.current !== null) clearTimeout(shortcutSequenceTimer.current);
-  }, []);
-
-  useEffect(() => {
-    clearShortcutSequence();
-    setKeyboardNavigationStatus('');
-  }, [readerOpen]);
 
   useEffect(() => {
     setReaderKeyboardStatus('');

@@ -1,16 +1,13 @@
-import { localFileIdentity } from '../lib/local-library.ts';
-import { useLibraryAcquisition } from './inputs/useLibraryAcquisition.ts';
 /** The Inputs composition surface: a durable local library beside one ordered
  * active input set. Acquisitions enter the library first; native drag-and-drop
  * then covers OS files, library activation, and input reordering. */
 
 import { useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { localFileIdentity } from '../lib/local-library.ts';
+import { useLibraryAcquisition } from './inputs/useLibraryAcquisition.ts';
 import { CatalogPanel } from './CatalogPanel.tsx';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
-import {
-  LIBRARY_BUSY_NOTICE,
-} from '../lib/demo-loader.ts';
-
+import { LIBRARY_BUSY_NOTICE } from '../lib/demo-loader.ts';
 import {
   builtinCorpusOption,
   demoCorpusFixtures,
