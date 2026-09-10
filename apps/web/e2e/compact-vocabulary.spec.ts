@@ -299,6 +299,9 @@ test('wide Vocabulary keeps six columns and an in-flow filter bar', async ({ pag
   await expect(table.getByRole('columnheader')).toHaveCount(6);
   await expect(table.locator('thead .data-grid-sort-button')).toHaveCount(6);
   await expect(table.getByRole('columnheader', { name: /class/ })).toHaveCount(0);
+  const toolbar = page.getByRole('toolbar', { name: 'Vocabulary columns' });
+  await expect(toolbar.locator('.data-grid-column-toolbar-context')).toHaveText('rate/10k');
+  await expect(toolbar.locator('.data-grid-column-toolbar-context')).toBeVisible();
   await expect(page.getByRole('search', { name: 'Filter vocabulary' })).toBeVisible();
   await expect(page.getByRole('searchbox', { name: 'filter', exact: true })).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Vocabulary filters' })).toHaveCount(0);

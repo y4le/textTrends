@@ -190,6 +190,7 @@ export function DataGridColumnToolbar({
   atDefault,
   onReset,
   className,
+  contextLabel,
 }: {
   readonly label: string;
   readonly controls: string;
@@ -199,6 +200,8 @@ export function DataGridColumnToolbar({
   readonly atDefault: boolean;
   readonly onReset: () => void;
   readonly className?: string;
+  /** Optional visual context placed immediately before the edit control. */
+  readonly contextLabel?: string;
 }) {
   return (
     <div
@@ -218,6 +221,11 @@ export function DataGridColumnToolbar({
             <path d="M16 7a7 7 0 1 0 1 6M16 3v4h-4" />
           </svg>
         </button>
+      )}
+      {contextLabel && (
+        <span className="data-grid-column-toolbar-context" aria-hidden="true">
+          {contextLabel}
+        </span>
       )}
       <button
         ref={toggleButtonRef}

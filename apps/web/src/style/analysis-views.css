@@ -465,6 +465,7 @@ html[data-trend-row-resizing='true'] * {
 
 .frequency-table-shell {
   --data-grid-header-height: var(--data-header-block-size);
+  container-type: inline-size;
   position: relative;
   min-block-size: 10rem;
   overflow: hidden;
@@ -1610,6 +1611,23 @@ html[data-trend-row-resizing='true'] * {
   stroke: currentcolor;
   stroke-linecap: square;
   stroke-width: 1.4;
+}
+
+.data-grid-column-toolbar-context {
+  display: none;
+  align-items: center;
+  min-inline-size: 7ch;
+  padding-inline: var(--space-2);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+@container (min-width: 26rem) {
+  .frequency-column-toolbar .data-grid-column-toolbar-context {
+    display: flex;
+  }
 }
 
 .kwic-panel {
