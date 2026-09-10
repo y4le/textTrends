@@ -200,8 +200,8 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     label: 'Previous find match',
     strokes: [
       { key: 'p' },
-      { key: 'G', shift: true, ctrl: true },
-      { key: 'G', shift: true, meta: true },
+      { key: 'G', shift: true, ctrl: true, explicitShift: true },
+      { key: 'G', shift: true, meta: true, explicitShift: true },
     ],
   },
   {
@@ -868,17 +868,29 @@ function shiftIsImpliedByResolvedKey(stroke: ShortcutStroke): boolean {
     || (stroke.key.length === 1 && stroke.key >= 'A' && stroke.key <= 'Z'));
 }
 
+function resolvedKeyMatches(eventKey: string, strokeKey: string): boolean {
+  if (eventKey === strokeKey) return true;
+  // Some browser/platform combinations retain the lowercase key name even
+  // with Shift held alongside Cmd/Ctrl. Modifiers still decide the chord;
+  // normalize only single ASCII letters here.
+  return eventKey.length === 1
+    && strokeKey.length === 1
+    && /[a-z]/iu.test(eventKey)
+    && /[a-z]/iu.test(strokeKey)
+    && eventKey.toLowerCase() === strokeKey.toLowerCase();
+}
+
 function strokeMatches(event: ShortcutEventLike, stroke: ShortcutStroke): boolean {
   // `KeyboardEvent.key` already contains the printable character. Browsers
   // report the real `?` chord with Shift, while automation and alternative
   // layouts may synthesize the same character without exposing that physical
   // modifier; the resolved character is the stable contract here.
   if (shiftIsImpliedByResolvedKey(stroke)) {
-    return event.key === stroke.key
+    return resolvedKeyMatches(event.key, stroke.key)
       && event.ctrlKey === (stroke.ctrl === true)
       && event.metaKey === (stroke.meta === true);
   }
-  return event.key === stroke.key
+  return resolvedKeyMatches(event.key, stroke.key)
     && event.shiftKey === (stroke.shift === true)
     && event.ctrlKey === (stroke.ctrl === true)
     && event.metaKey === (stroke.meta === true);

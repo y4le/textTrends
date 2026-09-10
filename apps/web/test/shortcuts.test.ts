@@ -34,6 +34,8 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('g', { metaKey: true }), 'find-next')).toBe(true);
     expect(shortcutMatches(key('G', { shiftKey: true, ctrlKey: true }), 'find-previous')).toBe(true);
     expect(shortcutMatches(key('G', { shiftKey: true, metaKey: true }), 'find-previous')).toBe(true);
+    expect(shortcutMatches(key('g', { shiftKey: true, metaKey: true }), 'find-previous')).toBe(true);
+    expect(shortcutMatches(key('G', { metaKey: true }), 'find-previous')).toBe(false);
     expect(shortcutMatches(key('g', { ctrlKey: true }), 'find-previous')).toBe(false);
     expect(shortcutMatches(key('h'), 'footer-page-previous')).toBe(true);
     expect(shortcutMatches(key('ArrowLeft'), 'footer-page-previous')).toBe(true);

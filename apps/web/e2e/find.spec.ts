@@ -328,7 +328,7 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   }).not.toBe(first);
   await expect.poll(() => progressValue.textContent()).not.toBe(firstProgress);
   const second = await resultStatus();
-  await input.press('Control+Shift+G');
+  await input.press('Meta+Shift+G');
   await expect.poll(async () => {
     const text = await resultStatus();
     return text?.includes('Searching') ? second : text;
