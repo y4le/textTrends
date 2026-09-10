@@ -88,7 +88,7 @@ export function createCompareController({
     const lane = side === 'a' ? keynessALane : keynessBLane;
     lane.supersede();
     const state = get();
-    const { snapshot, keynessView } = state;
+    const { snapshot } = state;
     const scope = keynessScope();
     const pair = scope ? keynessSelections(scope) : null;
     if (!snapshot || !scope || !pair) {
@@ -96,7 +96,7 @@ export function createCompareController({
       return;
     }
     const issuedKey = snapshotKey();
-    const issuedView = keynessView;
+    const issuedView = scope.view;
     const issuedIntent = keynessTableIntentKey(
       scope,
       side,
@@ -247,7 +247,7 @@ export function createCompareController({
       if (side !== 'a' && side !== 'b') return;
       const lane = side === 'a' ? keynessALane : keynessBLane;
       const state = get();
-      const { snapshot, keynessView } = state;
+      const { snapshot } = state;
       const table = side === 'a' ? state.keynessA : state.keynessB;
       const resident = table?.resident
         ?? (table?.state.status === 'ready' ? table.state.result : null);
@@ -269,7 +269,7 @@ export function createCompareController({
       ) return;
       const offset = resident.rows.length;
       const limit = Math.min(
-        keynessView.pageLimit,
+        scope.view.pageLimit,
         resident.total - resident.rows.length,
         COMPARE_MAX_RESIDENT_ROWS - resident.rows.length,
       );
@@ -278,7 +278,7 @@ export function createCompareController({
         || !Number.isSafeInteger(offset + limit)
       ) return;
       const issuedKey = snapshotKey();
-      const issuedView = keynessView;
+      const issuedView = scope.view;
       const issuedIntent = keynessTableIntentKey(
         scope,
         side,

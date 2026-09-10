@@ -233,7 +233,7 @@ describe('provenanceFor', () => {
     expect(compare).toContain('divergence: jsd-log2/1');
     expect(compare).toContain('divergence types: 2');
     expect(compare).toContain('dispersion: dispersion-dp/1');
-    expect(compare).toContain('linked Trends range');
+    expect(compare).toContain('Compare uses its declared sides A and B.');
 
     const shown = formatProvenanceText(provenanceFor(input({
       keyness: {

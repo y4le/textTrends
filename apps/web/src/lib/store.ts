@@ -119,6 +119,7 @@ import { QueryLane } from './query-lane.ts';
 import { issueTrendSeries, issueDispersion } from './trend-queries.ts';
 import { createVocabularyController } from './vocabulary-controller.ts';
 import { createCompareController } from './compare-controller.ts';
+import { effectiveKeynessView } from './keyness-view.ts';
 import { createReaderController } from './reader-controller.ts';
 import { createWorkspacePersistence } from './workspace-persistence.ts';
 import { createNavigationController } from './navigation-controller.ts';
@@ -421,7 +422,7 @@ export function createAppRuntime(
       if (state.snapshot === null) return null;
       const counts = state.corpusTokenCounts;
       return {
-        view: state.keynessView,
+        view: effectiveKeynessView(state.keynessView, state.linkedSelection),
         readyDocs: state.snapshot.readyDocs,
         selection: state.linkedSelection,
         tokenCountOf: (doc) => counts.get(doc),
@@ -2910,7 +2911,9 @@ export function createAppRuntime(
         }
         // Detail consumers reissue; the resident BASELINE trends/dispersion
         // are untouched (clearing a brush must not recompute them).
-        if (get().keynessView.mode === 'selection-rest') get().runKeyness();
+        // A linked range temporarily owns Compare, regardless of the saved
+        // document comparison. Clearing it reissues that saved comparison.
+        get().runKeyness();
         runSelected();
         get().runInventory();
         get().runFrequency();

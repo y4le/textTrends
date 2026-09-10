@@ -343,7 +343,9 @@ function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
         ? ['Interval whiskers clamp at the axis edge when a bound exceeds that scale.']
         : ['Ranking interval whiskers are hidden; exact intervals remain in term detail.']),
       'The Wald interval assumes independent token draws; running-text burstiness can make it too narrow.',
-      'A linked Trends range does not redefine either comparison side.',
+      ...(input.linkedSelection === null
+        ? ['Compare uses its declared sides A and B.']
+        : ['An active linked Trends range is compared with its corpus complement.']),
     ],
   };
 }

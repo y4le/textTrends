@@ -1,8 +1,21 @@
 /** Pure comparison selection and document-frequency policy. */
 import type { KeynessViewV1, KeynessScope } from './app-state.ts';
 import type { WireSelectionV4 } from '../shared/analysis-contract.ts';
-import { detailSelection, selectionComplement } from './selection.ts';
+import { detailSelection, selectionComplement, type TokenRangeSelectionV1 } from './selection.ts';
 import { DEFAULT_KEYNESS_VIEW } from './app-defaults.ts';
+
+/**
+ * A linked passage is an active, deliberately non-durable comparison. Keep
+ * the authored text comparison intact so it resumes when the passage clears.
+ */
+export function effectiveKeynessView(
+  view: KeynessViewV1,
+  selection: TokenRangeSelectionV1 | null,
+): KeynessViewV1 {
+  return selection === null || view.mode === 'selection-rest'
+    ? view
+    : { ...view, mode: 'selection-rest' };
+}
 
 export function reconcileKeynessView(
   view: KeynessViewV1,

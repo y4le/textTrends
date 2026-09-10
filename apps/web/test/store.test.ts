@@ -2302,13 +2302,20 @@ describe('store query intent discipline', () => {
     ]));
     await flush();
 
-    f.store.getState().setLinkedSelection({
+    const selection = {
       snapshot: 's1',
       ranges: [{ doc: 'a', tokens: { start: 10, end: 20 } }],
-    });
-    f.inventories().at(-1)!.resolve(fakeInventoryResult(10, [
+    };
+    f.store.getState().setLinkedSelection(selection);
+    // The active range now also owns Compare. Resolve the visible inventory
+    // directly instead of relying on the fixture's historical heuristic,
+    // which classifies this same selection as Compare side A.
+    f.issued.filter((issued) => issued.op === 'inventory'
+      && JSON.stringify((issued.query as { selection?: unknown }).selection)
+        === JSON.stringify({ docs: ['a'], ranges: selection.ranges }))
+      .forEach((issued) => issued.resolve(fakeInventoryResult(10, [
       { doc: 'a', fullTokens: 1_000_000 },
-    ]));
+      ])));
     await flush();
     f.store.setState({
       trends: new Map([['u1', { status: 'error', message: 'trend failed' }]]),
@@ -6580,17 +6587,38 @@ describe('dueling keyness query intent (slice-4)', () => {
     });
   });
 
-  it('is independent of the linked trend brush', () => {
+  it('temporarily compares a linked trend brush with the rest of the corpus', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
     const keynessCount = f.keynesses().length;
-    const inventoryCount = f.keynessInventories().length;
+    f.store.setState({ corpusTokenCounts: new Map([['a', 10], ['b', 8]]) });
     f.store.getState().setLinkedSelection({
       snapshot: 's1',
       ranges: [{ doc: 'a', tokens: { start: 1, end: 4 } }],
     });
-    expect(f.keynesses()).toHaveLength(keynessCount);
-    expect(f.keynessInventories()).toHaveLength(inventoryCount);
+    expect(f.keynesses()).toHaveLength(keynessCount + 2);
+    expect(f.store.getState().keynessView.mode).toBe('document-rest');
+    expect((f.keynesses().at(-1)!.query as {
+      request: { a: unknown; b: unknown };
+    }).request).toMatchObject({
+      a: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: 1, end: 4 } }] },
+      b: {
+        docs: ['a', 'b'],
+        ranges: [
+          { doc: 'a', tokens: { start: 0, end: 1 } },
+          { doc: 'a', tokens: { start: 4, end: 10 } },
+        ],
+      },
+    });
+
+    f.store.getState().setLinkedSelection(null);
+    expect(f.keynesses()).toHaveLength(keynessCount + 4);
+    expect((f.keynesses().at(-1)!.query as {
+      request: { a: { docs: string[] }; b: { docs: string[] } };
+    }).request).toMatchObject({
+      a: { docs: ['a'] },
+      b: { docs: ['b'] },
+    });
   });
 
   it('compares a linked range with its exact complement in a single text', () => {

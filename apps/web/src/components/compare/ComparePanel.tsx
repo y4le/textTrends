@@ -25,6 +25,7 @@ import {
 import { selectionTokenCount } from '../../lib/selection.ts';
 import {
   keynessSelections,
+  effectiveKeynessView,
 } from '../../lib/keyness-view.ts';
 import { useApp } from '../../lib/store-instance.ts';
 import { contextualSettingsEntry } from '../../lib/settings-entry.ts';
@@ -37,7 +38,7 @@ import { SignedAxis } from './SignedAxis.tsx';
 export function ComparePanel() {
   const snapshot = useApp((state) => state.snapshot);
   const project = useApp((state) => state.projectSession?.project ?? null);
-  const view = useApp((state) => state.keynessView);
+  const authoredView = useApp((state) => state.keynessView);
   const stateA = useApp((state) => state.keynessA);
   const stateB = useApp((state) => state.keynessB);
   const inventoryA = useApp((state) => state.keynessInventoryA);
@@ -55,6 +56,7 @@ export function ComparePanel() {
   const popLayer = useApp((state) => state.popLayer);
   const openSettings = useOpenSettings();
   const [profileOpen, setProfileOpen] = useState(false);
+  const view = effectiveKeynessView(authoredView, linkedSelection);
   const topLayer = layers.at(-1);
   const renderedLayer = useMemo(
     () => renderedRowDetailLayer(layers),
@@ -199,7 +201,7 @@ export function ComparePanel() {
           className="exact-input"
           aria-label="Left comparison input"
           value="__selection__"
-          disabled={readyDocs.length < 2}
+          disabled={linkedSelection !== null || readyDocs.length < 2}
           onChange={(event) => setSelection('a', event.currentTarget.value)}
         >
           <option value="__selection__">Selected range</option>
