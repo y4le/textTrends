@@ -291,6 +291,7 @@ export function FrequencyTable({
       event.clientX - drag.startClientX,
       drag.startFirstPx,
       drag.startSecondPx,
+      activeColumns,
     );
     if (next[drag.column] === drag.currentSettings[drag.column]) return;
     drag.currentSettings = next;
@@ -351,11 +352,13 @@ export function FrequencyTable({
     if (event.key === 'Enter') {
       event.preventDefault();
       event.stopPropagation();
-      setColumns((current) => resetVocabularyColumnBoundary(current, column));
+      setColumns((current) => resetVocabularyColumnBoundary(current, column, activeColumns));
       setColumnAnnouncement(`${vocabularyColumnLabel(column)} column reset`);
       return;
     }
-    const next = vocabularyColumnBoundaryFromKey(columns, column, event.key, event.shiftKey);
+    const next = vocabularyColumnBoundaryFromKey(
+      columns, column, event.key, event.shiftKey, activeColumns,
+    );
     if (next === null) return;
     event.preventDefault();
     event.stopPropagation();
@@ -364,7 +367,7 @@ export function FrequencyTable({
   };
 
   const resizeHandle = (column: VocabularyColumn, label: string) => {
-    const next = VOCABULARY_COLUMNS[VOCABULARY_COLUMNS.indexOf(column) + 1];
+    const next = activeColumns[activeColumns.indexOf(column) + 1];
     if (next === undefined) return null;
     return (
       <ColumnResizeHandle
@@ -487,6 +490,13 @@ export function FrequencyTable({
 
   const readyResult = state?.resident
     ?? (state?.state.status === 'ready' ? state.state.result : null);
+  const activeColumns: readonly VocabularyColumn[] = useMemo(
+    () => readyResult?.parts === 1
+      ? VOCABULARY_COLUMNS.filter((column) =>
+          column !== 'docFreq' && column !== 'dp' && column !== 'dpNorm')
+      : VOCABULARY_COLUMNS,
+    [readyResult?.parts],
+  );
   const navigationKeys = useMemo(
     () => readyResult?.rows.map((row) => String(row.typeId)) ?? [],
     [readyResult],
@@ -681,7 +691,9 @@ export function FrequencyTable({
     });
     return () => cancelAnimationFrame(frame);
   }, [navigationKeys.length, rowNavigation.portRef]);
-  const gridColumns: readonly DataGridColumn<VocabularyColumn>[] = SORTS.map(
+  const gridColumns: readonly DataGridColumn<VocabularyColumn>[] = SORTS
+    .filter(({ by }) => activeColumns.includes(by))
+    .map(
     ({ by, label }) => ({
       key: by,
       label,
@@ -694,9 +706,9 @@ export function FrequencyTable({
         ? {}
         : { explanation: COLUMN_EXPLANATIONS[by] }),
     }),
-  );
+    );
   const gridStyle: FrequencyGridStyle = {
-    '--frequency-template': vocabularyGridTemplate(columns),
+    '--frequency-template': vocabularyGridTemplate(columns, activeColumns),
     '--frequency-row-height': `${rowHeight}px`,
   };
   const normalizedFilterDraft = filterDraft.query.normalize('NFC');
@@ -859,7 +871,7 @@ export function FrequencyTable({
                 className="frequency-table"
                 role="table"
                 aria-label="Vocabulary frequency list"
-                aria-colcount={6}
+                aria-colcount={activeColumns.length}
                 aria-rowcount={readyResult.total + 1}
                 data-loaded-rows={readyResult.rows.length}
                 style={gridStyle}
@@ -879,7 +891,7 @@ export function FrequencyTable({
                       aria-hidden="true"
                       style={{ height: `${topSpacerHeight}px` }}
                     >
-                      <td colSpan={6} />
+                      <td colSpan={activeColumns.length} />
                     </tr>
                   )}
                   {renderedRows.map((row, localIndex) => {
@@ -924,19 +936,25 @@ export function FrequencyTable({
                               <span className="frequency-term-label">{row.key}</span>
                             </button>
                           </th>
-                          <td className="frequency-count selectable-stat" role="cell" aria-colindex={2} title={measures.count.value}>
+                          <td className="frequency-count selectable-stat" role="cell" aria-colindex={activeColumns.indexOf('count') + 1} title={measures.count.value}>
                             {measures.count.value}
                           </td>
-                          <td className="frequency-docs selectable-stat" role="cell" aria-colindex={3} title={measures.docFreq.value}>
-                            {measures.docFreq.value}
-                          </td>
-                          <td className="frequency-dp selectable-stat" role="cell" aria-colindex={4} title={measures.dp.value}>
-                            {measures.dp.value}
-                          </td>
-                          <td className="frequency-dpnorm selectable-stat" role="cell" aria-colindex={5} title={measures.dpNorm.value}>
-                            {measures.dpNorm.value}
-                          </td>
-                          <td className="frequency-rate selectable-stat" role="cell" aria-colindex={6} title={formatRate(row.ratePer10k)}>
+                          {activeColumns.includes('docFreq') && (
+                            <td className="frequency-docs selectable-stat" role="cell" aria-colindex={activeColumns.indexOf('docFreq') + 1} title={measures.docFreq.value}>
+                              {measures.docFreq.value}
+                            </td>
+                          )}
+                          {activeColumns.includes('dp') && (
+                            <td className="frequency-dp selectable-stat" role="cell" aria-colindex={activeColumns.indexOf('dp') + 1} title={measures.dp.value}>
+                              {measures.dp.value}
+                            </td>
+                          )}
+                          {activeColumns.includes('dpNorm') && (
+                            <td className="frequency-dpnorm selectable-stat" role="cell" aria-colindex={activeColumns.indexOf('dpNorm') + 1} title={measures.dpNorm.value}>
+                              {measures.dpNorm.value}
+                            </td>
+                          )}
+                          <td className="frequency-rate selectable-stat" role="cell" aria-colindex={activeColumns.indexOf('ratePer10k') + 1} title={formatRate(row.ratePer10k)}>
                             {formatRate(row.ratePer10k)}
                           </td>
                         </tr>
@@ -946,7 +964,7 @@ export function FrequencyTable({
                             className="frequency-detail-row"
                             role="row"
                           >
-                            <td role="cell" aria-colindex={1} colSpan={6}>
+                            <td role="cell" aria-colindex={1} colSpan={activeColumns.length}>
                               <FrequencyRowDetail
                                 row={row}
                                 rank={view.page.offset + index + 1}
@@ -969,7 +987,7 @@ export function FrequencyTable({
                       aria-hidden="true"
                       style={{ height: `${bottomSpacerHeight}px` }}
                     >
-                      <td colSpan={6} />
+                      <td colSpan={activeColumns.length} />
                     </tr>
                   )}
                 </tbody>
@@ -984,6 +1002,7 @@ export function FrequencyTable({
               atDefault={isDefaultVocabularyColumns(columns)}
               onReset={resetColumnWidths}
               className="frequency-column-toolbar"
+              contextLabel="rate/10k"
             />
           </div>
           <span className="visually-hidden" role="status" aria-live="polite">

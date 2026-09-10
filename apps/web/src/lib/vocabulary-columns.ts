@@ -21,8 +21,11 @@ export const VOCABULARY_COLUMN_DEFAULTS: VocabularyColumnSettings = Object.freez
   ratePer10k: 17,
 });
 
-export function vocabularyGridTemplate(settings: VocabularyColumnSettings): string {
-  return partitionedGridTemplate(VOCABULARY_COLUMNS.map((column) => ({
+export function vocabularyGridTemplate(
+  settings: VocabularyColumnSettings,
+  activeColumns: readonly VocabularyColumn[] = VOCABULARY_COLUMNS,
+): string {
+  return partitionedGridTemplate(activeColumns.map((column) => ({
     kind: 'elastic' as const,
     weight: settings[column],
   })));
@@ -34,9 +37,10 @@ export function vocabularyColumnBoundaryFromDrag(
   deltaPx: number,
   firstPx: number,
   secondPx: number,
+  activeColumns: readonly VocabularyColumn[] = VOCABULARY_COLUMNS,
 ): VocabularyColumnSettings {
-  const index = VOCABULARY_COLUMNS.indexOf(column);
-  const next = VOCABULARY_COLUMNS[index + 1];
+  const index = activeColumns.indexOf(column);
+  const next = activeColumns[index + 1];
   if (next === undefined) return settings;
   const pixelTotal = firstPx + secondPx;
   const weightTotal = settings[column] + settings[next];
@@ -58,9 +62,10 @@ export function vocabularyColumnBoundaryFromKey(
   column: VocabularyColumn,
   key: string,
   shiftKey = false,
+  activeColumns: readonly VocabularyColumn[] = VOCABULARY_COLUMNS,
 ): VocabularyColumnSettings | null {
-  const index = VOCABULARY_COLUMNS.indexOf(column);
-  const next = VOCABULARY_COLUMNS[index + 1];
+  const index = activeColumns.indexOf(column);
+  const next = activeColumns[index + 1];
   if (next === undefined) return null;
   const total = settings[column] + settings[next];
   const step = shiftKey ? 5 : 1;
@@ -79,9 +84,10 @@ export function vocabularyColumnBoundaryFromKey(
 export function resetVocabularyColumnBoundary(
   settings: VocabularyColumnSettings,
   column: VocabularyColumn,
+  activeColumns: readonly VocabularyColumn[] = VOCABULARY_COLUMNS,
 ): VocabularyColumnSettings {
-  const index = VOCABULARY_COLUMNS.indexOf(column);
-  const next = VOCABULARY_COLUMNS[index + 1];
+  const index = activeColumns.indexOf(column);
+  const next = activeColumns[index + 1];
   if (next === undefined) return settings;
   const total = settings[column] + settings[next];
   const defaultTotal = VOCABULARY_COLUMN_DEFAULTS[column]

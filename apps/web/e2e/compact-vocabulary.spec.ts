@@ -467,7 +467,7 @@ test('Vocabulary loads every matching row progressively without pagination', asy
   await expectNoBodyOverflow(page);
 });
 
-test('a large Vocabulary result stays inside a compact page', async ({ page }) => {
+test('a single-text Vocabulary result omits document distribution columns', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
@@ -485,11 +485,12 @@ test('a large Vocabulary result stays inside a compact page', async ({ page }) =
   await awaitReadyCount(page, 1);
   await gotoPlace(page, 'vocabulary');
 
-  await page.getByRole('button', { name: 'DPnorm', exact: true }).click();
-  const compactMeasure = page.locator('tr[data-frequency-row]').first()
-    .locator('td.frequency-dpnorm');
-  await expect(page.getByRole('columnheader', { name: /DPnorm/ }))
-    .toHaveAttribute('aria-sort', 'descending');
-  await expect(compactMeasure).toHaveText('unavailable');
+  const table = page.getByRole('table', { name: 'Vocabulary frequency list' });
+  const row = table.locator('tr[data-frequency-row]').first();
+  await expect(table).toHaveAttribute('aria-colcount', '3');
+  await expect(table.getByRole('columnheader')).toHaveCount(3);
+  await expect(table.getByRole('columnheader', { name: /docs|DPnorm|DP/ })).toHaveCount(0);
+  await expect(row.locator('td.frequency-docs, td.frequency-dp, td.frequency-dpnorm')).toHaveCount(0);
+  await expect(row.getByRole('cell')).toHaveCount(2);
   await expectNoBodyOverflow(page);
 });
