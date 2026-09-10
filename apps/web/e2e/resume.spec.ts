@@ -30,7 +30,7 @@ test('Vocabulary additions beyond five persist hidden and open in the manager', 
   const firstRow = vocabulary.locator('tr[data-frequency-row]').first();
   const key = (await firstRow.locator('.frequency-term-label').innerText()).trim();
   await firstRow.getByRole('button').click();
-  await vocabulary.getByRole('button', { name: 'add exact' }).first().click();
+  await vocabulary.getByRole('button', { name: 'Add term' }).first().click();
   const manager = page.getByRole('dialog', { name: 'Manage terms' });
   await expect(manager).toBeVisible();
   await expect(manager.getByRole('textbox', { name: `Term and aliases for ${key}` })).toBeFocused();

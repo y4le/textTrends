@@ -36,6 +36,7 @@ import {
 import { useApp } from '../../lib/store-instance.ts';
 import { useRowNavigation } from '../useRowNavigation.ts';
 import { formatRate } from '../../lib/rate-format.ts';
+import { FIND_INPUT_ID } from '../../lib/interaction.ts';
 import {
   DataGridColumnToolbar,
   DataGridHeader,
@@ -109,7 +110,7 @@ function FrequencyRowDetail({
   totalTokens,
   parts,
   onAdd,
-  onMatches,
+  onFind,
   onClose,
 }: {
   readonly row: FrequencyListRowV1;
@@ -118,7 +119,7 @@ function FrequencyRowDetail({
   readonly totalTokens: number;
   readonly parts: number;
   readonly onAdd: () => void;
-  readonly onMatches: () => void;
+  readonly onFind: () => void;
   readonly onClose: () => void;
 }) {
   const documentCoverage = parts > 0 ? row.docFreq / parts : 0;
@@ -151,16 +152,16 @@ function FrequencyRowDetail({
           <button
             type="button"
             onClick={onAdd}
-            title="Add this exact, case-sensitive term"
+            title="Add this term"
           >
-            add exact
+            Add term
           </button>
           <button
             type="button"
-            onClick={onMatches}
-            title="Show exact, case-sensitive matches for this term"
+            onClick={onFind}
+            title="Find this term in the corpus"
           >
-            matches
+            Find this
           </button>
           <button type="button" onClick={onClose}>close</button>
         </div>
@@ -189,7 +190,7 @@ export function FrequencyTable({
   const setFrequencyFilter = useApp((store) => store.setFrequencyFilter);
   const loadMore = useApp((store) => store.loadMoreFrequency);
   const addTerm = useApp((store) => store.addTerm);
-  const showInKwic = useApp((store) => store.showFrequencyTermInKwic);
+  const submitFind = useApp((store) => store.submitFind);
   const pushLayer = useApp((store) => store.pushLayer);
   const replaceLayer = useApp((store) => store.replaceLayer);
   const popLayer = useApp((store) => store.popLayer);
@@ -486,6 +487,12 @@ export function FrequencyTable({
       { surface: 'vocab-row', typeId: row.typeId, key: row.key },
       vocabularyRowControlId(row.typeId),
     );
+  };
+  const findThis = (key: string) => {
+    if (!submitFind(key)) return;
+    requestAnimationFrame(() => {
+      document.getElementById(FIND_INPUT_ID)?.focus({ preventScroll: true });
+    });
   };
 
   const readyResult = state?.resident
@@ -972,7 +979,7 @@ export function FrequencyTable({
                                 totalTokens={readyResult.totalTokens}
                                 parts={readyResult.parts}
                                 onAdd={() => addAndManage(row.key, row.typeId)}
-                                onMatches={() => showInKwic(row.key)}
+                                onFind={() => findThis(row.key)}
                                 onClose={() => openRow(row)}
                               />
                             </td>

@@ -412,7 +412,7 @@ test('Vocabulary shares responsive resize, tooltip, sort, and row-key behavior',
     .toBeFocused();
 });
 
-test('successful exact Matches routing restores the open Vocabulary detail on Back', async ({ page }) => {
+test('Vocabulary Find this opens the current term in Find', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
@@ -421,14 +421,11 @@ test('successful exact Matches routing restores the open Vocabulary detail on Ba
   const row = page.locator('tr[data-frequency-row]').first();
   await row.getByRole('button').click();
   const detail = page.getByRole('region', { name: /Vocabulary detail:/ });
-  await detail.getByRole('button', { name: 'matches' }).click();
-  await expect(page).toHaveURL(/[?&]p=matches(?:&|$)/);
-
-  await page.goBack();
-  await expect(page).toHaveURL(/[?&]p=vocabulary(?:&|$)/);
-  await expect(detail).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Scrollable Vocabulary frequency list' }))
-    .toBeFocused();
+  const term = await row.locator('.frequency-term-label').textContent();
+  await detail.getByRole('button', { name: 'Find this' }).click();
+  const input = page.getByRole('searchbox', { name: 'Find term or aliases' });
+  await expect(input).toHaveValue(term!.trim());
+  await expect(input).toBeFocused();
 });
 
 test('Vocabulary loads every matching row progressively without pagination', async ({ page }) => {

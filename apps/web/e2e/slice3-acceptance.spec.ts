@@ -90,11 +90,11 @@ test('slice 3: corpus → focus → vocabulary → matches → linked range → 
   await wolfRow.getByRole('button', { name: 'wolf', exact: true }).click();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('region', { name: 'Vocabulary detail: wolf' })
-    .getByRole('button', { name: 'matches' })
+    .getByRole('button', { name: 'Find this' })
     .click();
   await awaitOps(page, mark, ['trend', 'dispersion', 'matches-window']);
-  await expect(page).toHaveURL(/[?&]p=matches(?:&|$)/);
-  await expect(page.getByRole('grid', { name: 'Matches' })).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'Find term or aliases' })).toHaveValue('wolf');
+  await page.getByRole('button', { name: 'Clear and close find' }).click();
 
   await gotoPlace(page, 'trends');
   const scrubber = page.getByRole('slider', { name: /reading position/i });
@@ -118,7 +118,9 @@ test('slice 3: corpus → focus → vocabulary → matches → linked range → 
     event.seq > mark
     && event.direction === 'to-worker'
     && event.t === 'query');
-  expect(clearQueries.filter((event) => event.op === 'inventory')).toHaveLength(0);
+  // Clearing the linked range restores the saved text comparison, including
+  // its two side-profile inventories.
+  expect(clearQueries.filter((event) => event.op === 'inventory')).toHaveLength(2);
   await gotoPlace(page, 'inputs');
   await expect(summaryValues).toHaveText(baselineSummary);
   await expect(betaRow.locator('.catalog-book-tokens .selectable-stat')).toHaveText(baselineTokens);
