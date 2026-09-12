@@ -43,8 +43,8 @@ your question; the [syntax reference](reference.md#terms-and-find) defines them.
 
 Show or hide terms to choose the comparison (at most five shown). Hidden terms
 remain in the notebook. Use Manage to reorder, recolor, or remove terms; the
-removal notice offers undo. Quick entry through **Add term** has different comma
-semantics: `Holmes, Watson` creates two separate terms.
+removal notice offers undo. Quick entry through **Add term** uses the same comma
+semantics: `Holmes, Sherlock Holmes` creates one term that matches either alias.
 
 ## Find a passage
 

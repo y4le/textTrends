@@ -1875,7 +1875,7 @@ export function createAppRuntime(
         if (active === has) return;
         if (active && state.activeGroupIds.size >= MAX_SERIES) {
           // EXPLICIT refusal, never silent truncation (invariant 5).
-          refuseNotebook(`Compare up to ${MAX_SERIES} groups — deactivate one first`);
+          refuseNotebook(`Hide a shown term first — ${MAX_SERIES} is the maximum.`);
           return;
         }
         const next = new Set(state.activeGroupIds);

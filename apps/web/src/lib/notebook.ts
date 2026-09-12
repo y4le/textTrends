@@ -91,6 +91,12 @@ export function normalizeAuthoredAliases(input: readonly string[]): string[] {
   return aliases;
 }
 
+export function formatAliasAlternatives(aliases: readonly string[]): string {
+  if (aliases.length < 2) return aliases[0] ?? '';
+  if (aliases.length === 2) return `${aliases[0]} or ${aliases[1]}`;
+  return `${aliases.slice(0, -1).join(', ')} or ${aliases.at(-1)}`;
+}
+
 /** Parse the shared comma-authored alias field used by Terms and transient
  * Find. Whitespace-only entries disappear, authored spelling is normalized to
  * NFC, and exact duplicate aliases retain their first position. Semantic

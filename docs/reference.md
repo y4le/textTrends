@@ -51,8 +51,7 @@ extraction path.
 | `rain*` | Token prefix |
 | `*ing` | Token suffix |
 | `New Yo*` | Adjacent phrase with a prefix match on its final token |
-| `Holmes, Sherlock Holmes` in Manage or Find | OR aliases within one term |
-| `Holmes, Watson` in Add term quick entry | Two separate terms |
+| `Holmes, Sherlock Holmes` in Add term, Manage, or Find | OR aliases within one term |
 
 A wildcard is one `*` at one end of an alias; internal or two-ended wildcards
 are rejected. Phrases follow tokenizer output, not literal source whitespace

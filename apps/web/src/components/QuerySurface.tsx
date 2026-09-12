@@ -2,7 +2,11 @@ import { MAX_KWIC_TRACKS, NOTEBOOK_LIMITS_V1 } from '@texttrends/core';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { DockTakeover } from './DockTakeover.tsx';
 import { FormLayer } from './FormLayer.tsx';
-import { groupTitle } from '../lib/notebook.ts';
+import {
+  formatAliasAlternatives,
+  groupTitle,
+  parseAuthoredAliases,
+} from '../lib/notebook.ts';
 import { NotebookPanel } from './NotebookPanel.tsx';
 import {
   queryEditorTarget,
@@ -18,6 +22,7 @@ import { guideAnchorProps } from '../lib/guide/anchors.ts';
 import { TermBucket, TermActionMenu } from './terms/TermControls.tsx';
 
 const ADD_TERM_LABEL = 'Add term';
+const INLINE_ALIAS_HINT_ID = 'term-inline-alias-hint';
 
 interface TermRailPosition {
   readonly before: boolean;
@@ -81,6 +86,10 @@ export function QuerySurface({
     partialCorpus: (snapshot?.missingDocs.length ?? 0) > 0,
   });
   const termIdentity = view.rows.map((row) => row.id).join('\u001f');
+  const inlineAliases = parseAuthoredAliases(inlineTerm);
+  const inlineAliasHint = inlineAliases.length > 1
+    ? `Matches ${formatAliasAlternatives(inlineAliases)}`
+    : null;
   const topLayer = layers.at(-1);
   const target = topLayer?.kind === 'row-detail'
     ? queryEditorTarget(topLayer.target)
@@ -99,6 +108,7 @@ export function QuerySurface({
   );
   const closeEditor = () => {
     setManagerNewTermDraft('');
+    clearNotebookError();
     popLayer();
   };
   const focusTerm = (groupId: string) => {
@@ -172,7 +182,7 @@ export function QuerySurface({
   };
   const submitInlineAdd = () => {
     const existingIds = new Set(notebook.groups.map((group) => group.id));
-    const groupId = addTerm({ aliases: [inlineTerm] });
+    const groupId = addTerm({ aliases: parseAuthoredAliases(inlineTerm) });
     if (groupId === null) {
       requestAnimationFrame(() => document.getElementById('term-inline-add-input')?.focus({
         preventScroll: true,
@@ -181,9 +191,16 @@ export function QuerySurface({
     }
     const group = useApp.getState().notebook.groups.find((candidate) => candidate.id === groupId);
     const name = group ? groupTitle(group) : inlineTerm.trim();
-    setTermKeyboardStatus(existingIds.has(groupId)
+    const added = !existingIds.has(groupId);
+    const shown = useApp.getState().activeGroupIds.has(groupId);
+    const alsoMatches = group?.aliases.slice(1) ?? [];
+    setTermKeyboardStatus(!added
       ? `${name} is already in Terms.`
-      : `Added ${name}.`);
+      : !shown
+        ? `Added ${name}. Hidden — ${MAX_KWIC_TRACKS} terms already shown.`
+        : alsoMatches.length > 0
+          ? `Added ${name} — also matches ${formatAliasAlternatives(alsoMatches)}.`
+          : `Added ${name}.`);
     closeInlineAdd(false);
     focusTerm(groupId);
   };
@@ -287,7 +304,10 @@ export function QuerySurface({
           aria-live="assertive"
           aria-atomic="true"
         >
-          {inlineAddOpen ? notebookError : null}
+          {target?.mode === 'manage' ? null : notebookError}
+        </span>
+        <span id={INLINE_ALIAS_HINT_ID} className="visually-hidden">
+          {inlineAliasHint}
         </span>
         {inlineAddOpen && (
           <DockTakeover
@@ -300,13 +320,16 @@ export function QuerySurface({
               value: inlineTerm,
               placeholder: 'new term',
               enterKeyHint: 'done',
-              describedBy: notebookError ? 'term-rail-error' : 'term-rail-status',
+              describedBy: [
+                notebookError ? 'term-rail-error' : 'term-rail-status',
+                inlineAliasHint ? INLINE_ALIAS_HINT_ID : null,
+              ].filter(Boolean).join(' '),
               onChange: (value) => {
                 setInlineTerm(value);
                 if (notebookError !== null) clearNotebookError();
               },
             }}
-            status={notebookError}
+            status={notebookError ?? inlineAliasHint}
             statusTone={notebookError === null ? 'muted' : 'error'}
             onSubmit={submitInlineAdd}
             onDismiss={() => closeInlineAdd()}
@@ -330,7 +353,12 @@ export function QuerySurface({
         )}
         {!inlineAddOpen && (
           <>
-        <strong className="term-bar-label">Terms</strong>
+        <strong className="term-bar-label">
+          Terms
+          {activeGroupIds.size >= MAX_KWIC_TRACKS
+            ? ` · ${activeGroupIds.size}/${MAX_KWIC_TRACKS} shown`
+            : ''}
+        </strong>
         <div
           className="term-bucket-frame"
           data-overflow-before={termRailPosition.before || undefined}
@@ -358,6 +386,7 @@ export function QuerySurface({
               <TermBucket
                 key={row.id}
                 row={row}
+                aliases={notebook.groups.find((group) => group.id === row.id)?.aliases ?? [row.name]}
                 menuOpen={openMenuId === row.id}
                 onToggle={() => setGroupActive(row.id, !row.active)}
                 onEdit={() => openGroup(row.id, `term-edit-${row.id}`)}

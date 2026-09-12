@@ -11,9 +11,10 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { SeriesLineSample } from '../chrome.tsx';
+import { formatAliasAlternatives } from '../../lib/notebook.ts';
 import { DEFAULT_SERIES_STYLE } from '../../lib/series-style.ts';
 import { termFocusControlId, termToggleControlId } from '../../lib/query-surface.ts';
-import type { GroupCountVM, NotebookRowVM } from '../../lib/notebook-view.ts';
+import { notebookCountLabel, type NotebookRowVM } from '../../lib/notebook-view.ts';
 import { shortcutAria, shortcutMatches } from '../../lib/shortcuts.ts';
 
 const TERM_LONG_PRESS_MS = 500;
@@ -27,25 +28,9 @@ function termMenuId(groupId: string): string {
   return `term-menu-${encodeURIComponent(groupId)}`;
 }
 
-function countLabel(count: GroupCountVM): string {
-  switch (count.kind) {
-    case 'not-run': return 'not run';
-    case 'pending': return 'pending';
-    case 'error': return 'error';
-    case 'ready': return `${count.total}${count.partial ? ' partial' : ''}`;
-    case 'selected':
-      return count.selected.kind === 'ready'
-        ? `${count.selected.total} selected / ${count.total}`
-        : `${count.selected.kind} selected / ${count.total}`;
-    default: {
-      const exhaustive: never = count;
-      return exhaustive;
-    }
-  }
-}
-
 export function TermBucket({
   row,
+  aliases,
   menuOpen,
   onToggle,
   onEdit,
@@ -56,6 +41,7 @@ export function TermBucket({
   onExit,
 }: {
   readonly row: NotebookRowVM;
+  readonly aliases: readonly string[];
   readonly menuOpen: boolean;
   readonly onToggle: () => void;
   readonly onEdit: () => void;
@@ -169,7 +155,10 @@ export function TermBucket({
         data-term-focus
         data-term-id={row.id}
         data-projected={row.projected || undefined}
-        aria-label={`${row.name}, ${row.active ? 'shown' : 'hidden'} in analysis`}
+        aria-label={[
+          `${row.name}, ${row.active ? 'shown' : 'hidden'} in analysis`,
+          aliases.length > 1 ? `Matches ${formatAliasAlternatives(aliases)}` : null,
+        ].filter(Boolean).join('. ')}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         aria-controls={menuOpen ? termMenuId(row.id) : undefined}
@@ -184,11 +173,13 @@ export function TermBucket({
         ])}
         onKeyDown={onKeyDown}
         onClick={onOpenMenu}
-        title={`Open actions for ${row.name}`}
+        title={aliases.length > 1
+          ? `Matches ${formatAliasAlternatives(aliases)} · Open actions`
+          : `Open actions for ${row.name}`}
       >
         <SeriesLineSample style={row.style ?? DEFAULT_SERIES_STYLE} emphasized={row.projected} />
         <span className="term-bucket-name">{row.name}</span>
-        <span className="term-bucket-count">{countLabel(row.count)}</span>
+        <span className="term-bucket-count">{notebookCountLabel(row.count, row.active)}</span>
       </button>
       <button
         id={termToggleControlId(row.id)}

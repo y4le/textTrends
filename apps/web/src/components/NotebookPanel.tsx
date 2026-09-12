@@ -21,7 +21,11 @@ import {
   parseAuthoredAliases,
   termAliasesForSave,
 } from '../lib/notebook.ts';
-import type { GroupCountVM, NotebookRowVM } from '../lib/notebook-view.ts';
+import {
+  notebookCountLabel,
+  type GroupCountVM,
+  type NotebookRowVM,
+} from '../lib/notebook-view.ts';
 import { termReorderScrollStep } from '../lib/term-reorder-gesture.ts';
 import {
   isLegacySeriesColor,
@@ -33,16 +37,12 @@ import { DEFAULT_MAXIMIN_SERIES_PALETTE } from '../lib/series-palette.ts';
 import { SeriesLineSample } from './chrome.tsx';
 import { usePresentation } from './PresentationProvider.tsx';
 
-function CountCell({ count }: { readonly count: GroupCountVM }) {
-  switch (count.kind) {
-    case 'not-run': return <span>not run</span>;
-    case 'pending': return <span>counting…</span>;
-    case 'error': return <span title={count.message}>error</span>;
-    case 'selected': return count.selected.kind === 'ready'
-      ? <span>{count.selected.total} selected / {count.total}</span>
-      : <span>{count.selected.kind} selected / {count.total}</span>;
-    case 'ready': return <span>{count.total}{count.partial ? ' partial' : ''}</span>;
-  }
+function CountCell({ count, active }: { readonly count: GroupCountVM; readonly active: boolean }) {
+  return (
+    <span title={count.kind === 'error' ? count.message : undefined}>
+      {count.kind === 'pending' ? 'counting…' : notebookCountLabel(count, active)}
+    </span>
+  );
 }
 
 const LINE_LABELS: Record<SeriesLineId, string> = {
@@ -649,7 +649,9 @@ export function NotebookPanel({
                     <span className="term-manager-alias-count">+{group.aliases.length - 1} aliases</span>
                   )}
                 </button>
-                <span className="term-manager-count"><CountCell count={row.count} /></span>
+                <span className="term-manager-count">
+                  <CountCell count={row.count} active={row.active} />
+                </span>
                 <label
                   className="term-manager-visible"
                   title={row.active ? `Hide ${row.name} from analysis` : `Show ${row.name} in analysis`}

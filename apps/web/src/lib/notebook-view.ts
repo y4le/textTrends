@@ -45,6 +45,25 @@ export interface NotebookRowVM {
   readonly count: GroupCountVM;
 }
 
+const integer = new Intl.NumberFormat();
+
+export function notebookCountLabel(count: GroupCountVM, active = true): string {
+  switch (count.kind) {
+    case 'not-run': return active ? 'not run' : 'hidden';
+    case 'pending': return 'pending';
+    case 'error': return 'error';
+    case 'ready': return `${integer.format(count.total)}${count.partial ? ' partial' : ''}`;
+    case 'selected':
+      return count.selected.kind === 'ready'
+        ? `${integer.format(count.selected.total)} selected / ${integer.format(count.total)}`
+        : `${count.selected.kind} selected / ${integer.format(count.total)}`;
+    default: {
+      const exhaustive: never = count;
+      return exhaustive;
+    }
+  }
+}
+
 /** Total occurrences a trend result carries (sum over every doc/bin). */
 export function trendTotal(trend: NumericTrend): number {
   let total = 0;

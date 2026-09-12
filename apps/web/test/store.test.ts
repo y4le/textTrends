@@ -3010,7 +3010,9 @@ describe('query notebook — active set, solo, order, and style', () => {
     expect(f.store.getState().activeGroupIds.size).toBe(5);
     // NOW the sixth ACTIVATION is reachable — and refused loudly.
     f.store.getState().setGroupActive(ids[0]!, true);
-    expect(f.store.getState().notebookError).toContain('deactivate one first');
+    expect(f.store.getState().notebookError).toBe(
+      'Hide a shown term first — 5 is the maximum.',
+    );
     expect(f.store.getState().activeGroupIds.size).toBe(5); // nothing truncated
     expect(f.store.getState().activeGroupIds.has(ids[0]!)).toBe(false);
   });

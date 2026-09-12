@@ -71,9 +71,9 @@ clearance. Manual six-digit hex overrides stay fixed across themes; low
 contrast produces a warning without changing the choice. Color, line style,
 and text jointly identify terms.
 
-Quick entry creates separate groups from comma entries; Manage and Find compile
-comma aliases into one OR group. Both use the core alias compiler. One explicit
-primary interaction is active at a time (`none`, Find, or Speed); utility panes
+Quick entry, Manage, and Find compile comma aliases into one OR group through
+the core alias compiler. One explicit primary interaction is active at a time
+(`none`, Find, or Speed); utility panes
 are separate. Find owns its own submitted identity and bounded analysis lanes,
 while draft keystrokes remain in the composer. Only Save mutates the notebook.
 

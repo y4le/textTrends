@@ -13,7 +13,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, clearDemoInputs, gotoPlace, openQuickAdd, submitAndAwaitFreshResults, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearDemoInputs, clearNotebook, gotoPlace, openQuickAdd, submitAndAwaitFreshResults, trace } from './helpers.ts';
 
 // Token positions: wolf@1, wolves@4, "dire wolf"@7-8, Wolf@12 (capitalized).
 const CORPUS = 'the wolf ran. the wolves howled. a dire wolf slept. then Wolf spoke.\n';
@@ -80,6 +80,42 @@ async function awaitFreshKwic(page: Page, mark: number): Promise<void> {
     }, { timeout: 30_000 })
     .toBe('answered');
 }
+
+test('inline Add creates one term from comma-separated matching aliases', async ({ page }) => {
+  await importCorpus(page);
+  const input = await openQuickAdd(page);
+  await input.fill('wolf, dire wolf');
+  await expect(page.getByRole('form', { name: 'Add a term inline' })
+    .locator('.dock-takeover-status'))
+    .toHaveText('Matches wolf or dire wolf');
+  await expect(input).toHaveAttribute('aria-describedby', /term-inline-alias-hint/);
+  await input.press('Enter');
+
+  const summary = page.locator('.term-bucket-summary').filter({ hasText: /^wolf/ });
+  await expect(summary).toHaveAttribute('title', 'Matches wolf or dire wolf · Open actions');
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Manage terms' })
+    .getByRole('button', { name: 'Edit term: wolf' })
+    .click();
+  await expect(page.getByRole('textbox', { name: 'Term and aliases for wolf' }))
+    .toHaveValue('wolf, dire wolf');
+});
+
+test('a sixth inline term is saved as hidden with an explicit cap message', async ({ page }) => {
+  await importCorpus(page);
+  await clearNotebook(page);
+  for (const term of ['one', 'two', 'three', 'four', 'five', 'six']) {
+    const input = await openQuickAdd(page);
+    await input.fill(term);
+    await input.press('Enter');
+  }
+
+  const terms = page.getByRole('complementary', { name: 'Terms' });
+  await expect(terms.locator('.term-bar-label')).toHaveText('Terms · 5/5 shown');
+  await expect(terms.locator('.term-bucket').filter({ hasText: /^sixhidden/ })).toBeVisible();
+  await expect(terms.locator('#term-rail-status'))
+    .toHaveText('Added six. Hidden — 5 terms already shown.');
+});
 
 test('one comma-authored term compiles token, phrase, and prefix aliases as OR alternatives', async ({ page }) => {
   await importCorpus(page);
