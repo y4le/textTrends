@@ -9,7 +9,7 @@
  * starts in the plot or through its explicit controls.
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { SeriesStyleV1 } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import {
@@ -299,9 +299,10 @@ export function BarcodeLegend({
 }) {
   const presentation = usePresentation();
   const coarse = presentation.coarseAvailable;
+  const portRef = useRef<HTMLDivElement | null>(null);
+  const [overflow, setOverflow] = useState({ before: false, after: false });
   const selectedBySeries = new Map(selectedTracks.map((track) => [track.seriesId, track]));
   const stepper = barcodeStepperFor(tracks);
-  if (tracks.length === 0) return null;
 
   const step = (track: BarcodeTrackVM, dir: 1 | -1) => {
     onActivate(track, stepTarget(track, useApp.getState().scrub, dir));
@@ -313,91 +314,133 @@ export function BarcodeLegend({
     corpusTotal: track.total,
   });
 
+  useLayoutEffect(() => {
+    const port = portRef.current;
+    if (port === null) return undefined;
+    let frame: number | null = null;
+    const measure = () => {
+      frame = null;
+      const maximum = Math.max(0, port.scrollWidth - port.clientWidth);
+      const next = {
+        before: port.scrollLeft > 1,
+        after: port.scrollLeft < maximum - 1,
+      };
+      setOverflow((current) => current.before === next.before && current.after === next.after
+        ? current
+        : next);
+    };
+    const schedule = () => {
+      frame ??= requestAnimationFrame(measure);
+    };
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(schedule);
+    observer?.observe(port);
+    for (const child of port.children) observer?.observe(child);
+    port.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    measure();
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      observer?.disconnect();
+      port.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+    };
+  }, [tracks]);
+
+  if (tracks.length === 0) return null;
+
   return (
-    <div className="trend-term-navigation">
-      <div className="trend-strip-method">
-        <span>Reading strip</span>
-        <InfoTooltip
-          id="trend-strip-evidence-help"
-          label="reading strip evidence"
-          explanation="An exact mark identifies one reference and can open it. A density band summarizes how many references fall in a span; it can open only a position, not a chosen reference."
-        />
-      </div>
-      <ul
-        aria-label="Term totals"
-        className="trend-term-list"
-        style={{ fontSize: presentation.width === 'compact' ? 'var(--text-sm)' : 'var(--text-xs)' }}
-      >
-        {tracks.map((track) => {
-          const label = labelOf(track.seriesId);
-          const unit = track.representation === 'exact' ? 'reference' : 'bucket';
-          const enabled = track.total > 0 && track.segments.length > 0;
-          const isPrimaryCoarseStepper = coarse && stepper.track?.seriesId === track.seriesId;
-          const navigation = (
-            <>
-              <button
-                type="button"
-                className="trend-term-arrow"
-                style={coarse ? coarseNavBtn : navBtn}
-                disabled={!enabled}
-                aria-label={isPrimaryCoarseStepper ? `Previous ${unit}` : `Previous ${label} ${unit}`}
-                onClick={() => step(track, -1)}
-              >
-                ‹
-              </button>
-              <span className="trend-term-summary">
-                <span data-term-occurrence-label>{label}</span>
-                <span aria-hidden="true">·</span>
-                <span data-term-occurrence-count>{occurrenceText(track)}</span>
-                <svg
-                  className="trend-term-underline"
-                  width="100%"
-                  height="4"
-                  aria-hidden="true"
+    <div
+      className="trend-term-navigation-frame"
+      data-overflow-before={overflow.before || undefined}
+      data-overflow-after={overflow.after || undefined}
+    >
+      <div ref={portRef} className="trend-term-navigation">
+        <div className="trend-strip-method">
+          <span>Reading strip</span>
+          <InfoTooltip
+            id="trend-strip-evidence-help"
+            label="reading strip evidence"
+            explanation="An exact mark identifies one reference and can open it. A density band summarizes how many references fall in a span; it can open only a position, not a chosen reference."
+          />
+        </div>
+        <ul
+          aria-label="Term totals"
+          className="trend-term-list"
+          style={{ fontSize: presentation.width === 'compact' ? 'var(--text-sm)' : 'var(--text-xs)' }}
+        >
+          {tracks.map((track) => {
+            const label = labelOf(track.seriesId);
+            const unit = track.representation === 'exact' ? 'reference' : 'bucket';
+            const enabled = track.total > 0 && track.segments.length > 0;
+            const isPrimaryCoarseStepper = coarse && stepper.track?.seriesId === track.seriesId;
+            const navigation = (
+              <>
+                <button
+                  type="button"
+                  className="trend-term-arrow"
+                  style={coarse ? coarseNavBtn : navBtn}
+                  disabled={!enabled}
+                  aria-label={isPrimaryCoarseStepper ? `Previous ${unit}` : `Previous ${label} ${unit}`}
+                  onClick={() => step(track, -1)}
                 >
-                  <line
-                    x1="0"
-                    y1="2"
-                    x2="100%"
-                    y2="2"
-                    stroke={seriesColor(styleOf(track.seriesId))}
-                    strokeWidth="2"
-                    strokeDasharray={seriesDash(styleOf(track.seriesId))}
-                    strokeLinecap={seriesLinecap(styleOf(track.seriesId))}
-                  />
-                </svg>
-              </span>
-              <button
-                type="button"
-                className="trend-term-arrow"
-                style={coarse ? coarseNavBtn : navBtn}
-                disabled={!enabled}
-                aria-label={isPrimaryCoarseStepper ? `Next ${unit}` : `Next ${label} ${unit}`}
-                onClick={() => step(track, 1)}
-              >
-                ›
-              </button>
-            </>
-          );
-          return (
-            <li
-              key={track.seriesId}
-              data-term-occurrences={track.seriesId}
-              className="trend-term-item"
-            >
-              {isPrimaryCoarseStepper ? (
-                <span
-                  role="group"
-                  aria-label={`Barcode ${stepper.unit === 'occurrence' ? 'reference' : 'bucket'} navigation`}
-                  className="trend-term-item-controls"
-                >
-                  {navigation}
+                  ‹
+                </button>
+                <span className="trend-term-summary">
+                  <span data-term-occurrence-label>{label}</span>
+                  <span aria-hidden="true">·</span>
+                  <span data-term-occurrence-count>{occurrenceText(track)}</span>
+                  <svg
+                    className="trend-term-underline"
+                    width="100%"
+                    height="4"
+                    aria-hidden="true"
+                  >
+                    <line
+                      x1="0"
+                      y1="2"
+                      x2="100%"
+                      y2="2"
+                      stroke={seriesColor(styleOf(track.seriesId))}
+                      strokeWidth="2"
+                      strokeDasharray={seriesDash(styleOf(track.seriesId))}
+                      strokeLinecap={seriesLinecap(styleOf(track.seriesId))}
+                    />
+                  </svg>
                 </span>
-              ) : navigation}
-            </li>
-          );
-        })}
-      </ul>
+                <button
+                  type="button"
+                  className="trend-term-arrow"
+                  style={coarse ? coarseNavBtn : navBtn}
+                  disabled={!enabled}
+                  aria-label={isPrimaryCoarseStepper ? `Next ${unit}` : `Next ${label} ${unit}`}
+                  onClick={() => step(track, 1)}
+                >
+                  ›
+                </button>
+              </>
+            );
+            return (
+              <li
+                key={track.seriesId}
+                data-term-occurrences={track.seriesId}
+                className="trend-term-item"
+              >
+                {isPrimaryCoarseStepper ? (
+                  <span
+                    role="group"
+                    aria-label={`Barcode ${stepper.unit === 'occurrence' ? 'reference' : 'bucket'} navigation`}
+                    className="trend-term-item-controls"
+                  >
+                    {navigation}
+                  </span>
+                ) : navigation}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
     </div>
   );
 }

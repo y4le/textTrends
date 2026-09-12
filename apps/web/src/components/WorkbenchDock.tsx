@@ -72,7 +72,10 @@ export function WorkbenchDock({
   const [availableBlockSize, setAvailableBlockSize] = useState(() => window.innerHeight);
   const [viewportBlockSize, setViewportBlockSize] = useState(() => window.innerHeight);
   const [resizing, setResizing] = useState(false);
-  const footerPresent = documentCount > 0;
+  const footerFits = !(mode === 'workbench' && presentation.shortLandscape);
+  // A rail-only dock has two independent causes: nothing to read yet, or a
+  // viewport too short to show the reading instrument without hiding content.
+  const footerPresent = documentCount > 0 && footerFits;
   const footerVisible = snapshot !== null
     && snapshot.readyDocs.length > 0
     && snapshot.readyDocs.some((doc) => (corpusTokenCounts.get(doc) ?? 0) > 0);
@@ -115,6 +118,8 @@ export function WorkbenchDock({
   const targetRef = useRef(targetBlockSize);
   targetRef.current = targetBlockSize;
   const resizeFrame = useRef<number | null>(null);
+  const footerOwnedFocus = useRef(false);
+  const previousFooterFits = useRef(true);
   const pendingTarget = useRef<number | null>(null);
   const resizeDrag = useRef<{
     readonly pointerId: number;
@@ -168,6 +173,20 @@ export function WorkbenchDock({
     root.setProperty('--term-target-block-size', `${sizing.termTargetBlockSize}px`);
     root.setProperty('--footer-block-size', `${sizing.footerBlockSize}px`);
   }, [sizing]);
+
+  useLayoutEffect(() => {
+    const wasVisible = previousFooterFits.current;
+    previousFooterFits.current = footerFits;
+    if (!wasVisible || footerFits || !footerOwnedFocus.current) return undefined;
+    const frame = requestAnimationFrame(() => {
+      const target = dockRef.current?.querySelector<HTMLElement>(
+        '[data-term-focus]:not(:disabled), #term-add:not(:disabled)',
+      );
+      target?.focus({ preventScroll: true });
+      footerOwnedFocus.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [footerFits]);
 
   useLayoutEffect(() => () => {
     const root = document.documentElement.style;
@@ -293,8 +312,18 @@ export function WorkbenchDock({
         '--dock-local-block-size': `${sizing.blockSize}px`,
         '--terms-local-block-size': `${sizing.railBlockSize}px`,
       } as CSSProperties}
+      onFocusCapture={(event) => {
+        footerOwnedFocus.current = event.target instanceof Element
+          && event.target.closest('.workbench-footer, .footer-resize-handle') !== null;
+      }}
+      onBlurCapture={(event) => {
+        if (
+          event.relatedTarget instanceof Node
+          && !event.currentTarget.contains(event.relatedTarget)
+        ) footerOwnedFocus.current = false;
+      }}
     >
-      {footerVisible && (
+      {footerFits && footerVisible && (
         <div
           className="footer-resize-handle"
           role="separator"
@@ -367,17 +396,19 @@ export function WorkbenchDock({
               />
             </Suspense>
           )}
-      <Suspense fallback={null}>
-        <WorkbenchFooter
-          globalShortcuts={globalShortcuts}
-          geometry={sizing.footerGeometry}
-          blockSize={sizing.footerBlockSize}
-          trackCount={displayedTrackCount}
-          showStatus={sizing.showStatus}
-          showBarcode={sizing.showBarcode}
-          showPassage={mode === 'workbench'}
-        />
-      </Suspense>
+      {footerFits && (
+        <Suspense fallback={null}>
+          <WorkbenchFooter
+            globalShortcuts={globalShortcuts}
+            geometry={sizing.footerGeometry}
+            blockSize={sizing.footerBlockSize}
+            trackCount={displayedTrackCount}
+            showStatus={sizing.showStatus}
+            showBarcode={sizing.showBarcode}
+            showPassage={mode === 'workbench'}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

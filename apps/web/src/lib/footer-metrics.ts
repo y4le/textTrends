@@ -342,6 +342,8 @@ export function dockSizing(input: DockSizingInput): DockSizing {
     : 0;
 
   if (!input.footerPresent) {
+    // This rail-only shape serves both an empty corpus and a viewport too
+    // short to keep the reading footer without obscuring the workbench.
     const blockSize = Math.min(railBase, available || railBase);
     return Object.freeze({
       blockSize,

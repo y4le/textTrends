@@ -314,12 +314,12 @@ test('short landscape Matches leaves a usable anchored results viewport', async 
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'matches');
+  await expect(page.getByRole('complementary', { name: 'Reading position' })).toHaveCount(0);
 
   const geometry = await page.locator('.kwic-grid-shell').evaluate((shell) => {
     const mark = shell.querySelector<HTMLElement>('.kwic-now-mark')!.getBoundingClientRect();
     const port = shell.querySelector<HTMLElement>('.kwic-virtual-grid')!.getBoundingClientRect();
     const dock = document.querySelector<HTMLElement>('.workbench-dock')!.getBoundingClientRect();
-    const footer = document.querySelector<HTMLElement>('.workbench-footer')!.getBoundingClientRect();
     const appHeader = document.querySelector<HTMLElement>('.app-header')!.getBoundingClientRect();
     const gridHeader = shell.querySelector<HTMLElement>('.kwic-grid-header')!.getBoundingClientRect();
     const expectedAnchor = Math.round(Math.min(port.height / 2, mark.height * 4));
@@ -328,24 +328,26 @@ test('short landscape Matches leaves a usable anchored results viewport', async 
       anchorError: Math.abs(mark.top + mark.height / 2 - (port.top + expectedAnchor)),
       portBottom: port.bottom,
       dockTop: dock.top,
-      footerHeight: footer.height,
+      dockHeight: dock.height,
       appHeaderHeight: appHeader.height,
       gridHeaderHeight: gridHeader.height,
       termsRailHeight: Number.parseFloat(getComputedStyle(document.documentElement)
         .getPropertyValue('--terms-rail-block-size')),
       termTargetBlockSize: Number.parseFloat(getComputedStyle(document.documentElement)
         .getPropertyValue('--term-target-block-size')),
+      footerBlockSize: Number.parseFloat(getComputedStyle(document.documentElement)
+        .getPropertyValue('--footer-block-size')),
     };
   });
   expect(geometry.portHeight).toBeGreaterThan(0);
   expect(geometry.anchorError).toBeLessThanOrEqual(1);
   expect(geometry.portBottom).toBeLessThanOrEqual(geometry.dockTop + 1);
-  expect(geometry.footerHeight).toBeGreaterThanOrEqual(52);
-  expect(geometry.footerHeight).toBeLessThanOrEqual(Math.floor(320 / 3) + 1);
+  expect(Math.abs(geometry.dockHeight - geometry.termsRailHeight)).toBeLessThanOrEqual(1);
+  expect(geometry.footerBlockSize).toBe(0);
   expect(geometry.appHeaderHeight).toBeGreaterThanOrEqual(32);
   expect(geometry.appHeaderHeight).toBeLessThanOrEqual(33);
   expect(geometry.gridHeaderHeight).toBeGreaterThanOrEqual(32);
   expect(geometry.gridHeaderHeight).toBeLessThanOrEqual(33);
-  expect(geometry.termsRailHeight).toBe(37);
-  expect(geometry.termTargetBlockSize).toBe(34);
+  expect(geometry.termsRailHeight).toBe(54);
+  expect(geometry.termTargetBlockSize).toBe(40);
 });

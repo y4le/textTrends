@@ -14,6 +14,7 @@ import {
   type HelpGuidesProps,
 } from './guide/HelpGuides.tsx';
 import { helpCopy, helpViewName } from '../lib/guide/help-content.ts';
+import { usePresentation } from './PresentationProvider.tsx';
 
 const KEY_ACCESSIBLE_NAME: Readonly<Record<string, string>> = Object.freeze({
   '←': 'Left arrow',
@@ -91,14 +92,16 @@ export function HelpPane({
   readonly onClose: () => void;
 }) {
   const [surface, setSurface] = useState<'help' | 'credits'>('help');
+  const presentation = usePresentation();
   const restoreCreditsFocus = useRef(false);
   const activeTextCount = useApp(
     (state) => state.projectSession?.project.data.order.length ?? 0,
   );
-  const footerAvailable = useApp((state) => state.snapshot !== null
+  const footerHasContent = useApp((state) => state.snapshot !== null
     && state.snapshot.readyDocs.length > 0
     && state.snapshot.readyDocs.some((doc) =>
       (state.corpusTokenCounts.get(doc) ?? 0) > 0));
+  const footerAvailable = !presentation.shortLandscape && footerHasContent;
   const trendView = useApp((state) => state.trendView);
   const readerScale = useApp((state) => state.readerScale);
   const sections = shortcutHelpSections(context !== 'workbench'

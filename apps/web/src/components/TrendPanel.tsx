@@ -544,20 +544,28 @@ export function TrendPanel() {
 
 function TrendPanelHeader({ children }: { readonly children: React.ReactNode }) {
   const openSettings = useOpenSettings();
+  const presentation = usePresentation();
   return (
-    <div className="trend-panel-header">
+    <div
+      className="trend-panel-header"
+      data-controls-wrapped={presentation.width !== 'wide'
+        && !presentation.shortLandscape
+        ? true
+        : undefined}
+    >
       <div className="trend-panel-controls">{children}</div>
       <button
         id="trend-settings-open"
         className="trend-settings-trigger coarse-target"
         type="button"
+        aria-label="Trend settings"
         aria-haspopup="dialog"
         onClick={(event) => openSettings(
           contextualSettingsEntry('trends'),
           event.currentTarget,
         )}
       >
-        Trend settings
+        <span className="trend-settings-prefix">Trend </span>settings
       </button>
     </div>
   );

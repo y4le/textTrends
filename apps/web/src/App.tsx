@@ -846,7 +846,7 @@ export function App() {
         />
         <WorkbenchTabs />
       </header>
-      {guide.guidedTourInvitation.status === 'available' && (
+      {guide.guidedTourInvitation.status === 'available' && !presentation.shortLandscape && (
         <GuideInvitation
           starting={guide.guidedTourInvitation.starting}
           onStart={guide.guidedTourInvitation.start}

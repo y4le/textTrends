@@ -51,15 +51,19 @@ for (const viewport of [
     await awaitAllReady(page, { loadDemo: true });
     await gotoPlace(page, 'trends');
     await page.getByRole('button', { name: 'Combined sequence', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Trend settings', exact: true })).toBeVisible();
 
     const plateHeader = await page.evaluate(() => {
       const header = document.querySelector<HTMLElement>('.trend-panel-header');
       const controls = document.querySelector<HTMLElement>('.trend-panel-controls');
+      const switcher = document.querySelector<HTMLElement>('.trend-view-switcher');
+      const toScale = switcher?.querySelector<HTMLElement>('button:last-of-type');
+      const legend = document.querySelector<HTMLElement>('.trend-term-navigation');
       const entrance = document.querySelector<HTMLElement>('#trend-settings-open');
-      if (!header || !controls || !entrance) return null;
+      if (!header || !controls || !switcher || !toScale || !legend || !entrance) return null;
       const headerBox = header.getBoundingClientRect();
-      const before = entrance.getBoundingClientRect();
-      controls.scrollLeft = controls.scrollWidth;
+      const switcherBox = switcher.getBoundingClientRect();
+      const toScaleBox = toScale.getBoundingClientRect();
       const after = entrance.getBoundingClientRect();
       const hit = document.elementFromPoint(
         after.left + after.width / 2,
@@ -68,8 +72,12 @@ for (const viewport of [
       return {
         header: { left: headerBox.left, right: headerBox.right },
         entrance: { left: after.left, right: after.right },
-        shiftedByLocalScroll: Math.abs(after.left - before.left),
-        controlsOverflow: controls.scrollWidth > controls.clientWidth,
+        wrapped: header.dataset.controlsWrapped === 'true',
+        toScaleVisible: toScaleBox.left >= switcherBox.left - 1
+          && toScaleBox.right <= switcherBox.right + 1,
+        toScaleText: toScale.textContent,
+        controlsDisplay: getComputedStyle(controls).display,
+        legendOverflow: legend.scrollWidth > legend.clientWidth,
         headerScrollWidth: header.scrollWidth,
         headerClientWidth: header.clientWidth,
         documentOverflows:
@@ -80,13 +88,23 @@ for (const viewport of [
     expect(plateHeader).not.toBeNull();
     expect(plateHeader!.entrance.left).toBeGreaterThanOrEqual(plateHeader!.header.left);
     expect(plateHeader!.entrance.right).toBeLessThanOrEqual(plateHeader!.header.right + 1);
-    expect(plateHeader!.shiftedByLocalScroll).toBeLessThanOrEqual(1);
-    expect(plateHeader!.controlsOverflow).toBe(true);
+    expect(plateHeader!.wrapped).toBe(true);
+    expect(plateHeader!.toScaleText).toBe('to scale');
+    if (viewport.width === 390) expect(plateHeader!.toScaleVisible).toBe(true);
+    expect(plateHeader!.controlsDisplay).toBe('contents');
+    expect(plateHeader!.legendOverflow).toBe(true);
     expect(plateHeader!.headerScrollWidth).toBeLessThanOrEqual(
       plateHeader!.headerClientWidth + 1,
     );
     expect(plateHeader!.documentOverflows).toBe(false);
     expect(plateHeader!.hitTestable).toBe(true);
+
+    const legendFrame = page.locator('.trend-term-navigation-frame');
+    const legendPort = page.locator('.trend-term-navigation');
+    await expect(legendFrame).toHaveAttribute('data-overflow-after', 'true');
+    await legendPort.evaluate((port) => { port.scrollLeft = port.scrollWidth; });
+    await expect(legendFrame).toHaveAttribute('data-overflow-before', 'true');
+    await legendPort.evaluate((port) => { port.scrollLeft = 0; });
 
     const footer = page.getByRole('complementary', { name: 'Reading position' });
     const dock = page.locator('.workbench-dock');
@@ -229,3 +247,79 @@ for (const viewport of [
     expect(overflow.body).toBeLessThanOrEqual(overflow.client);
   });
 }
+
+for (const width of [800, 950]) {
+  test(`regular Trends keeps layout and legend controls separate at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('./');
+    await awaitAllReady(page, { loadDemo: true });
+    await gotoPlace(page, 'trends');
+
+    const header = page.locator('.trend-panel-header');
+    const controls = page.locator('.trend-panel-controls');
+    const switcher = page.locator('.trend-view-switcher');
+    const legendFrame = page.locator('.trend-term-navigation-frame');
+    const legend = page.locator('.trend-term-navigation');
+    await expect(header).toHaveAttribute('data-controls-wrapped', 'true');
+    await expect(switcher.getByRole('button', { name: 'To scale — separate rows, same token scale' }))
+      .toHaveText('to scale');
+    await expect(controls).toHaveCSS('display', 'contents');
+    expect(await switcher.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    const legendOverflows = await legend.evaluate((node) => node.scrollWidth > node.clientWidth);
+    if (legendOverflows) {
+      await expect(legendFrame).toHaveAttribute('data-overflow-after', 'true');
+    } else {
+      await expect(legendFrame).not.toHaveAttribute('data-overflow-after');
+    }
+  });
+}
+
+test('short landscape restores Trends content and moves footer focus to Terms', async ({ page }) => {
+  await page.setViewportSize({ width: 750, height: 900 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'trends');
+
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
+  await expect(footer).toBeVisible();
+  const tallDockHeight = (await page.locator('.workbench-dock').boundingBox())!.height;
+  await page.getByRole('slider', { name: 'Corpus footer position' }).focus();
+
+  await page.setViewportSize({ width: 750, height: 340 });
+  await expect(footer).toHaveCount(0);
+  await expect(page.getByRole('separator', { name: 'Resize reading footer' })).toHaveCount(0);
+  await expect(page.getByRole('complementary', { name: 'Terms' })).toBeVisible();
+  await expect(page.locator('[data-term-focus]:not(:disabled)').first()).toBeFocused();
+  await expect(page.getByRole('complementary', { name: 'Guided tour invitation' })).toHaveCount(0);
+  await expect(page.locator('.trend-panel-header')).not.toHaveAttribute(
+    'data-controls-wrapped',
+    'true',
+  );
+  await page.getByRole('button', { name: 'Help', exact: true }).click();
+  const help = page.getByRole('dialog', { name: 'Help' });
+  await expect(help.getByRole('heading', { name: 'Reading footer', exact: true })).toHaveCount(0);
+  await expect(help.getByRole('heading', { name: 'Footer size', exact: true })).toHaveCount(0);
+  await help.getByRole('button', { name: 'close', exact: true }).click();
+
+  const landscape = await page.evaluate(() => {
+    const chart = document.querySelector<HTMLElement>('.trend-scrubber')!.getBoundingClientRect();
+    const dock = document.querySelector<HTMLElement>('.workbench-dock')!.getBoundingClientRect();
+    const root = getComputedStyle(document.documentElement);
+    return {
+      chartVisibleHeight: Math.max(0, Math.min(chart.bottom, dock.top) - chart.top),
+      dockHeight: dock.height,
+      railHeight: Number.parseFloat(root.getPropertyValue('--terms-rail-block-size')),
+      footerHeight: Number.parseFloat(root.getPropertyValue('--footer-block-size')),
+    };
+  });
+  // WebKit's pre-existing 48px header leaves less plot than Chromium's 32px
+  // header, but this still keeps a usable chart instead of covering it entirely.
+  expect(landscape.chartVisibleHeight).toBeGreaterThan(80);
+  expect(Math.abs(landscape.dockHeight - landscape.railHeight)).toBeLessThanOrEqual(1);
+  expect(landscape.footerHeight).toBe(0);
+
+  await page.setViewportSize({ width: 750, height: 900 });
+  await expect(footer).toBeVisible();
+  await expect.poll(async () => (await page.locator('.workbench-dock').boundingBox())!.height)
+    .toBe(tallDockHeight);
+});
