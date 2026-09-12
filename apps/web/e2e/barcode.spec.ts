@@ -236,7 +236,7 @@ test('embedded barcode hover snaps exact evidence in series and by-book views wi
   const assertHoverOnly = async () => {
     await expect(shown).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Clear range' })).toHaveCount(0);
   };
   const commits = (view: 'series' | 'by-book') => page.evaluate(
     (activeView) => (window as unknown as { __ttChartCommits?: Record<string, number> }).__ttChartCommits?.[activeView] ?? 0,

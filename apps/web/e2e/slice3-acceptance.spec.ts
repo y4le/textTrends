@@ -112,7 +112,7 @@ test('slice 3: corpus → focus → vocabulary → matches → linked range → 
 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await gotoPlace(page, 'trends');
-  await page.getByRole('button', { name: 'clear selection' }).click();
+  await page.getByRole('button', { name: 'Clear range' }).click();
   await awaitOps(page, mark, ['freq-list']);
   const clearQueries = (await trace(page)).events.filter((event) =>
     event.seq > mark

@@ -488,7 +488,7 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     id: 'trend-selection-cancel',
     group: 'Trends',
     helpContexts: ['workbench'],
-    label: 'Cancel the keyboard range',
+    label: 'Cancel a range preview or clear the committed range',
     strokes: [{ key: 'Escape' }],
   },
   {

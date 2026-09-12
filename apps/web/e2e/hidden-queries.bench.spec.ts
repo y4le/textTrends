@@ -130,7 +130,7 @@ for (let repetition = 1; repetition <= 5; repetition++) {
     await gotoPlace(page, 'compare');
     await page.getByLabel('Left comparison input').selectOption('__selection__');
     await gotoPlace(page, 'trends');
-    await page.getByRole('button', { name: 'clear selection', exact: true }).click();
+    await page.getByRole('button', { name: 'Clear range', exact: true }).click();
     await slider.focus();
     await slider.press('Home');
     await slider.press('s');

@@ -434,6 +434,38 @@ html[data-trend-row-resizing='true'] * {
   color: var(--accent-text);
 }
 
+.linked-range-banner {
+  display: flex;
+  min-inline-size: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: var(--tab-header-space-2) 0;
+  padding-inline-start: var(--space-2);
+  border-inline-start: 2px solid var(--accent);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.linked-range-banner > span {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linked-range-banner button {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--rule-strong);
+  color: var(--fg);
+  background: none;
+  cursor: pointer;
+  font: inherit;
+}
+
 .common-words-control {
   display: flex;
   min-inline-size: 0;

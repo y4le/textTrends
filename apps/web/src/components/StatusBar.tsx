@@ -72,7 +72,7 @@ export function StatusBar() {
   const useAllTexts = () => {
     setLinkedSelection(null);
     requestAnimationFrame(() => {
-      document.getElementById('global-find-open')?.focus({ preventScroll: true });
+      document.getElementById(`place-${place}-heading`)?.focus({ preventScroll: true });
     });
   };
 

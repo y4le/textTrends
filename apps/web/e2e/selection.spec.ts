@@ -202,7 +202,7 @@ test('pointer and keyboard selections share detail results and stale results can
     ),
   ).toHaveLength(0);
   await page.mouse.up();
-  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear range' })).toBeVisible();
   await expect(page.getByText(/^Selected /)).toHaveCount(0);
   await expect.poll(() => gateHeld(worker)).toBe(2);
   await expect(page.locator('[data-trend-organ="overview"]'))
@@ -220,7 +220,7 @@ test('pointer and keyboard selections share detail results and stale results can
   await scrubber.press('ArrowRight');
   const bMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await scrubber.press('Enter');
-  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear range' })).toBeVisible();
   await awaitDetailBurst(page, bMark);
   await expect(page.locator('[data-trend-organ="range"]')).toBeVisible();
   await expect(page.getByRole('table', { name: /rates for tracked terms inside/i }))
@@ -249,7 +249,7 @@ test('pointer and keyboard selections share detail results and stale results can
   // but identity guards keep B's range and all B-scoped evidence unchanged.
   await gateRelease(worker);
   await expect.poll(() => gateHeld(worker)).toBe(0);
-  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear range' })).toBeVisible();
   termTotal = page.getByRole('list', { name: 'Term totals' })
     .getByRole('listitem').filter({ hasText: 'wolf' })
     .locator('[data-term-occurrence-count]');
@@ -270,12 +270,12 @@ test('pointer and keyboard selections share detail results and stale results can
   await expect.poll(() => gateHeld(worker)).toBe(2);
   await expect(page.locator('[data-trend-organ="overview"]'))
     .toHaveAttribute('data-range-pending', 'true');
-  await page.getByRole('button', { name: 'clear selection' }).click();
+  await page.getByRole('button', { name: 'Clear range' }).click();
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(0);
   await expect(page.locator('[data-trend-organ="overview"]')).not.toHaveAttribute('data-range-pending');
   await gateRelease(worker);
-  await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Clear range' })).toHaveCount(0);
   termTotal = page.getByRole('list', { name: 'Term totals' })
     .getByRole('listitem').filter({ hasText: 'wolf' })
     .locator('[data-term-occurrence-count]');
@@ -288,10 +288,10 @@ test('pointer and keyboard selections share detail results and stale results can
   await scrubber.press('s');
   await scrubber.press('ArrowRight');
   await scrubber.press('Enter');
-  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear range' })).toBeVisible();
   await importCorpus(page, 'replacement.txt', REPLACEMENT, 2);
   await gotoPlace(page, 'trends');
-  await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Clear range' })).toHaveCount(0);
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(0);
 });

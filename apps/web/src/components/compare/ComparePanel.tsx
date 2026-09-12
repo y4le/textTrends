@@ -31,6 +31,7 @@ import { useApp } from '../../lib/store-instance.ts';
 import { contextualSettingsEntry } from '../../lib/settings-entry.ts';
 import { guideAnchorProps } from '../../lib/guide/anchors.ts';
 import { useOpenSettings } from '../SettingsEntryContext.tsx';
+import { LinkedRangeBanner } from '../LinkedRangeBanner.tsx';
 import { GuideLink } from '../guide/GuideLink.tsx';
 import { CompareProfile } from './CompareProfile.tsx';
 import { SignedAxis } from './SignedAxis.tsx';
@@ -267,6 +268,7 @@ export function ComparePanel() {
   return (
     <section className="compare-panel" aria-label="Keyness comparison">
       <>
+            <LinkedRangeBanner place="compare" />
             <div className="compare-warnings">
               {(['a', 'b'] as const).map((side) => {
                 const table = side === 'a' ? stateA : stateB;

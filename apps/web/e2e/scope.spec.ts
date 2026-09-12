@@ -12,12 +12,13 @@ test('Scope states resident corpus truth and follows the committed range', async
   await expect(scope.getByText(`all ${DOC_COUNT} texts`, { exact: true })).toHaveCount(0);
   await expect(scope.getByText(`${DOC_COUNT}/${DOC_COUNT} texts ready`, { exact: true })).toHaveCount(0);
 
-  const dashboardTokens = await page
+  const dashboardTokenValue = page
     .locator('.catalog-summary')
     .locator('dt', { hasText: /^tokens$/ })
     .locator('..')
-    .locator('dd')
-    .innerText();
+    .locator('dd');
+  await expect(dashboardTokenValue).toHaveText(/^\d/);
+  const dashboardTokens = await dashboardTokenValue.innerText();
   await expect(scope.getByText(`${dashboardTokens} tokens`, { exact: true })).toHaveCount(0);
   const headerBefore = await page.locator('.app-header').evaluate((header) => {
     const box = header.getBoundingClientRect();
@@ -146,11 +147,14 @@ test('Scope states resident corpus truth and follows the committed range', async
   await details.getByRole('button', { name: 'Use all texts' }).click();
   await expect(scope.getByText(`all ${DOC_COUNT} texts`, { exact: true })).toHaveCount(0);
   await expect(scope.getByRole('button', { name: /Open scope details/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Find', exact: true })).toBeFocused();
+  await expect(page.locator('#place-trends-heading')).toBeFocused();
 
   const after = await trace(page);
   // The global transient footer owns its own debounced source-page lane; it
-  // is navigation traffic, not a linked-range analysis consumer.
+  // is navigation traffic, not a linked-range analysis consumer. Clearing
+  // refreshes Frequency and restores the saved Compare pair. Compare
+  // obtains per-side totals through its own `inventory` operation; this is not
+  // the resident full-corpus Vocabulary inventory, whose reuse is unit-tested.
   const clearOps = after.events
     .filter(
       (event) =>
@@ -161,10 +165,7 @@ test('Scope states resident corpus truth and follows the committed range', async
     .filter((event) => event.op !== 'reader-page')
     .map((event) => event.op);
   expect(clearOps.length).toBeGreaterThan(0);
-  expect(new Set(clearOps)).toEqual(new Set(['freq-list']));
-  // Inputs reuses its authenticated full-corpus inventory; clearing a range
-  // must not issue another identical inventory request.
-  expect(clearOps).not.toContain('inventory');
+  expect(new Set(clearOps)).toEqual(new Set(['freq-list', 'inventory', 'keyness']));
 
   // Full-corpus occurrence navigation is independent of the analytical range.
   await scrubber.focus();

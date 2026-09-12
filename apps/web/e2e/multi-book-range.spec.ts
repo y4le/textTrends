@@ -30,7 +30,7 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   await page.mouse.move(box.x + box.width * 0.55, y, { steps: 8 });
   await page.mouse.up();
 
-  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear range' })).toBeVisible();
   await expect(page.getByText(/^Selected /)).toHaveCount(0);
   await expect(page.getByTestId('linked-selection')).toBeVisible();
   await expect(scrubber.locator('canvas[data-selected-layer="ready"]'))
@@ -49,6 +49,9 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   for (const row of await rows.all()) {
     await expect(row.locator('.catalog-book-tokens .selectable-stat')).not.toHaveText('0');
   }
+
+  await gotoPlace(page, 'vocabulary');
+  await expect(page.locator('.linked-range-banner')).toContainText(/Measuring .* across 2 texts/);
 
   await gotoPlace(page, 'matches');
   const matches = page.getByRole('grid', { name: 'Matches' });

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, gotoPlace } from './helpers.ts';
+import { awaitAllReady, DOC_COUNT, gotoPlace } from './helpers.ts';
 
 const userSelect = (element: Element): string => {
   const style = getComputedStyle(element);
@@ -33,7 +33,9 @@ test('the footer graph double-press clears or brushes without stealing shuttle a
   const chartGestureY = Math.min(initialChartBox.height - 8, 32);
   await chart.dblclick({ position: { x: 100, y: chartGestureY } });
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
-  await expect(chart.locator('..').getByRole('status')).toHaveText('Range cleared.');
+  await expect(chart.locator('..').getByRole('status')).toHaveText(
+    `Range cleared. Measuring all ${DOC_COUNT} texts.`,
+  );
   await chart.press('s');
   await chart.press('ArrowRight');
   await chart.press('Enter');
@@ -92,7 +94,9 @@ test('the footer graph double-press clears or brushes without stealing shuttle a
   await page.mouse.dblclick(x(0.5), graphY);
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
-  await expect(footer.getByRole('status')).toContainText('Range cleared.');
+  await expect(footer.getByRole('status')).toContainText(
+    `Range cleared. Measuring all ${DOC_COUNT} texts.`,
+  );
   expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
 
   // Hold and drag the second press: the prior range clears on pointerdown,

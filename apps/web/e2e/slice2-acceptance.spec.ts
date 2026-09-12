@@ -123,7 +123,7 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
 
   // Analytical overlays describe the range, while Matches retains all
   // six full-corpus occurrences and marks the four selected rows.
-  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear range' })).toBeVisible();
   await expect(page.locator('[data-selected-overlay]').first()).toBeVisible();
   await expect(trendScrubber.locator('canvas[data-selected-layer="ready"]')).toBeVisible();
   termTotal = page.getByRole('list', { name: 'Term totals' })
@@ -178,7 +178,7 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   // as selected evidence.
   await gotoPlace(page, 'trends');
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByRole('button', { name: 'clear selection' }).click();
+  await page.getByRole('button', { name: 'Clear range' }).click();
   await awaitOps(page, mark, ['freq-list']);
   const clearQueries = (await trace(page)).events.filter(
     (event) =>

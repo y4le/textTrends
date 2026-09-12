@@ -15,6 +15,7 @@ import {
   type FrequencyListRowV1,
 } from '@texttrends/core';
 import { useDisplayPreference, usePresentation } from '../PresentationProvider.tsx';
+import { LinkedRangeBanner } from '../LinkedRangeBanner.tsx';
 import { DENSITY_METRICS } from '../../lib/display-preference.ts';
 import {
   firstFullyVisibleFrequencyRow,
@@ -737,6 +738,7 @@ export function FrequencyTable({
           Vocabulary
         </h2>
       )}
+      <LinkedRangeBanner place="vocabulary" />
       <form
         className="frequency-filter"
         role="search"

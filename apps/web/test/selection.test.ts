@@ -3,12 +3,20 @@ import {
   commitRange,
   detailSelection,
   isValidSelection,
+  rangeClearedAnnouncement,
   sameSelection,
   selectionComplement,
   selectionContains,
   selectionTokenCount,
   type TokenRangeSelectionV1,
 } from '../src/lib/selection.ts';
+
+describe('rangeClearedAnnouncement', () => {
+  it('states the resulting all-text scope with correct number agreement', () => {
+    expect(rangeClearedAnnouncement(1)).toBe('Range cleared. Measuring all 1 text.');
+    expect(rangeClearedAnnouncement(3)).toBe('Range cleared. Measuring all 3 texts.');
+  });
+});
 
 const sel = (over: Partial<TokenRangeSelectionV1> = {}): TokenRangeSelectionV1 => ({
   snapshot: 's1',

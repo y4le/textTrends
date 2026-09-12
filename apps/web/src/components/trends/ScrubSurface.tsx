@@ -25,7 +25,12 @@ import {
 } from '../../lib/trend-geometry.ts';
 import type { ScrubTarget, SeriesIntent } from '../../lib/app-state.ts';
 import { nextTrendView, trendViewAccessibleName, type TrendView } from '../../lib/trend-view.ts';
-import { commitRange, selectionTokenCount, type TokenRangeSelectionSpanV1 } from '../../lib/selection.ts';
+import {
+  commitRange,
+  rangeClearedAnnouncement,
+  selectionTokenCount,
+  type TokenRangeSelectionSpanV1,
+} from '../../lib/selection.ts';
 import { type TrendGeometry } from '../../lib/trend-compact.ts';
 import { shortcutAria, shortcutMatches } from '../../lib/shortcuts.ts';
 import { pointerIntentFor } from '../../lib/pointer-capability.ts';
@@ -165,6 +170,7 @@ export function ScrubSurface({
   const activeTextCount = useApp(
     (s) => s.projectSession?.project.data.order.length ?? 0,
   );
+  const readyTextCount = snapshot?.readyDocs.length ?? 0;
   const [preview, setPreview] = useState<RangePreview | null>(null);
   const [rangeAnnouncement, setRangeAnnouncement] = useState('');
   const sliderRef = useRef<HTMLDivElement | null>(null);
@@ -452,6 +458,16 @@ export function ScrubSurface({
       const reset = resetTouchRangeGesture(touchGesture.current);
       touchGesture.current = reset.state;
       applyTouchRangeEffect(reset.effect);
+      return;
+    }
+    if (
+      shortcutMatches(e, 'trend-selection-cancel')
+      && preview === null
+      && linkedSelection !== null
+    ) {
+      e.preventDefault();
+      setLinkedSelection(null);
+      setRangeAnnouncement(rangeClearedAnnouncement(readyTextCount));
       return;
     }
     // Keep the hidden shortcut inert below two texts so an in-flight import
@@ -760,8 +776,9 @@ export function ScrubSurface({
           const cancelledPreview = preview !== null;
           setPreview(null);
           setLinkedSelection(null);
-          if (linkedSelection !== null) setRangeAnnouncement('Range cleared.');
-          else if (cancelledPreview) setRangeAnnouncement('Range selection cancelled.');
+          if (linkedSelection !== null) {
+            setRangeAnnouncement(rangeClearedAnnouncement(readyTextCount));
+          } else if (cancelledPreview) setRangeAnnouncement('Range selection cancelled.');
           suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
         }}
         onPointerMove={(e) => {
@@ -854,8 +871,9 @@ export function ScrubSurface({
               const cancelledPreview = preview !== null;
               setPreview(null);
               setLinkedSelection(null);
-              if (linkedSelection !== null) setRangeAnnouncement('Range cleared.');
-              else if (cancelledPreview) setRangeAnnouncement('Range selection cancelled.');
+              if (linkedSelection !== null) {
+                setRangeAnnouncement(rangeClearedAnnouncement(readyTextCount));
+              } else if (cancelledPreview) setRangeAnnouncement('Range selection cancelled.');
               // Consume the recognizing contact with the existing spent state
               // so its release cannot perform a second read after the clear.
               touchGesture.current = { phase: 'spent', heldPointerIds: [e.pointerId] };
@@ -1458,7 +1476,7 @@ export function ScrubSurface({
                 type="button"
                 onClick={() => {
                   setLinkedSelection(null);
-                  setRangeAnnouncement('Range cleared.');
+                  setRangeAnnouncement(rangeClearedAnnouncement(readyTextCount));
                 }}
                 style={{
                   font: 'inherit',
@@ -1469,7 +1487,7 @@ export function ScrubSurface({
                   padding: '0 0.5ch',
                 }}
               >
-                clear selection
+                Clear range
               </button>
             </>
           ) : null}

@@ -95,7 +95,7 @@ test('touch reads and ranges while a graph double-tap clears selection', async (
     buttons: 0,
   });
   await expect(page.getByTestId('linked-selection')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear range' })).toBeVisible();
   await expect.poll(async () => new Set(
     (await trace(page)).events
       .filter(
@@ -211,9 +211,11 @@ test('touch reads and ranges while a graph double-tap clears selection', async (
   await page.touchscreen.tap(firstClearTap.x, firstClearTap.y);
   await page.touchscreen.tap(secondClearTap.x, secondClearTap.y);
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Clear range' })).toHaveCount(0);
   await expect(scrubber).toHaveAttribute('aria-valuenow', readingAtClearPoint ?? '');
-  await expect(scrubber.locator('..').getByRole('status')).toHaveText('Range cleared.');
+  await expect(scrubber.locator('..').getByRole('status')).toHaveText(
+    'Range cleared. Measuring all 1 text.',
+  );
 
   const rangeBox = (await scrubber.boundingBox())!;
   const touchPoint = (id: number, fraction: number) => ({
@@ -264,7 +266,7 @@ test('touch reads and ranges while a graph double-tap clears selection', async (
   });
   await expect(page.getByTestId('selection-preview')).toHaveCount(0);
   await expect(page.getByTestId('linked-selection')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear range' })).toBeVisible();
   const required = ['trend', 'dispersion', 'inventory', 'freq-list', 'keyness'];
   await expect.poll(async () => new Set(
     (await trace(page)).events
@@ -276,7 +278,7 @@ test('touch reads and ranges while a graph double-tap clears selection', async (
       )
       .map((event) => event.op),
   )).toEqual(new Set(required));
-  await page.getByRole('button', { name: 'clear selection' }).click();
+  await page.getByRole('button', { name: 'Clear range' }).click();
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
 
   // A real touch drag beginning over the chart remains page-owned vertically.

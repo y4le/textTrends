@@ -40,7 +40,12 @@ import { usePresentation } from '../PresentationProvider.tsx';
 import { FooterPassage } from '../FooterPassage.tsx';
 import { rootShortcutAllowed, shortcutAria, shortcutMatches } from '../../lib/shortcuts.ts';
 import { pointerIntentFor, type PointerIntent } from '../../lib/pointer-capability.ts';
-import { commitRange, selectionTokenCount, type SelectionPoint } from '../../lib/selection.ts';
+import {
+  commitRange,
+  rangeClearedAnnouncement,
+  selectionTokenCount,
+  type SelectionPoint,
+} from '../../lib/selection.ts';
 import {
   beginFooterTouchGesture,
   footerTouchCancel,
@@ -398,7 +403,7 @@ export function FooterInteractive({
       case 'clear':
         setRangePreview(null);
         setLinkedSelection(null);
-        setRangeAnnouncement('Range cleared.');
+        setRangeAnnouncement(rangeClearedAnnouncement(docs.length));
         return;
       case 'preview':
         if (effect.clearsCommitted) setLinkedSelection(null);
@@ -610,7 +615,7 @@ export function FooterInteractive({
     ) {
       event.preventDefault();
       setLinkedSelection(null);
-      setRangeAnnouncement('Range cleared.');
+      setRangeAnnouncement(rangeClearedAnnouncement(docs.length));
       return;
     }
     if (
@@ -759,7 +764,7 @@ export function FooterInteractive({
           footerRange.current = idleFooterRangeGesture();
           setRangePreview(null);
           setLinkedSelection(null);
-          setRangeAnnouncement('Range cleared.');
+          setRangeAnnouncement(rangeClearedAnnouncement(docs.length));
           suppressDoubleClickUntil.current = now + RANGE_CLEAR_SUPPRESSION_MS;
           return;
         }

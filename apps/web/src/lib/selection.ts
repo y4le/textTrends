@@ -156,6 +156,10 @@ export function selectionTokenCount(selection: TokenRangeSelectionV1): number {
   );
 }
 
+export function rangeClearedAnnouncement(activeTextCount: number): string {
+  return `Range cleared. Measuring all ${activeTextCount} ${activeTextCount === 1 ? 'text' : 'texts'}.`;
+}
+
 export function sameSelection(
   left: TokenRangeSelectionV1 | null,
   right: TokenRangeSelectionV1 | null,
