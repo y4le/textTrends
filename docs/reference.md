@@ -141,14 +141,16 @@ contextual keyboard and gesture reference from the app's shortcut registry.
 | Workbench/Read | `/`; Ctrl/Cmd+F | Open Find |
 | Find | `n` / `p`; Ctrl/Cmd+G / Ctrl/Cmd+Shift+G | Next / previous exact hit |
 | Workbench/Read | Ctrl+O / Ctrl+I | Older / newer session reading position |
-| Workbench | `gi`, `gt`, `gm`, `gv`, `gd` | Inputs, Trends, Matches, Vocabulary, Compare |
+| Workbench | `gi`, `gt`, `gm`, `gv`, `gc` | Inputs, Trends, Matches, Vocabulary, Compare |
 | Workbench | `gf`, `gq` | Focus reading footer / Terms |
 | Read | `h` / `l`, Left / Right, PageUp / PageDown | Previous / next fitted page |
 | Read/Atlas | `b` / `w`; `[` / `]` | Previous / next reference; previous / next text |
 | Read/Atlas | Home / End | Active-text endpoints |
 | Atlas | Left / Right; Up / Down; Enter | Adjacent text; position; open Read |
 | Read | Shift+S | Enter Speed playing (paused under reduced motion) |
-| Speed | Space; `h` / `l` | Play/pause; change pace |
+| Speed | Space | Play/pause |
+| Speed | `h` / `l`; Left / Right | Previous / next word |
+| Speed | `j` / `k`; Down / Up | Reduce / increase pace |
 | Speed | Shift+W | Pause and focus pace input |
 | Speed | Escape; Shift+S | Return to Read at the displayed token |
 

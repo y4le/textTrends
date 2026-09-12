@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   advanceShortcutSequence,
@@ -24,6 +25,40 @@ const key = (
 });
 
 describe('shortcut registry', () => {
+  it('keeps the reference summary aligned with navigation and Speed bindings', () => {
+    const reference = readFileSync(
+      new URL('../../../docs/reference.md', import.meta.url),
+      'utf8',
+    );
+    const workbench = shortcutHelpSections({
+      context: 'workbench',
+      place: 'inputs',
+      activeTextCount: 1,
+      footerAvailable: true,
+      trendView: 'by-book',
+    }).flatMap((section) => section.entries);
+    const speed = shortcutHelpSections({ context: 'rsvp' })
+      .flatMap((section) => section.entries);
+    const keysFor = (
+      entries: typeof workbench,
+      id: (typeof entries)[number]['id'],
+    ) => entries.find((entry) => entry.id === id)?.keys ?? [];
+    const [compare] = keysFor(workbench, 'go-compare');
+    const [previousWord] = keysFor(speed, 'rsvp-word-previous');
+    const [nextWord] = keysFor(speed, 'rsvp-word-next');
+    const [reducePace] = keysFor(speed, 'rsvp-pace-down');
+    const [increasePace] = keysFor(speed, 'rsvp-pace-up');
+    expect(reference).toContain(
+      `| Workbench | \`gi\`, \`gt\`, \`gm\`, \`gv\`, \`${compare}\` | Inputs, Trends, Matches, Vocabulary, Compare |`,
+    );
+    expect(reference).toContain(
+      `| Speed | \`${previousWord}\` / \`${nextWord}\`; Left / Right | Previous / next word |`,
+    );
+    expect(reference).toContain(
+      `| Speed | \`${reducePace}\` / \`${increasePace}\`; Down / Up | Reduce / increase pace |`,
+    );
+  });
+
   it('matches Vim and conventional aliases while preserving modifiers', () => {
     expect(shortcutMatches(key('/'), 'find-open')).toBe(true);
     expect(shortcutMatches(key('/', { shiftKey: true }), 'find-open')).toBe(true);
