@@ -9,6 +9,7 @@ import {
   matchesScrollTop,
   matchesTargetAtLogical,
   matchesVisibleRanks,
+  matchesViewportAnchor,
   matchesWindowSize,
   globalTokenForTarget,
   logicalForGlobalToken,
@@ -335,15 +336,19 @@ export function useMatchesScroll({
   const activeRank = total > 0
     ? Math.max(0, Math.min(total - 1, Math.floor(logical)))
     : -1;
-  const visible = matchesVisibleRanks(logical, total, viewport.height, rowHeight);
+  const anchor = matchesViewportAnchor(viewport.height, rowHeight);
+  const visible = matchesVisibleRanks(logical, total, viewport.height, rowHeight, 1, anchor);
   const physicalTop = matchesScrollTop(logical, total, rowHeight);
   const physicalExtent = matchesPhysicalExtent(total, rowHeight);
+  // The trailing viewport makes max scrollTop equal physicalExtent, which is
+  // the complete native-scroll travel mapped onto [0, total].
   const planeHeight = physicalExtent + viewport.height;
 
   return {
     portRef,
     chRulerRef,
     viewport,
+    anchor,
     logical,
     activeRank,
     visible,

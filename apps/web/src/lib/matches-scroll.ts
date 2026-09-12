@@ -4,6 +4,7 @@ import type { SequenceLayout } from './trend-geometry.ts';
  * Maps one native row pitch to each logical occurrence. */
 export const MATCHES_SAFE_SCROLL_EXTENT = 8_000_000;
 export const MATCHES_ROW_HEIGHT = 32;
+export const MATCHES_ANCHOR_MAX_ROWS = 4;
 
 export interface MatchesAxisLike {
   readonly ranks: Uint32Array;
@@ -30,6 +31,19 @@ export interface MatchesRankTarget {
   readonly rank: number;
   readonly doc: string;
   readonly token: number;
+}
+
+/** Keep the corpus cursor near the leading edge on roomy ports while falling
+ * back to the midpoint when the viewport is too short for a fixed inset. */
+export function matchesViewportAnchor(
+  viewportHeight: number,
+  rowHeight = MATCHES_ROW_HEIGHT,
+): number {
+  const height = Number.isFinite(viewportHeight) ? Math.max(0, viewportHeight) : 0;
+  const pitch = Number.isFinite(rowHeight) && rowHeight > 0
+    ? rowHeight
+    : MATCHES_ROW_HEIGHT;
+  return Math.round(Math.min(height / 2, MATCHES_ANCHOR_MAX_ROWS * pitch));
 }
 
 export function matchesPhysicalExtent(
@@ -66,13 +80,15 @@ export function matchesVisibleRanks(
   viewportHeight: number,
   rowHeight = MATCHES_ROW_HEIGHT,
   overscanViewports = 1,
+  anchor = matchesViewportAnchor(viewportHeight, rowHeight),
 ): MatchesVisibleRanks {
   if (totalRows <= 0 || !(rowHeight > 0)) return { start: 0, end: 0 };
   const visibleRows = Math.max(1, Math.ceil(Math.max(0, viewportHeight) / rowHeight));
   const overscan = Math.ceil(visibleRows * Math.max(0, overscanViewports));
-  const halfVisible = visibleRows / 2;
-  const start = Math.max(0, Math.floor(logical - halfVisible) - overscan);
-  const end = Math.min(totalRows, Math.ceil(logical + halfVisible) + overscan);
+  const behind = Math.max(0, anchor) / rowHeight;
+  const ahead = Math.max(0, viewportHeight - anchor) / rowHeight;
+  const start = Math.max(0, Math.floor(logical - behind) - overscan);
+  const end = Math.min(totalRows, Math.ceil(logical + ahead) + overscan);
   return { start, end: Math.max(start, end) };
 }
 

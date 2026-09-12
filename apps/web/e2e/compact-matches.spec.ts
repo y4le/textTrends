@@ -126,20 +126,44 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
       && nodeBox.x + nodeBox.width <= portBox.x + portBox.width + 1;
   }).toBe(true);
 
-  const assertNowLineCentered = async () => page.locator('.kwic-grid-shell').evaluate((shell) => {
-    const line = shell.querySelector<HTMLElement>('.kwic-now-line')!.getBoundingClientRect();
+  const assertNowMarkAnchored = async () => page.locator('.kwic-grid-shell').evaluate((shell) => {
+    const mark = shell.querySelector<HTMLElement>('.kwic-now-mark')!.getBoundingClientRect();
     const port = shell.querySelector<HTMLElement>('.kwic-virtual-grid')!.getBoundingClientRect();
+    const expectedAnchor = Math.round(Math.min(port.height / 2, mark.height * 4));
     return {
-      midpointError: Math.abs(line.top - (port.top + port.height / 2)),
+      anchorError: Math.abs(mark.top + mark.height / 2 - (port.top + expectedAnchor)),
+      anchorOffset: mark.top + mark.height / 2 - port.top,
+      markerWidth: mark.width,
+      markerHeight: mark.height,
+      portHeight: port.height,
       portBottom: port.bottom,
       dockTop: document.querySelector<HTMLElement>('.workbench-dock')!.getBoundingClientRect().top,
     };
   });
-  expect((await assertNowLineCentered()).midpointError).toBeLessThanOrEqual(1);
+  const initialAnchor = await assertNowMarkAnchored();
+  expect(initialAnchor.anchorError).toBeLessThanOrEqual(1);
+  expect(initialAnchor.anchorOffset).toBeLessThan(initialAnchor.portHeight / 2);
+  expect(initialAnchor.anchorOffset).toBeLessThanOrEqual(initialAnchor.markerHeight * 4 + 1);
+  expect(initialAnchor.markerWidth).toBeLessThanOrEqual(2);
+  expect(initialAnchor.markerHeight).toBeGreaterThan(0);
+
+  await page.emulateMedia({ forcedColors: 'active' });
+  const forcedColors = await page.locator('.kwic-grid-shell').evaluate((shell) => {
+    const mark = shell.querySelector<HTMLElement>('.kwic-now-mark')!;
+    const port = shell.querySelector<HTMLElement>('.kwic-virtual-grid')!;
+    return {
+      adjustment: getComputedStyle(mark).forcedColorAdjust,
+      marker: getComputedStyle(mark).backgroundColor,
+      canvas: getComputedStyle(port).backgroundColor,
+    };
+  });
+  expect(forcedColors.adjustment).toBe('none');
+  expect(forcedColors.marker).not.toBe(forcedColors.canvas);
+  await page.emulateMedia({ forcedColors: 'none' });
 
   await simulateKeyboard(page, 280);
-  await expect.poll(async () => (await assertNowLineCentered()).midpointError).toBeLessThanOrEqual(1);
-  const insetGeometry = await assertNowLineCentered();
+  await expect.poll(async () => (await assertNowMarkAnchored()).anchorError).toBeLessThanOrEqual(1);
+  const insetGeometry = await assertNowMarkAnchored();
   expect(insetGeometry.portBottom).toBeLessThanOrEqual(insetGeometry.dockTop + 1);
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -285,22 +309,23 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
     .toHaveText(/^[\d,]+ \/ [\d,]+$/);
 });
 
-test('short landscape Matches leaves a usable centered results viewport', async ({ page }) => {
+test('short landscape Matches leaves a usable anchored results viewport', async ({ page }) => {
   await page.setViewportSize({ width: 568, height: 320 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'matches');
 
   const geometry = await page.locator('.kwic-grid-shell').evaluate((shell) => {
-    const line = shell.querySelector<HTMLElement>('.kwic-now-line')!.getBoundingClientRect();
+    const mark = shell.querySelector<HTMLElement>('.kwic-now-mark')!.getBoundingClientRect();
     const port = shell.querySelector<HTMLElement>('.kwic-virtual-grid')!.getBoundingClientRect();
     const dock = document.querySelector<HTMLElement>('.workbench-dock')!.getBoundingClientRect();
     const footer = document.querySelector<HTMLElement>('.workbench-footer')!.getBoundingClientRect();
     const appHeader = document.querySelector<HTMLElement>('.app-header')!.getBoundingClientRect();
     const gridHeader = shell.querySelector<HTMLElement>('.kwic-grid-header')!.getBoundingClientRect();
+    const expectedAnchor = Math.round(Math.min(port.height / 2, mark.height * 4));
     return {
       portHeight: port.height,
-      midpointError: Math.abs(line.top - (port.top + port.height / 2)),
+      anchorError: Math.abs(mark.top + mark.height / 2 - (port.top + expectedAnchor)),
       portBottom: port.bottom,
       dockTop: dock.top,
       footerHeight: footer.height,
@@ -313,7 +338,7 @@ test('short landscape Matches leaves a usable centered results viewport', async 
     };
   });
   expect(geometry.portHeight).toBeGreaterThan(0);
-  expect(geometry.midpointError).toBeLessThanOrEqual(1);
+  expect(geometry.anchorError).toBeLessThanOrEqual(1);
   expect(geometry.portBottom).toBeLessThanOrEqual(geometry.dockTop + 1);
   expect(geometry.footerHeight).toBeGreaterThanOrEqual(52);
   expect(geometry.footerHeight).toBeLessThanOrEqual(Math.floor(320 / 3) + 1);

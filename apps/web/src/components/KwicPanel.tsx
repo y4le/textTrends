@@ -1,7 +1,7 @@
 /**
  * Continuous, corpus-order Matches. The native scrollbar owns one capped
- * physical plane; a bounded fixed-height row overlay stays centered on the
- * shared reading cursor.
+ * physical plane; a bounded fixed-height row overlay follows the shared
+ * reading cursor near the leading edge of roomy viewports.
  */
 
 import {
@@ -179,7 +179,7 @@ export function KwicPanel({
   );
 
   const {
-    portRef, chRulerRef, viewport, logical, activeRank, visible,
+    portRef, chRulerRef, viewport, anchor, logical, activeRank, visible,
     physicalTop, physicalExtent, planeHeight, announcement, announce,
     onScroll, moveToRank,
   } = useMatchesScroll({
@@ -512,7 +512,7 @@ export function KwicPanel({
                 className="kwic-edge-band"
                 data-corpus-edge="start"
                 aria-hidden="true"
-                style={{ blockSize: `${viewport.height / 2}px` }}
+                style={{ blockSize: `${anchor}px` }}
               >
                 <span>{startEdgeLabel}</span>
               </div>
@@ -523,8 +523,8 @@ export function KwicPanel({
                 data-corpus-edge="end"
                 aria-hidden="true"
                 style={{
-                  insetBlockStart: `${physicalExtent + viewport.height / 2}px`,
-                  blockSize: `${viewport.height / 2}px`,
+                  insetBlockStart: `${physicalExtent + anchor}px`,
+                  blockSize: `${Math.max(0, viewport.height - anchor)}px`,
                 }}
               >
                 <span>{endEdgeLabel}</span>
@@ -532,7 +532,7 @@ export function KwicPanel({
             )}
             {renderedRows.map(({ row, rank }) => {
               const top = physicalTop
-                + viewport.height / 2
+                + anchor
                 + (rank + 0.5 - logical) * rowHeight
                 - rowHeight / 2;
               return (
@@ -626,9 +626,13 @@ export function KwicPanel({
           className="kwic-column-toolbar"
         />
         <div
-          className="kwic-now-line"
+          className="kwic-now-mark"
           aria-hidden="true"
-          style={{ insetBlockStart: `${viewport.height / 2}px` }}
+          style={{
+            insetBlockStart: `${anchor}px`,
+            blockSize: `${rowHeight}px`,
+            marginBlockStart: `${-rowHeight / 2}px`,
+          }}
         />
       </div>
     );

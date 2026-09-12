@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MATCHES_ANCHOR_MAX_ROWS,
   MATCHES_SAFE_SCROLL_EXTENT,
   matchesLogicalAtScroll,
   matchesPhysicalExtent,
@@ -7,6 +8,7 @@ import {
   matchesScrollTop,
   matchesTargetAtLogical,
   matchesVisibleRanks,
+  matchesViewportAnchor,
   matchesWindowSize,
   globalTokenForTarget,
   logicalForGlobalToken,
@@ -31,6 +33,13 @@ const resident = {
 };
 
 describe('Matches scroll geometry', () => {
+  it('caps the leading anchor at four rows and centers genuinely short ports', () => {
+    expect(matchesViewportAnchor(900, 32)).toBe(MATCHES_ANCHOR_MAX_ROWS * 32);
+    expect(matchesViewportAnchor(200, 32)).toBe(100);
+    expect(matchesViewportAnchor(255, 32)).toBe(128);
+    expect(matchesViewportAnchor(Number.NaN, 32)).toBe(0);
+  });
+
   it('caps the native plane while preserving invertible logical endpoints', () => {
     expect(matchesPhysicalExtent(100, 32)).toBe(3_200);
     expect(matchesPhysicalExtent(1_000_000, 32)).toBe(MATCHES_SAFE_SCROLL_EXTENT);
@@ -71,13 +80,14 @@ describe('Matches scroll geometry', () => {
   });
 
   it('bounds visible overscan and the requested worker window', () => {
-    expect(matchesVisibleRanks(50, 100, 320)).toEqual({ start: 35, end: 65 });
-    expect(matchesVisibleRanks(0, 100, 320)).toEqual({ start: 0, end: 15 });
-    expect(matchesVisibleRanks(100, 100, 320)).toEqual({ start: 85, end: 100 });
+    expect(matchesVisibleRanks(50, 100, 320)).toEqual({ start: 36, end: 66 });
+    expect(matchesVisibleRanks(0, 100, 320)).toEqual({ start: 0, end: 16 });
+    expect(matchesVisibleRanks(100, 100, 320)).toEqual({ start: 86, end: 100 });
     expect(matchesWindowSize(320)).toEqual({ before: 24, after: 24 });
     expect(matchesWindowSize(10_000)).toEqual({ before: 249, after: 249 });
     expect(matchesVisibleRanks(50, 100, 320, 40)).toEqual({ start: 38, end: 62 });
     expect(matchesWindowSize(320, 40)).toEqual({ before: 24, after: 24 });
+    expect(matchesVisibleRanks(50, 100, 900, 32, 0)).toEqual({ start: 46, end: 75 });
   });
 
   it('prefetches overlapping windows before visible rows reach resident edges', () => {
@@ -87,8 +97,8 @@ describe('Matches scroll geometry', () => {
       rows: Array.from({ length: 49 }, () => ({ doc: 'a', pos: 0 })),
     };
     expect(matchesPrefetchRank(40.5, 100, 320, middle, 0)).toBeNull();
-    expect(matchesPrefetchRank(35.5, 100, 320, middle, -1)).toBe(19);
-    expect(matchesPrefetchRank(35.5, 100, 320, middle, 1)).toBeNull();
+    expect(matchesPrefetchRank(34.5, 100, 320, middle, -1)).toBe(19);
+    expect(matchesPrefetchRank(34.5, 100, 320, middle, 1)).toBeNull();
     expect(matchesPrefetchRank(53.5, 100, 320, middle, 1)).toBe(69);
     expect(matchesPrefetchRank(53.5, 100, 320, middle, -1)).toBeNull();
     expect(matchesPrefetchRank(56.5, 100, 320, middle, 1, 40)).toBe(69);

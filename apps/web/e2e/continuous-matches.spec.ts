@@ -69,26 +69,25 @@ test('continuous Matches virtualizes rows and synchronizes scrolling with the sh
   await expect.poll(() => occurrenceRows.count()).toBeGreaterThan(0);
   expect(await occurrenceRows.count()).toBeLessThan(120);
 
-  const centeredGeometry = async () => page.locator('.kwic-grid-shell').evaluate((shell) => {
-    const line = shell.querySelector<HTMLElement>('.kwic-now-line')!.getBoundingClientRect();
+  const anchoredGeometry = async () => page.locator('.kwic-grid-shell').evaluate((shell) => {
+    const mark = shell.querySelector<HTMLElement>('.kwic-now-mark')!.getBoundingClientRect();
     const port = shell.querySelector<HTMLElement>('.kwic-virtual-grid')!.getBoundingClientRect();
     const active = shell.querySelector<HTMLElement>('[role="row"][aria-selected="true"]')
       ?.getBoundingClientRect();
+    const expectedAnchor = Math.round(Math.min(port.height / 2, mark.height * 4));
+    const markCenter = mark.top + mark.height / 2;
     return {
-      lineToUsableMidpoint: Math.abs(
-        line.top
-        - (port.top + (shell.querySelector<HTMLElement>('.kwic-virtual-grid')!.clientHeight / 2)),
-      ),
-      lineToActiveRow: active === undefined
+      markToAnchor: Math.abs(markCenter - (port.top + expectedAnchor)),
+      markToActiveRow: active === undefined
         ? Number.POSITIVE_INFINITY
-        : Math.abs(line.top - (active.top + active.height / 2)),
+        : Math.abs(markCenter - (active.top + active.height / 2)),
     };
   });
-  await expect.poll(async () => (await centeredGeometry()).lineToUsableMidpoint)
+  await expect.poll(async () => (await anchoredGeometry()).markToAnchor)
     .toBeLessThanOrEqual(1);
   await grid.focus();
   await grid.press('Home');
-  await expect.poll(async () => (await centeredGeometry()).lineToActiveRow)
+  await expect.poll(async () => (await anchoredGeometry()).markToActiveRow)
     .toBeLessThanOrEqual(1);
 
   const footerSlider = page.getByRole('slider', { name: 'Corpus footer position' });
@@ -198,7 +197,7 @@ test('continuous Matches virtualizes rows and synchronizes scrolling with the sh
   await grid.focus();
   await grid.press('End');
   await expect(grid).toHaveAttribute('aria-activedescendant', 'matches-row-1199');
-  await expect.poll(async () => (await centeredGeometry()).lineToActiveRow)
+  await expect.poll(async () => (await anchoredGeometry()).markToActiveRow)
     .toBeLessThanOrEqual(1);
   await expect.poll(async () => {
     const geometry = await grid.evaluate((node) => ({
@@ -206,8 +205,8 @@ test('continuous Matches virtualizes rows and synchronizes scrolling with the sh
       max: (node as HTMLElement).scrollHeight - (node as HTMLElement).clientHeight,
     }));
     return Math.abs((geometry.max - geometry.top) - 16);
-  // Native scroll extents can round once at each edge; the selected row's
-  // independent centeredGeometry assertion above remains the stricter 1px gate.
+  // Native scroll extents can round once at each edge; the independent
+  // anchoredGeometry assertion above remains the stricter 1px gate.
   }).toBeLessThanOrEqual(2); // the last row is a half-pitch above the end sentinel
 
   await grid.press('Enter');

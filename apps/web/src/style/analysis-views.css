@@ -1974,6 +1974,14 @@ html[data-trend-row-resizing='true'] * {
   flex: 0 1 auto;
 }
 
+.kwic-edge-band[data-corpus-edge='start'] {
+  align-items: flex-end;
+}
+
+.kwic-edge-band[data-corpus-edge='end'] {
+  align-items: flex-start;
+}
+
 .kwic-virtual-row {
   position: absolute;
   inset-block-start: 0;
@@ -2033,12 +2041,21 @@ html[data-trend-row-resizing='true'] * {
   white-space: pre;
 }
 
-.kwic-now-line {
+.kwic-now-mark {
   position: absolute;
   z-index: 4;
-  inset-inline: 0;
-  border-block-start: 1px solid color-mix(in srgb, var(--accent-text) 70%, transparent);
+  inset-inline-start: 2px;
+  inline-size: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--accent-text) 70%, transparent);
   pointer-events: none;
+}
+
+@media (forced-colors: active) {
+  .kwic-now-mark {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
 }
 
 .kwic-virtual-grid:focus-visible {
