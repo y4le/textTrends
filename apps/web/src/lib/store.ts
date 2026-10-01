@@ -2012,7 +2012,12 @@ export function createAppRuntime(
         }
         if (changed) {
           occurrenceLane.supersede();
-          set({ scrub: target, occurrenceNavigation: null, matchesReveal: null });
+          const kwic = get().kwic;
+          set({ scrub: target, occurrenceNavigation: null, matchesReveal: null,
+            ...(kwic?.resident?.revealRank !== null && kwic?.resident?.revealRank !== undefined
+              ? { kwic: { ...kwic, resident: { ...kwic.resident, revealRank: null } } }
+              : {}),
+          });
         }
         scheduleFooterPassage(target);
       },

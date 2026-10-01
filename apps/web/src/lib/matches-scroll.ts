@@ -17,6 +17,17 @@ export interface MatchesResidentLike {
   readonly rows: readonly { readonly doc: string; readonly pos: number }[];
 }
 
+/** A landed exact rank disambiguates only the cursor that earned it. */
+export function matchesRevealAtCursor(
+  resident: (MatchesResidentLike & { readonly revealRank: number | null }) | null,
+  cursor: { readonly doc: string; readonly token: number } | null,
+): { readonly doc: string; readonly token: number; readonly logical: number } | null {
+  if (resident?.revealRank === null || resident?.revealRank === undefined || cursor === null) return null;
+  const row = resident.rows[resident.revealRank - resident.firstRank];
+  if (row?.doc !== cursor.doc || row.pos !== cursor.token) return null;
+  return { ...cursor, logical: resident.revealRank + 0.5 };
+}
+
 interface RankTokenPoint {
   readonly logical: number;
   readonly globalToken: number;

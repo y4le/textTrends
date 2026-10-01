@@ -12,6 +12,7 @@ import {
   matchesWindowSize,
   globalTokenForTarget,
   logicalForGlobalToken,
+  matchesRevealAtCursor,
 } from '../src/lib/matches-scroll.ts';
 import type { SequenceLayout } from '../src/lib/trend-geometry.ts';
 
@@ -33,6 +34,14 @@ const resident = {
 };
 
 describe('Matches scroll geometry', () => {
+  it('keeps same-token exact ranks and ignores stale reveals after cursor movement', () => {
+    const revealed = { ...resident, revealRank: 1 };
+    expect(matchesRevealAtCursor(revealed, { doc: 'a', token: 10 }))
+      .toEqual({ doc: 'a', token: 10, logical: 1.5 });
+    expect(matchesRevealAtCursor(revealed, { doc: 'a', token: 20 })).toBeNull();
+    expect(matchesRevealAtCursor(revealed, { doc: 'b', token: 10 })).toBeNull();
+    expect(matchesRevealAtCursor(revealed, null)).toBeNull();
+  });
   it('caps the leading anchor at four rows and centers genuinely short ports', () => {
     expect(matchesViewportAnchor(900, 32)).toBe(MATCHES_ANCHOR_MAX_ROWS * 32);
     expect(matchesViewportAnchor(200, 32)).toBe(100);

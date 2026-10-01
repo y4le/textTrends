@@ -297,3 +297,25 @@ test('embedded barcode hover snaps exact evidence in series and by-book views wi
   // The accessible steppers are siblings of the slider, never descendants.
   await expect(scrubber.getByRole('button')).toHaveCount(0);
 });
+
+test('Matches remount keeps a cursor moved away from an exact reveal', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({ name: 'reveal.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS) });
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
+  await submitAndAwaitFreshResults(page, 'wolf');
+  await page.getByRole('button', { name: 'Next wolf reference' }).click();
+  await gotoPlace(page, 'matches');
+  await expect(page.getByRole('grid', { name: 'Matches' })).toHaveAttribute('data-logical-position', '0.500');
+  await gotoPlace(page, 'trends');
+  const slider = page.getByRole('slider', { name: /reading position/i });
+  await slider.press('End');
+  await expect(slider).toHaveAttribute('aria-valuenow', '8');
+  await gotoPlace(page, 'matches');
+  await expect(page.getByRole('grid', { name: 'Matches' })).toHaveAttribute('data-logical-position', '2.000');
+  await gotoPlace(page, 'trends');
+  await expect(slider).toHaveAttribute('aria-valuenow', '8');
+});

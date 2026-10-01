@@ -3422,6 +3422,9 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     await flush();
     expect(f.store.getState().matchesReveal).toBeNull();
     expect(f.store.getState().kwic!.resident?.revealRank).toBe(12);
+    f.store.getState().setScrub({ doc: 'a', token: 8 });
+    expect(f.store.getState().kwic!.resident?.revealRank).toBeNull();
+    expect(f.store.getState().kwic!.resident?.rows).toHaveLength(2);
   });
 });
 

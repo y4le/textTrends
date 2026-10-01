@@ -56,7 +56,10 @@ passage, not Matches analysis.
 
 An exact activation can carry a one-shot reveal target to disambiguate a row
 from the corpus sentinel or same-token siblings. It is consumed on matching
-window settlement and cleared on incompatible identity changes. Raw or density
+window settlement and cleared on incompatible identity changes. A settled
+reveal applies only at its document/token cursor. `setScrub` retires it on
+movement without discarding resident rows. Programmatic reveal records that cursor
+as self-published so resize and context changes preserve same-token rank. Raw or density
 activation carries no invented occurrence provenance. Exact stepping collapses
 a same-token cluster to one stop; without finer provenance, Matches reveals its
 first row. Activation may re-enable its track but does not clear a range.

@@ -13,6 +13,7 @@ import {
   matchesWindowSize,
   globalTokenForTarget,
   logicalForGlobalToken,
+  matchesRevealAtCursor,
 } from '../../lib/matches-scroll.ts';
 
 const SCROLL_TOLERANCE_PX = 0.75;
@@ -247,11 +248,11 @@ export function useMatchesScroll({
       pendingRankRef.current = null;
     }
 
-    if (resident?.revealRank !== null
-      && resident?.revealRank !== undefined
-      && appliedRevealRef.current !== resident) {
+    const revealCursor = matchesRevealAtCursor(resident, scrub);
+    if (revealCursor !== null && appliedRevealRef.current !== resident) {
       appliedRevealRef.current = resident;
-      setLogicalPosition(resident.revealRank + 0.5, true);
+      selfPublishedRef.current = revealCursor;
+      setLogicalPosition(revealCursor.logical, true);
       return;
     }
     if (!scrub) {
