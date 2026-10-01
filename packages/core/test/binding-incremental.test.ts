@@ -144,6 +144,19 @@ async function wolfRows(
 }
 
 describe('session authentication (risk 5: forged session)', () => {
+  it('reuses its owned object when the worker publishes residency back', async () => {
+    const a = await docOf('a', 'wolf fox wolf');
+    const snapshot = await snapshotOf([a]);
+    const session = createBindingSession();
+    const first = await bindShardsIncremental(session, snapshot, shardsOf([a]));
+    const owned = internalShardOf(first, 'a');
+    const before = validations();
+    const second = await bindShardsIncremental(session, snapshot, new Map([['a', owned]]));
+    expect(internalShardOf(second, 'a')).toBe(owned);
+    expect(validations()).toBe(before);
+    expect(owned).not.toBe(a.shard);
+  });
+
   it('rejects cast, copied, cloned, and derived sessions — including on zero-document input', async () => {
     const empty = await composeSnapshot(GEN, [] as ProjectDocId[], new Map());
     const real = createBindingSession();

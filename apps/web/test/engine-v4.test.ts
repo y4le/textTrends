@@ -1,3 +1,4 @@
+import { internalShardOf } from '@texttrends/core/worker-residency';
 /**
  * WorkerEngineV4 lifecycle/race suite. Exercises ingestion, cache admission,
  * publication and cancellation over injected boundaries.
@@ -984,6 +985,19 @@ describe('single text-hash threading (Phase D / D2 — VerifiedText)', () => {
 });
 
 describe('generation-scoped incremental binding (Phase D workstream D1)', () => {
+  it('publishes one binding-owned resident copy on cold ingest and warm reopen', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'wolf fox wolf');
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', 'wolf fox wolf', 10);
+    const resident = () => (h.engine as unknown as { generation: { ready: Map<string, { shard: unknown }>; bound: Parameters<typeof internalShardOf>[0] } }).generation;
+    expect(resident().ready.get('a')!.shard).toBe(internalShardOf(resident().bound, 'a'));
+    await h.flush();
+    await begin(h, [spec], 'g2');
+    expect(h.last('generation-ready').missingDocs).toEqual([]);
+    expect(resident().ready.get('a')!.shard).toBe(internalShardOf(resident().bound, 'a'));
+  });
+
   it('every publication binds through bindShardsIncremental with the ONE session created at beginGeneration', async () => {
     const inc = vi.mocked(bindShardsIncremental);
     const mkSession = vi.mocked(createBindingSession);

@@ -1,3 +1,4 @@
+import { internalShardOf } from '@texttrends/core/worker-residency';
 import {
   dispersionTransferBuffers,
   inventoryTransferBuffers,
@@ -879,7 +880,12 @@ export class WorkerEngineV4 {
         if (gen.publicationEpoch !== stagedBase || owned.some((i) => !this.owns(i.token))) {
           continue; // recompose around whatever is still owned
         }
-        gen.ready = nextReady;
+        // Queries and materializers share the binding-owned copy. The session
+        // keeps only a weak source reference; cache writes below use residency
+        // too, so the fallback cache cannot pin the discarded build arrays.
+        const residentReady = new Map<string, ReadyDocument>();
+        for (const [doc, ready] of nextReady) residentReady.set(doc, { ...ready, shard: internalShardOf(bound, doc) });
+        gen.ready = residentReady;
         gen.texts = nextTexts;
         gen.snapshot = snapshot;
         gen.bound = bound;
@@ -889,7 +895,7 @@ export class WorkerEngineV4 {
         // drop their resolver maps (a retained map holds resolvers bound to
         // a replaced shard).
         gen.executor.publish(
-          { snapshot, ready: nextReady, bound, boundTexts },
+          { snapshot, ready: residentReady, bound, boundTexts },
           included.map((i) => i.prepared.doc),
         );
         this.emit({
@@ -906,7 +912,9 @@ export class WorkerEngineV4 {
         // Only the documents that ACTUALLY committed may have their disposable
         // artifacts persisted — a document dropped during composition or by the
         // cap must not leave cache records for an unpublished build.
-        return included.map((i) => i.prepared);
+        return included.map(({ prepared }) => ({
+          ...prepared, ready: residentReady.get(prepared.doc)!, shard: residentReady.get(prepared.doc)!.shard,
+        }));
       }
     });
     this.composing = run.catch(() => []);

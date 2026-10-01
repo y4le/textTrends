@@ -9,12 +9,13 @@
  *   imposter object is rejected, not consulted;
  * - ownership: every shard typed array and the vocabulary are deep-copied at
  *   bind time, the OWNED COPY is structurally validated against the full
- *   document-index ABI, and no public API returns the resident shard — there
- *   is no supported path to its arrays outside this package's kernels.
+ *   document-index ABI. The package root exposes only capabilities; the
+ *   privileged worker-residency subpath lets the owning worker adopt these
+ *   copies under the same read-only contract as the kernels.
  *
  * The internal accessors are exported from this module for sibling kernels
- * but are deliberately NOT re-exported from the package root; deep-path
- * imports are outside the supported API surface.
+ * but are deliberately NOT re-exported from the package root. Only the
+ * explicit worker-residency subpath supports external residency ownership.
  */
 
 import type { IndexArtifactHash, ProjectDocId } from '../contract/brands.ts';
@@ -231,9 +232,10 @@ export interface BindingSession {
  *  key components — a descriptor hash alone is NOT proof (`indexArtifactHash`
  *  authenticates the descriptor, not every typed-array byte):
  *  the document id (the map key), the snapshot ref's expected identity, and
- *  the EXACT OBJECT IDENTITY of the source shard that was cloned+validated. */
+ *  the exact source or owned object identity. The source reference is weak so
+ *  publishing the owned clone does not pin a second resident copy. */
 interface OwnedShardEntry {
-  readonly source: DocumentIndexV1;
+  readonly source: WeakRef<DocumentIndexV1>;
   readonly expectedIndex: IndexArtifactHash;
   readonly owned: DocumentIndexV1;
 }
@@ -259,7 +261,7 @@ export function createBindingSession(): BindingSession {
  * ONE document, not K+1.
  *
  * Cache discipline:
- * - HIT: entry.source === the supplied shard object AND entry.expectedIndex
+ * - HIT: the supplied object is the live source or the owned clone, and entry.expectedIndex
  *   === ref.index. A DIFFERENT object with the same claimed hash is a MISS
  *   (clone + validate again, replacing the entry).
  * - An entry is populated only AFTER copy-first structural validation and the
@@ -296,7 +298,7 @@ export async function bindShardsIncremental(
       const shard = shards.get(ref.doc);
       if (!shard) throw new DependencyError('shard', ref.doc);
       const entry = cache.get(ref.doc);
-      if (entry !== undefined && entry.source === shard && entry.expectedIndex === ref.index) {
+      if (entry !== undefined && (entry.source.deref() === shard || entry.owned === shard) && entry.expectedIndex === ref.index) {
         verified.set(ref.doc, entry.owned);
         continue;
       }
@@ -304,7 +306,7 @@ export async function bindShardsIncremental(
       // drop the doc's entry FIRST so a throw below leaves nothing reusable.
       cache.delete(ref.doc);
       const owned = await ownShard(shard, ref);
-      cache.set(ref.doc, { source: shard, expectedIndex: ref.index, owned });
+      cache.set(ref.doc, { source: new WeakRef(shard), expectedIndex: ref.index, owned });
       installed.push(ref.doc);
       verified.set(ref.doc, owned);
     }

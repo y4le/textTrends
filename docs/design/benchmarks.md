@@ -284,3 +284,15 @@ for the same budget. This is separate from resident shard memory. Sherlock's
 text and shard payload measured about 5.3 bytes per source character; near the
 64M-character ingest cap a project can exceed the artifact budget and rebuild
 partially on reopen. Corpus shape changes this estimate.
+
+### Worker shard residency (1 October 2026)
+
+A reconstructible Node 24.14.1 `--expose-gc` measurement indexed 256 documents,
+each repeating `wolf fox hare bear. ` 8,496 times (8,699,904 tokens). It kept
+the ready map, composed snapshot, bound capability and binding session alive.
+After an event-loop turn and two explicit collections, the review baseline
+`c03496f` retained 243,622,127 bytes of ArrayBuffers; adopting the binding-owned
+shards and weakly referencing their source retained 122,299,247 bytes. This
+measures steady residency for a small-vocabulary synthetic corpus, not peak
+allocation or a browser RSS guarantee. Binding still copies and validates
+caller-owned input before adoption; the source and owned arrays coexist briefly.
