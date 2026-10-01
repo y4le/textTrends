@@ -1,3 +1,4 @@
+import { occurrenceStepAnchor, validOccurrenceHit } from './occurrence-step.ts';
 /**
  * One React-facing projection of the application runtime. Only handles,
  * metadata, and bounded results live here; corpus arrays stay worker-side.
@@ -2146,49 +2147,13 @@ export function createAppRuntime(
         if (find.state.status === 'pending' && find.state.direction === direction) return;
 
         findLane.supersede();
-        const currentReader = initial.readerPlace;
-        const readyReader = currentReader
-          && initial.readerPage
-          && sameReaderPlace(initial.readerPage.place, currentReader)
-          && initial.readerPage.state.status === 'ready'
-          ? initial.readerPage.state.page
-          : null;
-        const candidateVisible = initial.readerVisibleRange;
-        const visibleReader = readyReader
-          && candidateVisible !== null
-          && candidateVisible.snapshot === initial.readerPage?.snapshot
-          && candidateVisible.doc === readyReader.doc
-          ? candidateVisible
-          : null;
-        const readerAnchor = readyReader
-          ? {
-              doc: readyReader.doc,
-              token: readyReader.anchor?.token
-                ?? visibleReader?.tokens.start
-                ?? readyReader.tokens.start,
-            }
-          : null;
-        // Once Find has settled, its displayed exact result owns subsequent
-        // cycling. Ambient chart/footer motion still updates the shared reading
-        // cursor, but must not silently replace the result named by the Find UI.
-        // A live Reader remains higher priority because it is the active reading
-        // surface and may have advanced beyond the displayed Find hit.
-        const settledFindAnchor = initial.scrub !== null && find.state.status === 'ready'
-          ? { doc: find.state.hit.doc, token: find.state.hit.token }
-          : null;
-        let anchor = readerAnchor ?? settledFindAnchor ?? initial.scrub;
-        const syntheticAnchor = anchor === null;
-        if (anchor === null) {
-          const candidates = direction === 1
-            ? [...snapshot.readyDocs].reverse()
-            : snapshot.readyDocs;
-          const doc = candidates.find((candidate) =>
-            (initial.corpusTokenCounts.get(candidate) ?? 0) > 0);
-          const tokenCount = doc ? initial.corpusTokenCounts.get(doc) ?? 0 : 0;
-          anchor = doc
-            ? { doc, token: direction === 1 ? tokenCount - 1 : 0 }
-            : null;
-        }
+        // Settled Find owns cycling after ambient scrub movement; a live
+        // Reader cursor remains the highest-priority position.
+        const preferred = initial.scrub !== null && find.state.status === 'ready'
+          ? { doc: find.state.hit.doc, token: find.state.hit.token } : null;
+        const step = occurrenceStepAnchor(initial, snapshot.readyDocs, direction, preferred);
+        const anchor = step?.anchor ?? null;
+        const syntheticAnchor = step?.synthetic ?? false;
         if (anchor === null || !snapshot.readyDocs.includes(anchor.doc)) {
           set({
             interaction: {
@@ -2272,18 +2237,7 @@ export function createAppRuntime(
               return;
             }
             const tokenCount = get().corpusTokenCounts.get(hit.doc);
-            if (
-              !snapshot.readyDocs.includes(hit.doc)
-              || !Number.isSafeInteger(hit.token)
-              || hit.token < 0
-              || !Number.isSafeInteger(hit.spanTokens)
-              || hit.spanTokens < 1
-              || (tokenCount !== undefined && hit.token + hit.spanTokens > tokenCount)
-              || hit.members.some((member) =>
-                !Number.isSafeInteger(member)
-                || member < 0
-                || member >= find.query.group.members.length)
-            ) {
+            if (!validOccurrenceHit(hit, snapshot.readyDocs, tokenCount, find.query.group.members.length)) {
               writeFindState({ status: 'error', message: 'worker returned an invalid find match' });
               return;
             }
@@ -2513,39 +2467,7 @@ export function createAppRuntime(
         }
         const navigationSeriesId = tracks[0]!.seriesId;
         const currentReader = state.readerPlace;
-        const readyReader = currentReader
-          && state.readerPage
-          && sameReaderPlace(state.readerPage.place, currentReader)
-          && state.readerPage.state.status === 'ready'
-          ? state.readerPage.state.page
-          : null;
-        const candidateVisible = state.readerVisibleRange;
-        const visibleReader = readyReader
-          && candidateVisible !== null
-          && candidateVisible.snapshot === state.readerPage?.snapshot
-          && candidateVisible.doc === readyReader.doc
-          ? candidateVisible
-          : null;
-        const readerAnchor = readyReader
-          ? {
-              doc: readyReader.doc,
-              token: readyReader.anchor?.token
-                ?? visibleReader?.tokens.start
-                ?? readyReader.tokens.start,
-            }
-          : null;
-        let anchor = readerAnchor ?? state.scrub;
-        if (anchor === null) {
-          const candidates = direction === 1
-            ? [...snapshot.readyDocs].reverse()
-            : snapshot.readyDocs;
-          const doc = candidates.find((candidate) =>
-            (state.corpusTokenCounts.get(candidate) ?? 0) > 0);
-          const tokenCount = doc ? state.corpusTokenCounts.get(doc) ?? 0 : 0;
-          anchor = doc
-            ? { doc, token: direction === 1 ? tokenCount - 1 : 0 }
-            : null;
-        }
+        const anchor = occurrenceStepAnchor(state, snapshot.readyDocs, direction)?.anchor ?? null;
         if (anchor === null || !snapshot.readyDocs.includes(anchor.doc)) {
           set({
             occurrenceNavigation: {
@@ -2642,18 +2564,7 @@ export function createAppRuntime(
               return;
             }
             const tokenCount = get().corpusTokenCounts.get(hit.doc);
-            if (
-              !snapshot.readyDocs.includes(hit.doc)
-              || !Number.isSafeInteger(hit.token)
-              || hit.token < 0
-              || !Number.isSafeInteger(hit.spanTokens)
-              || hit.spanTokens < 1
-              || (tokenCount !== undefined && hit.token + hit.spanTokens > tokenCount)
-              || hit.members.some((member) =>
-                !Number.isSafeInteger(member)
-                || member < 0
-                || member >= chosen.group.members.length)
-            ) {
+            if (!validOccurrenceHit(hit, snapshot.readyDocs, tokenCount, chosen.group.members.length)) {
               set({
                 occurrenceNavigation: {
                   snapshot: snapshot.snapshot,
