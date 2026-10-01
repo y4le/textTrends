@@ -17,7 +17,7 @@ test('ready next steps do not move a pressed active-input removal button', async
   });
   await page.goto('./?fresh=1');
   await page.getByLabel('Add files — import and analyze').setInputFiles(
-    [['first', 'forest pine wolf. '], ['second', 'ocean wave salt. '], ['third', 'hill stream bear. ']].map(([name, text]) => ({
+    ([['first', 'forest pine wolf. '], ['second', 'ocean wave salt. '], ['third', 'hill stream bear. ']] as const).map(([name, text]) => ({
       name: `${name}.txt`, mimeType: 'text/plain', buffer: Buffer.from(text.repeat(30)),
     })),
   );
