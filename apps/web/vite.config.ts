@@ -68,7 +68,9 @@ export default defineConfig(({ mode }) => {
     build: {
       // Preserve the explicit vh declarations that precede dvh. The fallback is
       // part of the deployed mobile-browser contract, not dead legacy syntax.
-      cssTarget: 'safari14',
+      // Keep native logical insets. Lowering for Safari 14.0 creates list
+      // :lang() selectors that Chromium drops; 14.1 still keeps dvh fallbacks.
+      cssTarget: 'safari14.1',
       ...(mode === 'e2e'
         ? {
             rolldownOptions: {

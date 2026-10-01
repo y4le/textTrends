@@ -290,3 +290,12 @@ describe('bundle contract', () => {
     assert.ok(run(d.files).failures.some((f) => f.includes('expected one entry script')));
   });
 });
+
+
+it('rejects CSS logical inset lowering into unsupported list language selectors', () => {
+  const { files } = syntheticDist();
+  files.set('assets/index-test.css', Buffer.from('.handle:lang(ae,ar,he){left:-6px}'));
+  assert.ok(checkBundle(files, catalogSource).failures.some((failure) => failure.includes('unsupported list :lang()')));
+  files.set('assets/index-test.css', Buffer.from('.handle{inset-inline-end:-6px}'));
+  assert.deepEqual(checkBundle(files, catalogSource).failures, []);
+});

@@ -112,6 +112,14 @@ export function checkBundle(files, catalogSource) {
   }
 
   // ---- role chunks ---------------------------------------------------------
+  // Lightning CSS logical-inset lowering can emit multi-language :lang()
+  // selectors that production Chromium drops, silently moving reading controls.
+  for (const path of matching(files, /\.css$/)) {
+    if (/:lang\([^)]*,/i.test(files.get(path).toString('utf8'))) {
+      failures.push(`${path}: unsupported list :lang() lowering; retain native logical insets`);
+    }
+  }
+
   const entryPath = unique(files, /^assets\/index-[^/]+\.js$/, 'entry', failures);
   const workerPath = unique(files, /^assets\/index\.worker-[^/]+\.js$/, 'worker base', failures);
   const archivePath = unique(files, /^assets\/archive-[^/]+\.js$/, 'SE archive client', failures);
