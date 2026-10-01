@@ -515,20 +515,20 @@
   opacity: 0.45;
 }
 
-.reader-control-exit,
-.reader-control-speed {
-  color: var(--accent-text) !important;
+.reader-control-bar > .reader-control-exit:not(:disabled),
+.reader-control-bar > .reader-control-speed:not(:disabled) {
+  color: var(--accent-text);
 }
 
-.reader-control-position {
-  display: grid !important;
-  min-inline-size: 0 !important;
+.reader-control-bar > .reader-control-position {
+  display: grid;
+  min-inline-size: 0;
   grid-template-rows: minmax(0, auto) minmax(0, auto);
   align-content: center;
   justify-items: center;
   gap: 1px;
-  padding-inline: var(--space-2) !important;
-  font-family: var(--font-serif) !important;
+  padding-inline: var(--space-2);
+  font-family: var(--font-serif);
 }
 
 .reader-control-position > strong,
@@ -582,16 +582,16 @@
   align-items: stretch;
 }
 
-.reader-find-exit {
+.find-bar--reader .reader-find-exit {
   display: flex;
   grid-column: 1;
   min-inline-size: 44px;
   min-block-size: 44px;
   align-items: center;
   justify-content: center;
-  border: 0 !important;
-  border-inline-end: 1px solid var(--rule) !important;
-  color: var(--accent-text) !important;
+  border: 0;
+  border-inline-end: 1px solid var(--rule);
+  color: var(--accent-text);
 }
 
 .reader-find-label {
@@ -648,12 +648,12 @@
   align-items: stretch;
 }
 
-.reader-find-actions > button {
+.find-bar--reader .reader-find-actions > button {
   min-inline-size: 44px;
   min-block-size: 44px;
   flex: 0 0 auto;
   border: 0;
-  border-inline-start: 1px solid var(--rule) !important;
+  border-inline-start: 1px solid var(--rule);
   padding-inline: var(--space-2);
 }
 
@@ -993,13 +993,13 @@
   font: inherit;
 }
 
-.reader-rsvp-exit {
-  border-inline-end: 1px solid var(--rule) !important;
-  color: var(--accent-text) !important;
+.reader-rsvp-topbar > .reader-rsvp-exit {
+  border-inline-end: 1px solid var(--rule);
+  color: var(--accent-text);
 }
 
-.reader-rsvp-settings-open {
-  border-inline-start: 1px solid var(--rule) !important;
+.reader-rsvp-topbar > .reader-rsvp-settings-open {
+  border-inline-start: 1px solid var(--rule);
 }
 
 .reader-rsvp-settings-icon {
@@ -1245,11 +1245,11 @@
   opacity: 0.48;
 }
 
-.reader-rsvp-toggle {
-  min-inline-size: 72px !important;
-  border-color: var(--accent-text) !important;
-  background: var(--accent) !important;
-  color: var(--bg) !important;
+.reader-rsvp-movement > .reader-rsvp-toggle {
+  min-inline-size: 72px;
+  border-color: var(--accent-text);
+  background: var(--accent);
+  color: var(--bg);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -1616,8 +1616,8 @@
     padding-inline: var(--space-1);
   }
 
-  .reader-control-position {
-    padding-inline: var(--space-1) !important;
+  .reader-control-bar > .reader-control-position {
+    padding-inline: var(--space-1);
   }
 }
 

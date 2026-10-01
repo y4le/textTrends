@@ -377,6 +377,10 @@ test('wide Reader Find reserves its own row while retaining measured rails', asy
     .toHaveAttribute('data-orientation', 'horizontal');
   await expect(reader.locator('[data-atlas-entry]')).toHaveCount(0);
   await expect(pane).not.toHaveAttribute('data-reader-fitting');
+  for (const button of await find.getByRole('button').all()) {
+    await expect(button).toHaveCSS('border-top-width', '0px');
+    await expect(button).toHaveCSS('border-bottom-width', '0px');
+  }
   const smallerPane = await pane.boundingBox();
   expect(smallerPane!.height).toBeLessThan(paneBox!.height);
   const [findBox, layoutBox] = await Promise.all([find.boundingBox(), layout.boundingBox()]);
