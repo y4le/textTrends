@@ -86,13 +86,14 @@ describe('library workspace runtime', () => {
     expect(result.workspace.views.compare).toMatchObject({ documentA: 'a', documentB: null });
   });
 
-  it('derives library worker inputs and treats warm text as optional', async () => {
+  it('derives library worker inputs without trusting legacy warm text hints', async () => {
     const id = `txt:${'c'.repeat(64)}`;
     const workspace = workspaceState({
       corpus: {
         kind: 'library',
         order: ['doc'],
-        docs: [{ doc: 'doc', library: id, meta: { title: 'Book', language: 'en', tags: [] } }],
+        docs: [{ doc: 'doc', library: id, meta: { title: 'Book', language: 'en', tags: [] },
+          warm: { textHash: 'a'.repeat(64), textLengthUtf16: 999 } }],
       },
     });
     const project = await libraryProject(workspace, new Map([[id, {

@@ -45,6 +45,27 @@ async function open(warnings: Warning[] = []) {
 }
 
 describe('IdbArtifactStore', () => {
+  it('persists source/recipe extraction bindings and repairs invalid identities', async () => {
+    const key = { source: 'a'.repeat(64), recipe: 'b'.repeat(64) };
+    const hash = 'c'.repeat(64);
+    const first = await open();
+    await first.putExtraction(key, hash);
+    first.close();
+    const second = await open();
+    expect(await second.getExtraction(key)).toEqual({ kind: 'hit', value: hash });
+    expect(await second.getExtraction({ ...key, source: 'd'.repeat(64) })).toEqual({ kind: 'miss' });
+    expect(await second.getExtraction({ ...key, recipe: 'd'.repeat(64) })).toEqual({ kind: 'miss' });
+    const db = await openDB(ARTIFACT_DB_NAME, ARTIFACT_DB_VERSION);
+    await db.put('extractions', {
+      schema: 'texttrends/stored-extraction/1', sourceHash: key.source,
+      recipeHash: key.recipe, textHash: 'invalid',
+    });
+    expect((await second.getExtraction(key)).kind).toBe('corrupt');
+    await second.deleteExtraction(key);
+    expect(await second.getExtraction(key)).toEqual({ kind: 'miss' });
+    db.close();
+    second.close();
+  });
   it('round-trips texts and shards and misses on absent keys', async () => {
     const store = await open();
     expect((await store.getText('texthash')).kind).toBe('miss');

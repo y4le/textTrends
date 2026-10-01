@@ -57,6 +57,9 @@ export function parseBackupManifest(value: unknown): BackupManifest {
     return { ...source } as unknown as LocalLibraryItem;
   });
   const workspace = parseWorkspace(value.workspace);
+  if (workspace.corpus.docs.some((doc) => doc.warm !== undefined)) {
+    throw new Error('Portable backups cannot contain disposable warm text hints.');
+  }
   const byId = new Map(sources.map((source) => [source.id, source]));
   let activeBytes = 0;
   for (const doc of workspace.corpus.docs) {

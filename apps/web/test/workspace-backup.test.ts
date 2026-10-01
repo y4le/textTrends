@@ -39,6 +39,18 @@ function archive(manifest: unknown, entries: Record<string, Uint8Array> = {}) {
 }
 
 describe('workspace backup', () => {
+  it('rejects portable text hints that could select unrelated cached prose', async () => {
+    const source = await fixture();
+    const workspace = { ...source.manifest.workspace, corpus: {
+      ...source.manifest.workspace.corpus,
+      docs: source.manifest.workspace.corpus.docs.map((doc) => ({ ...doc,
+        warm: { textHash: 'a'.repeat(64), textLengthUtf16: 100 },
+      })),
+    } };
+    expect(() => parseBackupManifest({ ...source.manifest, workspace }))
+      .toThrow(/cannot contain disposable warm text hints/);
+    await source.library.close();
+  });
   it('preserves exact original bytes, inactive library texts, IDs, metadata, and settings in a fresh library', async () => {
     const source = await fixture();
     const file = await writeBackup(source.manifest, async (id) => source.bodies.get(id)!.slice().buffer);

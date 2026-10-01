@@ -241,10 +241,8 @@ export async function libraryProject(
       extraction: {
         recipe: recipes[source.format],
         recipeHash: hashByFormat.get(source.format)!,
-        ...(saved.warm === undefined ? {} : {
-          text: saved.warm.textHash,
-          textLengthUtf16: saved.warm.textLengthUtf16,
-        }),
+        // Legacy workspace hints cannot prove which source/recipe produced
+        // their text. The worker resolves that binding in its disposable cache.
       },
     };
   });

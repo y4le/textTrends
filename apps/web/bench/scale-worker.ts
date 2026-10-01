@@ -28,6 +28,8 @@ async function phase(name: string, run: () => Promise<unknown>) {
 // Exercise structured-clone allocation on writes but discard artifacts, like a
 // cold cache with no JS-resident backing map. This is not IndexedDB I/O timing.
 const store: ArtifactStore = {
+  getExtraction: async () => ({ kind: 'miss' }),
+  putExtraction: async () => {}, deleteExtraction: async () => {},
   getText: async () => ({ kind: 'miss' }), getShard: async () => ({ kind: 'miss' }),
   putText: async (_key, text) => { structuredClone(text); },
   putShard: async (_key, shard) => { structuredClone(shard); },

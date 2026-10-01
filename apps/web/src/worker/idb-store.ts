@@ -3,7 +3,7 @@
  *
  * PROVISIONAL NAMESPACE: the index recipe is still
  * 'texttrends/index-recipe/0-provisional', so every record in this database
- * is disposable by design. The database name's trailing 'db3' is the DATABASE
+ * is disposable by design. The database name's trailing 'db4' is the DATABASE
  * LAYOUT version, not IndexRecipeV1.
  * Recipe graduation opens a NEW database name and never reads provisional
  * records as canonical — there will never be a migration of these records.
@@ -30,6 +30,7 @@ import {
   type ArtifactStore,
   type CacheRead,
   type DocumentIndexCacheKey,
+  type ExtractionCacheKey,
 } from './store.ts';
 import { ARTIFACT_DB_NAME, ARTIFACT_DB_VERSION } from '../shared/storage-schema.ts';
 
@@ -43,6 +44,13 @@ interface StoredTextV1 {
   readonly text: string;
 }
 
+interface StoredExtractionV1 {
+  readonly schema: 'texttrends/stored-extraction/1';
+  readonly sourceHash: string;
+  readonly recipeHash: string;
+  readonly textHash: string;
+}
+
 interface StoredShardV1 {
   readonly schema: 'texttrends/stored-shard/1';
   readonly artifactSchema: 'texttrends/document-index/1';
@@ -53,6 +61,10 @@ interface StoredShardV1 {
 }
 
 interface ArtifactDb extends DBSchema {
+  extractions: {
+    key: ['texttrends/stored-extraction/1', string, string];
+    value: StoredExtractionV1;
+  };
   texts: {
     key: ['texttrends/stored-text/1', string];
     value: StoredTextV1;
@@ -145,6 +157,34 @@ export class IdbArtifactStore implements ArtifactStore {
           : { kind: 'corrupt', reason };
       },
     );
+  }
+
+  getExtraction(key: ExtractionCacheKey): Promise<CacheRead<string>> {
+    return this.read(
+      (db) => db.get('extractions', ['texttrends/stored-extraction/1', key.source, key.recipe]),
+      (record) => {
+        if (!isRecord(record) || record.schema !== 'texttrends/stored-extraction/1'
+          || record.sourceHash !== key.source || record.recipeHash !== key.recipe
+          || typeof record.textHash !== 'string' || !/^[0-9a-f]{64}$/u.test(record.textHash)) {
+          return { kind: 'corrupt', reason: 'stored extraction identity is invalid' };
+        }
+        return { kind: 'hit', value: record.textHash };
+      },
+    );
+  }
+
+  putExtraction(key: ExtractionCacheKey, textHash: string): Promise<void> {
+    const record: StoredExtractionV1 = {
+      schema: 'texttrends/stored-extraction/1', sourceHash: key.source,
+      recipeHash: key.recipe, textHash,
+    };
+    return this.write((db) => db.put('extractions', record));
+  }
+
+  deleteExtraction(key: ExtractionCacheKey): Promise<void> {
+    if (!this.db) return Promise.resolve();
+    return this.db.delete('extractions', ['texttrends/stored-extraction/1', key.source, key.recipe])
+      .catch(() => undefined);
   }
 
   putText(hash: string, text: string): Promise<void> {
@@ -273,6 +313,7 @@ function defaultOpen(): Promise<IDBPDatabase<ArtifactDb>> {
       // Layout version 1: creation only. A future layout bump opens a NEW
       // database name — provisional records are never migrated.
       db.createObjectStore('texts', { keyPath: ['schema', 'hash'] });
+      db.createObjectStore('extractions', { keyPath: ['schema', 'sourceHash', 'recipeHash'] });
       db.createObjectStore('shards', {
         keyPath: ['artifactSchema', 'textHash', 'recipeHash', 'segmenterHash'],
       });

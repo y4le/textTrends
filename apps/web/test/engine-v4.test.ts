@@ -269,6 +269,54 @@ describe('warm reopen (deep admission across text and index)', () => {
     h.clear();
   }
 
+  it('warm-reopens library sources without relying on persisted text hints', async () => {
+    const h = harness();
+    const text = 'the wolf ran far';
+    const complete = await docSpec('a', text);
+    const spec = { ...complete, extraction: {
+      recipe: complete.extraction.recipe, recipeHash: complete.extraction.recipeHash,
+    } };
+    await coldPass(h, spec, text);
+    await begin(h, [spec], 'warm');
+    expect(h.last('generation-ready')).toMatchObject({ readyDocs: ['a'], missingDocs: [] });
+    expect(h.all('progress')).toEqual([]);
+  });
+
+  it('requires bytes when either the source or extraction recipe changes', async () => {
+    const h = harness();
+    const text = 'the wolf ran far';
+    const complete = await docSpec('a', text);
+    await coldPass(h, complete, text);
+    const changedRecipe = await docSpec('a', text, { format: 'md' });
+    for (const candidate of [changedRecipe, {
+      ...complete, source: { ...complete.source, expectedHash: 'b'.repeat(64) },
+    }]) {
+      const spec = { ...candidate, extraction: {
+        recipe: candidate.extraction.recipe, recipeHash: candidate.extraction.recipeHash,
+      } };
+      await begin(h, [spec], 'changed');
+      expect(h.last('generation-ready')).toMatchObject({ readyDocs: [], missingDocs: ['a'] });
+      h.clear();
+    }
+  });
+
+  it('repairs a damaged extraction binding and falls back to original bytes', async () => {
+    const h = harness();
+    const text = 'the wolf ran far';
+    const complete = await docSpec('a', text);
+    const spec = { ...complete, extraction: {
+      recipe: complete.extraction.recipe, recipeHash: complete.extraction.recipeHash,
+    } };
+    await coldPass(h, spec, text);
+    vi.spyOn(h.store, 'getExtraction').mockResolvedValueOnce({ kind: 'corrupt', reason: 'invalid identity' });
+    const deletion = vi.spyOn(h.store, 'deleteExtraction');
+    await begin(h, [spec], 'repair');
+    expect(deletion).toHaveBeenCalledWith({ source: spec.source.expectedHash, recipe: spec.extraction.recipeHash });
+    expect(h.last('generation-ready').missingDocs).toEqual(['a']);
+    await coldIngest(h, 'repair', 'a', text, 11);
+    expect(h.last('snapshot-published').readyDocs).toEqual(['a']);
+  });
+
   it('an exact warm reopen performs no decode, extract, segment, or index work', async () => {
     const h = harness();
     const text = '# Ch\n\nthe wolf ran far';

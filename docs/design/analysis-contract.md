@@ -163,9 +163,14 @@ Persistence has two owners:
    bodies; its atomic upgrade preserves original records on failure.
    Workspace-file restore advances an epoch that rejects older tabs' writes.
    Its source/workspace/settings handoff follows the [backup contract](workspace-backup.md).
-2. `texttrends-artifacts-provisional-db3` stores disposable verified text and
-   document indexes. It can always be discarded and rebuilt from library or
-   bundled source bytes.
+2. `texttrends-artifacts-provisional-db4` stores disposable verified text and
+   document indexes, plus extraction bindings from verified source hash and
+   extraction recipe hash to text hash. Only committed cold ingestion earns
+   such a binding. Library reopen uses the current recipe's binding and deeply
+   verifies the referenced text/index; a missing or damaged record falls back
+   to original bytes. Legacy workspace text hints are ignored, and portable
+   backups reject them. This database can always be discarded and rebuilt
+   from library or bundled source bytes; the new layout does not migrate db3.
 
 The workspace stores corpus references and order, document metadata, notebook
 groups, and analysis-view settings. Reader position, linked selection, current

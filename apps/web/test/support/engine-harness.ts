@@ -34,6 +34,9 @@ export class FilterStore implements ArtifactStore {
   shardDeletes = 0;
   textDeletes = 0;
   constructor(readonly inner: InMemoryArtifactStore) {}
+  getExtraction(key: Parameters<ArtifactStore['getExtraction']>[0]) { return this.inner.getExtraction(key); }
+  putExtraction(key: Parameters<ArtifactStore['putExtraction']>[0], hash: string) { return this.inner.putExtraction(key, hash); }
+  deleteExtraction(key: Parameters<ArtifactStore['deleteExtraction']>[0]) { return this.inner.deleteExtraction(key); }
   async getText(h: string): Promise<CacheRead<string>> {
     this.textReads++;
     if (this.onTextRead) await this.onTextRead(this.textReads);

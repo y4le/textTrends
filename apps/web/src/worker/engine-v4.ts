@@ -515,15 +515,26 @@ export class WorkerEngineV4 {
   /** Verify cached text and admit its index shard without rebuilding. */
   private async probeWarmDocument(job: number, plan: ResolvedDocPlan, token: DocWorkToken): Promise<WarmProbe> {
     const gen = token.generation;
-    if (plan.expectedText === undefined) {
-      return { kind: 'needs-bytes' };
+    let textHash = plan.expectedText;
+    if (textHash === undefined && plan.expectedSourceHash !== undefined) {
+      const key = { source: plan.expectedSourceHash, recipe: plan.extractionRecipeHash };
+      const binding = await this.store.getExtraction(key);
+      this.docGate(job, token);
+      if (binding.kind === 'corrupt') {
+        this.warnStorage('CACHE_CORRUPT', `stored extraction for '${plan.doc}' is corrupt (${binding.reason}); deleted`, gen.generation);
+        await this.store.deleteExtraction(key).catch(() => undefined);
+        this.docGate(job, token);
+      } else if (binding.kind === 'hit') {
+        textHash = binding.value;
+      }
     }
-    const read = await this.store.getText(plan.expectedText);
+    if (textHash === undefined) return { kind: 'needs-bytes' };
+    const read = await this.store.getText(textHash);
     this.docGate(job, token);
     if (read.kind === 'miss') return { kind: 'needs-bytes' };
     if (read.kind === 'corrupt') {
       this.warnStorage('CACHE_CORRUPT', `stored text for '${plan.doc}' is corrupt (${read.reason}); deleted`, gen.generation);
-      await this.store.deleteText(plan.expectedText).catch(() => undefined);
+      await this.store.deleteText(textHash).catch(() => undefined);
       this.docGate(job, token);
       return { kind: 'needs-bytes' };
     }
@@ -534,19 +545,17 @@ export class WorkerEngineV4 {
     const text = read.value;
     let verified: VerifiedText | null = null;
     try {
-      verified = await verifyText(text, plan.expectedText as TextHash);
+      verified = await verifyText(text, textHash as TextHash);
     } catch {
       verified = null; // ill-formed UTF-16 or a hash mismatch is corruption
     }
     this.docGate(job, token);
     if (verified === null) {
       this.warnStorage('CACHE_CORRUPT', `stored text for '${plan.doc}' does not hash to its key; deleted`, gen.generation);
-      await this.store.deleteText(plan.expectedText).catch(() => undefined);
+      await this.store.deleteText(textHash).catch(() => undefined);
       this.docGate(job, token);
       return { kind: 'needs-bytes' };
     }
-    const textHash = plan.expectedText;
-
     const shardKey = await this.shardKeyFor(gen, plan.effectiveLocale, textHash);
     this.docGate(job, token);
     const shard = await this.admitCachedShard(job, plan, token, shardKey, text);
@@ -906,6 +915,15 @@ export class WorkerEngineV4 {
       this.store.putText(prepared.ready.shard.text, prepared.text),
       this.store.putShard(prepared.shardKey, prepared.shard),
     ];
+    // Only cold ingestion earns a source proof. Never mint a source binding
+    // from a caller's text assertion or from another warm cache record.
+    const source = gen.work.get(prepared.doc)?.accepted?.source;
+    const plan = gen.plans.get(prepared.doc);
+    if (source !== undefined && plan !== undefined) {
+      writes.push(this.store.putExtraction(
+        { source, recipe: plan.extractionRecipeHash }, prepared.ready.shard.text,
+      ));
+    }
     void Promise.all(writes).catch(() => {
       // A write that fails after the generation was replaced must not emit a
       // warning attributed to the current (different) generation.

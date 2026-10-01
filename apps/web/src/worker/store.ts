@@ -33,12 +33,21 @@ export interface DocumentIndexCacheKey {
   readonly segmenter: string;
 }
 
+/** Extraction results are scoped to both verified original bytes and recipe. */
+export interface ExtractionCacheKey {
+  readonly source: string;
+  readonly recipe: string;
+}
+
 /**
  * Disposable artifact storage (content-addressed, recomputable).
  * getShard returns `unknown`: the store validates only its own envelope; the
  * ENGINE is the authority for artifact ABI.
  */
 export interface ArtifactStore {
+  getExtraction(key: ExtractionCacheKey): Promise<CacheRead<string>>;
+  putExtraction(key: ExtractionCacheKey, textHash: string): Promise<void>;
+  deleteExtraction(key: ExtractionCacheKey): Promise<void>;
   getText(hash: string): Promise<CacheRead<string>>;
   putText(hash: string, text: string): Promise<void>;
   deleteText(hash: string): Promise<void>;
@@ -55,12 +64,25 @@ export interface ArtifactStore {
 const shardKey = (k: DocumentIndexCacheKey): string =>
   JSON.stringify([k.schema, k.text, k.recipe, k.segmenter]);
 export class InMemoryArtifactStore implements ArtifactStore {
+  private readonly extractions = new Map<string, string>();
   private readonly texts = new Map<string, string>();
   private readonly shards = new Map<string, DocumentIndexV1>();
 
   private static read<T>(map: Map<string, T>, key: string): CacheRead<T> {
     const value = map.get(key);
     return value === undefined ? { kind: 'miss' } : { kind: 'hit', value };
+  }
+
+  getExtraction(key: ExtractionCacheKey): Promise<CacheRead<string>> {
+    return Promise.resolve(InMemoryArtifactStore.read(this.extractions, JSON.stringify([key.source, key.recipe])));
+  }
+  putExtraction(key: ExtractionCacheKey, textHash: string): Promise<void> {
+    this.extractions.set(JSON.stringify([key.source, key.recipe]), textHash);
+    return Promise.resolve();
+  }
+  deleteExtraction(key: ExtractionCacheKey): Promise<void> {
+    this.extractions.delete(JSON.stringify([key.source, key.recipe]));
+    return Promise.resolve();
   }
 
   getText(hash: string): Promise<CacheRead<string>> {
