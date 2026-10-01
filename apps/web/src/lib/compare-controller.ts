@@ -212,7 +212,7 @@ export function createCompareController({
         op: 'inventory',
         selection: pair[side],
         request: {
-          method: 'inventory/1',
+          method: 'inventory/2',
           rhythmBinsPerDoc: 0,
           mattrWindow: INVENTORY_MATTR_WINDOW,
         },

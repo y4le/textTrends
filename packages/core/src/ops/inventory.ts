@@ -1,5 +1,5 @@
 /**
- * inventory/1 — selection-scoped corpus and document overview.
+ * inventory/2 — selection-scoped corpus and document overview.
  *
  * This operation folds the shared sparse per-document term-count vectors. It
  * never resolves vocabulary terms or caches an operation result. Sentences
@@ -23,7 +23,7 @@ export const INVENTORY_SCAN_CHUNK = 65_536;
 export const INVENTORY_MAX_VOCAB_TYPES = MATTR_MAX_TYPES;
 
 export interface InventoryRequestV1 {
-  readonly method: 'inventory/1';
+  readonly method: 'inventory/2';
   readonly rhythmBinsPerDoc: number;
   readonly mattrWindow: number;
 }
@@ -63,6 +63,8 @@ export interface InventoryDocumentRowV1 {
   readonly paragraphMean: number | null;
   readonly ttr: number | null;
   readonly mattr: number | null;
+  /** Tokens in selected runs long enough for a complete MATTR window. */
+  readonly mattrTokens: number;
   readonly mattrIsPlainTtr: boolean;
   readonly charsUtf16: number;
   readonly readabilityCharacters: number;
@@ -87,7 +89,7 @@ export interface InventoryDocumentInputV1 {
 }
 
 export interface InventoryResultV1 {
-  readonly method: 'inventory/1';
+  readonly method: 'inventory/2';
   readonly selection: ResolvedSelection['hash'];
   readonly order: readonly string[];
   readonly totals: InventoryTotalsV1;
@@ -100,7 +102,7 @@ export interface InventoryResultV1 {
 export type InventoryCheckpoint = () => Promise<void>;
 
 function validateRequest(request: InventoryRequestV1): void {
-  if (request.method !== 'inventory/1') {
+  if (request.method !== 'inventory/2') {
     throw new RangeError(`unknown inventory method '${String(request.method)}'`);
   }
   if (
@@ -242,20 +244,27 @@ function diversityForRuns(
   shard: DocumentIndexV1,
   runs: readonly TokenRangeSpan[],
   window: number,
-): { value: number | null; isPlainTtr: boolean } {
+): { value: number | null; coveredTokens: number; isPlainTtr: boolean } {
   let tokens = 0;
   let weighted = 0;
-  let isPlainTtr = false;
+  let coveredTokens = 0;
+  let fallbackWeighted = 0;
   for (const { start, end } of runs) {
     const length = end - start;
     if (length === 0) continue;
     tokens += length;
-    weighted += mattrIds(shard.tokenTypeIds.subarray(start, end), window) * length;
-    if (length <= window) isPlainTtr = true;
+    const value = mattrIds(shard.tokenTypeIds.subarray(start, end), window);
+    if (length >= window) {
+      coveredTokens += length;
+      weighted += value * length;
+    } else {
+      fallbackWeighted += value * length;
+    }
   }
   return {
-    value: tokens === 0 ? null : weighted / tokens,
-    isPlainTtr,
+    value: coveredTokens > 0 ? weighted / coveredTokens : tokens > 0 ? fallbackWeighted / tokens : null,
+    coveredTokens,
+    isPlainTtr: tokens > 0 && coveredTokens === 0,
   };
 }
 
@@ -436,6 +445,7 @@ export async function inventory(
       paragraphMean: mean(paragraphs),
       ttr: input.counts.tokens === 0 ? null : types / input.counts.tokens,
       mattr: diversity.value,
+      mattrTokens: diversity.coveredTokens,
       mattrIsPlainTtr: diversity.isPlainTtr,
       charsUtf16,
       readabilityCharacters,
@@ -497,7 +507,7 @@ export async function inventory(
     readabilityLetters: totalReadabilityLetters,
   };
   return {
-    method: 'inventory/1',
+    method: 'inventory/2',
     selection: selection.hash,
     order: [...selection.spec.docs],
     totals,

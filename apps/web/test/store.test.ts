@@ -480,7 +480,7 @@ function fakeInventoryResult(
   return {
     op: 'inventory',
     inventory: {
-      method: 'inventory/1',
+      method: 'inventory/2',
       selection: `selection-${marker}`,
       order: extents.length === 0 ? ['a'] : extents.map((row) => row.doc),
       totals: {

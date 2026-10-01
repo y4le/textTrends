@@ -1035,9 +1035,9 @@ describe('Slice-3 document-term-count cache', () => {
 });
 
 
-describe('inventory/1 through the executor and engine', () => {
+describe('inventory/2 through the executor and engine', () => {
   const request = {
-    method: 'inventory/1' as const,
+    method: 'inventory/2' as const,
     rhythmBinsPerDoc: 2,
     mattrWindow: 3,
   };
@@ -1148,7 +1148,7 @@ describe('frequency through the executor and engine', () => {
         op: 'inventory',
         selection,
         request: {
-          method: 'inventory/1',
+          method: 'inventory/2',
           rhythmBinsPerDoc: 0,
           mattrWindow: 3,
         },

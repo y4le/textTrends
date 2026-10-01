@@ -185,6 +185,14 @@ Sequences shorter than the window use labeled plain TTR. Empty input returns
 zero. `a b a b` with window 3 gives 2/3. The numeric kernel bounds its type-id
 counter allocation explicitly; string input delegates to it.
 
+`inventory/2` calculates MATTR independently inside each contiguous selected
+run, without bridging gaps. Runs with at least one complete window contribute
+their token-weighted MATTR; shorter runs are excluded when such coverage
+exists. `mattrTokens` reports that coverage, and Compare weights documents by
+it. If no run reaches the window, the row instead carries a labeled,
+token-weighted run-TTR fallback and zero MATTR coverage. A short fragment can
+therefore no longer suppress a valid rest-side diversity measurement.
+
 MTLD scans until running TTR drops below 0.72, counts a factor, and resets.
 The final partial factor contributes `(1−TTR_end)/(1−threshold)`.
 A pass returns `N/factors`, or `N` if factors are zero; the method averages

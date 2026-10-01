@@ -83,7 +83,7 @@ if (errors.length === 0 && snapshot !== null) {
   const tracks = [{ seriesId: 'rare', group }];
   const selection = { docs: [...readyDocs] };
   const queries: QueryOpV4[] = [
-    { op: 'inventory', selection, request: { method: 'inventory/1', rhythmBinsPerDoc: 0, mattrWindow: 100 } },
+    { op: 'inventory', selection, request: { method: 'inventory/2', rhythmBinsPerDoc: 0, mattrWindow: 100 } },
     { op: 'trend', selection, group, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } },
     { op: 'dispersion', selection, tracks, request: { method: 'dispersion/1', exactMax: DISPERSION_EXACT_MAX, bucketBudget: DISPERSION_BUCKET_BUDGET } },
     { op: 'freq-list', selection, request: { method: 'freq-list/2', filter: { minCount: 1, minDocFreq: 1, classes: ['lexical', 'numeral'] }, sort: { by: 'count', dir: -1 }, page: { offset: 0, limit: 50 }, dispersion: true } },

@@ -409,12 +409,12 @@ describe('narrowQueryV4', () => {
     })).toBe(false);
   });
 
-  it('inventory/1 narrows only within every exported request bound', () => {
+  it('inventory/2 narrows only within every exported request bound', () => {
     const query = (request: Record<string, unknown>) => narrowQueryV4({
       op: 'inventory',
       selection: { docs: ['a'] },
       request: {
-        method: 'inventory/1',
+        method: 'inventory/2',
         rhythmBinsPerDoc: 0,
         mattrWindow: 500,
         ...request,
@@ -428,13 +428,13 @@ describe('narrowQueryV4', () => {
     expect(query({ rhythmBinsPerDoc: INVENTORY_MAX_RHYTHM_BINS_PER_DOC + 1 })).toBe(false);
     expect(query({ mattrWindow: 0 })).toBe(false);
     expect(query({ mattrWindow: INVENTORY_MAX_MATTR_WINDOW + 1 })).toBe(false);
-    expect(query({ method: 'inventory/2' })).toBe(false);
+    expect(query({ method: 'inventory/1' })).toBe(false);
     expect(query({ extra: true })).toBe(false);
     expect(narrowQueryV4({
       op: 'inventory',
       selection: { docs: ['a'] },
       request: {
-        method: 'inventory/1',
+        method: 'inventory/2',
         rhythmBinsPerDoc: 0,
         mattrWindow: 500,
       },
@@ -615,7 +615,7 @@ describe('narrowQueryV4', () => {
         op: 'inventory',
         selection: { docs: ['a'] },
         request: {
-          method: 'inventory/1',
+          method: 'inventory/2',
           rhythmBinsPerDoc: n,
           mattrWindow: 500,
         },

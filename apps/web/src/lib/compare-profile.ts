@@ -1,7 +1,7 @@
 /**
  * The Compare header's two-sided text profile.
  *
- * Every number here is folded from the two per-side `inventory/1` results the
+ * Every number here is folded from the two per-side `inventory/2` results the
  * Compare place already issues; nothing is estimated and no extra pass over
  * the corpus happens. Raw corpus totals provide context, while rates and means
  * make the two texts easier to compare despite differences in length.
@@ -29,11 +29,11 @@ export interface CompareProfileMetricV1 {
  * per-document values, never a MATTR over concatenated documents. Sliding a
  * diversity window across a book boundary would invent adjacency between the
  * last words of one text and the first of the next, and score that invention.
- * `inventory/1` already token-weights this way across the contiguous runs
+ * `inventory/2` already token-weights this way across the contiguous runs
  * inside one document; this is the same rule one level up.
  *
- * Documents whose MATTR degraded to a plain TTR (shorter than the window) are
- * excluded — mixing the two would silently average different measurements.
+ * Short runs are excluded from MATTR and its coverage count. Documents with
+ * no complete window carry a labeled TTR fallback and are excluded here.
  */
 export function sideMattr(
   documents: readonly InventoryDocumentRowV1[],
@@ -41,11 +41,11 @@ export function sideMattr(
   let weighted = 0;
   let tokens = 0;
   for (const row of documents) {
-    if (row.mattr === null || row.mattrIsPlainTtr || row.selectedTokens <= 0) {
+    if (row.mattr === null || row.mattrIsPlainTtr || row.mattrTokens <= 0) {
       continue;
     }
-    weighted += row.mattr * row.selectedTokens;
-    tokens += row.selectedTokens;
+    weighted += row.mattr * row.mattrTokens;
+    tokens += row.mattrTokens;
   }
   return tokens === 0 ? null : weighted / tokens;
 }

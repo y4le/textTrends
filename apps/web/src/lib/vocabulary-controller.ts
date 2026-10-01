@@ -79,7 +79,7 @@ export function createVocabularyController({
             op: 'inventory',
             selection: { docs: [...snapshot.readyDocs] },
             request: {
-              method: 'inventory/1',
+              method: 'inventory/2',
               rhythmBinsPerDoc: 0,
               mattrWindow: INVENTORY_MATTR_WINDOW,
             },
@@ -131,7 +131,7 @@ export function createVocabularyController({
           op: 'inventory',
           selection: detailSelection(snapshot.readyDocs, issuedSelection),
           request: {
-            method: 'inventory/1',
+            method: 'inventory/2',
             rhythmBinsPerDoc: 0,
             mattrWindow: INVENTORY_MATTR_WINDOW,
           },

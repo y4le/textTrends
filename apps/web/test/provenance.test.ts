@@ -18,7 +18,7 @@ import {
 import { DEFAULT_KEYNESS_VIEW } from '../src/lib/app-defaults.ts';
 
 const inventory: InventoryResultV1 = {
-  method: 'inventory/1',
+  method: 'inventory/2',
   selection: 'sha256:inventory' as InventoryResultV1['selection'],
   order: ['a', 'b'],
   totals: {
@@ -203,7 +203,7 @@ describe('provenanceFor', () => {
 
   it('describes vocabulary and compare methods', () => {
     const vocabulary = formatProvenanceText(provenanceFor(input(), 'vocabulary'));
-    expect(vocabulary).toContain('Method: inventory/1');
+    expect(vocabulary).toContain('Method: inventory/2');
     expect(vocabulary).toContain('MATTR window: 500');
     expect(vocabulary).toContain('Method: freq-list/2');
     expect(vocabulary).toContain('token classes: lexical');

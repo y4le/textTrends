@@ -107,7 +107,7 @@ export type QueryOpV4 =
   // occurrence consumers share the same prepared vectors.
   | { readonly op: 'company'; readonly tracks: readonly KwicTrack[]; readonly request: CompanyRequestV1 }
   | { readonly op: 'destinations'; readonly tracks: readonly KwicTrack[]; readonly request: DestinationsRequestV1 }
-  // inventory/1: vocabulary-wide overview over the shared per-document
+  // inventory/2: vocabulary-wide overview over the shared per-document
   // term-count cache. It consumes the same linked detail selection as the
   // frequency table; notebook groups are deliberately absent.
   | { readonly op: 'inventory'; readonly selection: WireSelectionV4; readonly request: InventoryRequestV1 }

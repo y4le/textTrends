@@ -30,6 +30,7 @@ const documentRow = (
   paragraphMean: 100,
   ttr: 0.4,
   mattr: 0.7,
+  mattrTokens: overrides.mattrIsPlainTtr ? 0 : overrides.selectedTokens ?? 1_000,
   mattrIsPlainTtr: false,
   charsUtf16: 6_000,
   readabilityCharacters: 5_000,
@@ -41,7 +42,7 @@ const result = (
   totals: Partial<InventoryResultV1['totals']>,
   documents: readonly InventoryDocumentRowV1[] = [documentRow({})],
 ): InventoryResultV1 => ({
-  method: 'inventory/1',
+  method: 'inventory/2',
   selection: 'sha256:s' as InventoryResultV1['selection'],
   order: documents.map((row) => row.doc),
   totals: {
@@ -67,6 +68,12 @@ const result = (
 });
 
 describe('side MATTR', () => {
+  it('weights mixed-run documents only by tokens covered by complete windows', () => {
+    expect(sideMattr([
+      documentRow({ doc: 'a', selectedTokens: 3_000, mattrTokens: 1_000, mattr: 0.8 }),
+      documentRow({ doc: 'b', selectedTokens: 1_000, mattrTokens: 1_000, mattr: 0.6 }),
+    ])).toBeCloseTo(0.7, 12);
+  });
   it('token-weights the per-document values rather than concatenating texts', () => {
     // 0.8 over 3,000 tokens and 0.6 over 1,000 → (0.8·3000 + 0.6·1000)/4000.
     expect(sideMattr([

@@ -18,7 +18,7 @@ import { resolveSelection, type ResolvedSelection } from '../src/snapshot/select
 
 const GEN = 'inventory' as BuildGeneration;
 const REQUEST: InventoryRequestV1 = {
-  method: 'inventory/1',
+  method: 'inventory/2',
   rhythmBinsPerDoc: 2,
   mattrWindow: 3,
 };
@@ -72,7 +72,7 @@ function inputsFor(
   });
 }
 
-describe('inventory/1', () => {
+describe('inventory/2', () => {
   it('pins totals, start-token ownership with full unit lengths, and missing docs', async () => {
     const world = await fixture(
       [
@@ -100,7 +100,7 @@ describe('inventory/1', () => {
       async () => {},
     );
 
-    expect(result.method).toBe('inventory/1');
+    expect(result.method).toBe('inventory/2');
     expect(result.selection).toBe(selection.hash);
     expect(result.order).toEqual(['a', 'b']);
     expect(result.missingDocs).toEqual(['missing']);
@@ -218,7 +218,7 @@ describe('inventory/1', () => {
       selection,
       inputsFor(world, selection),
       {
-        method: 'inventory/1',
+        method: 'inventory/2',
         rhythmBinsPerDoc: 0,
         mattrWindow: 3,
       },
@@ -227,6 +227,31 @@ describe('inventory/1', () => {
     expect(result.rhythm).toBeNull();
     expect(result.documents[0]!.mattr).toBe(0.75); // (1×2 + 0.5×2) / 4
     expect(result.documents[0]!.mattrIsPlainTtr).toBe(true);
+    expect(result.documents[0]!.mattrTokens).toBe(0);
+  });
+
+  it('counts an exact-size run as one complete MATTR window', async () => {
+    const world = await fixture([['a', 'a b a']]);
+    const selection = await resolveSelection(world.snapshot, { docs: ['a' as ProjectDocId] });
+    const result = await inventory(world.snapshot, selection, inputsFor(world, selection), REQUEST, async () => {});
+    expect(result.documents[0]).toMatchObject({ mattrTokens: 3, mattrIsPlainTtr: false, mattr: 2 / 3 });
+  });
+
+  it('retains windowed MATTR when a complement contains both a short and a long run', async () => {
+    const world = await fixture([['a', 'unique gap a b a b a b']]);
+    const selection = await resolveSelection(world.snapshot, {
+      docs: ['a'] as ProjectDocId[],
+      ranges: [
+        { doc: 'a' as ProjectDocId, tokens: { start: 0 as never, end: 1 as never } },
+        { doc: 'a' as ProjectDocId, tokens: { start: 2 as never, end: 8 as never } },
+      ],
+    });
+    const result = await inventory(world.snapshot, selection, inputsFor(world, selection),
+      { ...REQUEST, rhythmBinsPerDoc: 0 }, async () => {});
+    expect(result.documents[0]).toMatchObject({
+      selectedTokens: 7, mattrTokens: 6, mattrIsPlainTtr: false,
+    });
+    expect(result.documents[0]!.mattr).toBeCloseTo(2 / 3, 12);
   });
 
   it('counts readability characters as Unicode letters and digits, not spans', async () => {

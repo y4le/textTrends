@@ -274,7 +274,7 @@ export function narrowQueryV4(q: unknown): boolean {
         return false;
       }
       if (
-        r.method !== 'inventory/1' ||
+        r.method !== 'inventory/2' ||
         !isCount(r.rhythmBinsPerDoc) ||
         !isCount(r.mattrWindow)
       ) {

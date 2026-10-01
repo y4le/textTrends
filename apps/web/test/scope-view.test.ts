@@ -9,7 +9,7 @@ const inventoryResult = (
   tokens = 461_992,
   missingDocs: readonly string[] = [],
 ): InventoryResultV1 => ({
-  method: 'inventory/1',
+  method: 'inventory/2',
   selection: 'sha256:scope-test' as InventoryResultV1['selection'],
   order: [],
   totals: {

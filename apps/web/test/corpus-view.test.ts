@@ -10,7 +10,7 @@ import {
 import type { InventoryResultV1 } from '@texttrends/core';
 
 const result: InventoryResultV1 = {
-  method: 'inventory/1',
+  method: 'inventory/2',
   selection: 'sha256:selection' as InventoryResultV1['selection'],
   order: ['a'],
   totals: {
@@ -45,6 +45,7 @@ const result: InventoryResultV1 = {
     ttr: 0.5,
     mattr: 0.5,
     mattrIsPlainTtr: true,
+    mattrTokens: 0,
     charsUtf16: 20,
     readabilityCharacters: 20,
     readabilityLetters: 20,

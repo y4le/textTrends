@@ -4,7 +4,7 @@ import type { InventoryState, SeriesTrendState } from '../src/lib/app-state.ts';
 import { fullTokenCountsForDocs, fullTokensByDoc } from '../src/lib/doc-tokens.ts';
 
 const inventoryResult = (doc: string, fullTokens: number): InventoryResultV1 => ({
-  method: 'inventory/1',
+  method: 'inventory/2',
   selection: 'sha256:inventory' as InventoryResultV1['selection'],
   order: [doc],
   totals: {
@@ -39,6 +39,7 @@ const inventoryResult = (doc: string, fullTokens: number): InventoryResultV1 => 
     ttr: null,
     mattr: null,
     mattrIsPlainTtr: true,
+    mattrTokens: 0,
     charsUtf16: 0,
     readabilityCharacters: 0,
     readabilityLetters: 0,
