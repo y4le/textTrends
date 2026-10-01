@@ -78,6 +78,36 @@ describe('query semantics through the generation-bound executor', () => {
     return { h, snap: h.last('snapshot-published').snapshot };
   }
 
+  it('keeps Reader, Matches and stepping available when one track exceeds its occurrence cap', async () => {
+    const { h, snap } = await ready('wolf fox wolf fox.');
+    const generation = (h.engine as unknown as { generation: { executor: QueryExecutor; snapshot: CorpusSnapshotV1 } }).generation;
+    const selection = await resolveSelection(generation.snapshot, { docs: ['a'] as never });
+    const actual = await vi.importActual<typeof import('@texttrends/core')>('@texttrends/core');
+    vi.mocked(occurrences).mockImplementation((...args) => {
+      if (args[4].id === wolfGroup.id) throw new CapError('too many raw occurrences');
+      return actual.occurrences(...args);
+    });
+    const tracks = [{ seriesId: 'wolf', group: wolfGroup }, { seriesId: 'fox', group: foxGroup }];
+    const checkpoint = async () => {};
+    try {
+      const page = await generation.executor.readerPage(selection, tracks, { doc: 'a', cursor: { kind: 'around', token: 1 }, maxTokens: 20 }, checkpoint);
+      expect(page.text).toBe('wolf fox wolf fox');
+      expect(page.unavailableTracks).toEqual(['wolf']);
+      expect(page.marks.map((mark) => mark.seriesId)).toEqual(['fox', 'fox']);
+      await h.send({ t: 'query', job: 88, snapshot: snap, query: { op: 'reader-page', tracks, request: { method: 'reader-page/1', doc: 'a', cursor: { kind: 'around', token: 1 }, maxTokens: 20 } } });
+      const wire = h.last('result').data;
+      expect(wire.op).toBe('reader-page');
+      if (wire.op === 'reader-page') expect(wire.page.unavailableTracks).toEqual(['wolf']);
+      const matches = await generation.executor.matchesWindow(selection, tracks, { anchor: { kind: 'rank', rank: 0 }, before: 0, after: 10, contextTokens: 2 }, true, checkpoint);
+      expect(matches.window.unavailableTracks).toEqual(['wolf']);
+      expect(matches.window.rows.map((row) => row.seriesId)).toEqual(['fox', 'fox']);
+      const step = await generation.executor.occurrenceStep(selection, tracks, { method: 'occurrence-step/1', doc: 'a', token: 0, direction: 1 }, checkpoint);
+      expect(step.seriesId).toBe('fox');
+      expect(step.unavailableTracks).toEqual(['wolf']);
+      await expect(generation.executor.occurrenceStep(selection, tracks.slice(0, 1), { method: 'occurrence-step/1', doc: 'a', token: 0, direction: 1 }, checkpoint)).rejects.toThrow(CapError);
+    } finally { vi.mocked(occurrences).mockImplementation(actual.occurrences); }
+  });
+
   it('answers trend against the published snapshot', async () => {
     const { h, snap } = await ready();
     await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });

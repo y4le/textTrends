@@ -593,8 +593,11 @@ function ReaderProseDrawer({
             ? 'fitting page…'
             : 'loading source text…'}
       </p>
-      {(hasStaleMarks || ready?.marksTruncated) && (
+      {(hasStaleMarks || ready?.marksTruncated || (ready?.unavailableTracks?.length ?? 0) > 0) && (
         <div className="reader-feedback" role="status" aria-label="Reader mark notices">
+          {(ready?.unavailableTracks?.length ?? 0) > 0 && (
+            <span>Marks for {ready!.unavailableTracks!.length} broad term(s) exceed the occurrence limit. Reading remains available.</span>
+          )}
           {hasStaleMarks && (
             <span>Query changed; marked text retains the query that opened Reader.</span>
           )}

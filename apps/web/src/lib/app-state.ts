@@ -96,6 +96,7 @@ export type SeriesTrendState =
   | { readonly status: 'error'; readonly message: string };
 
 export interface MatchesWindowView {
+  readonly unavailableTracks?: readonly string[];
   readonly total: number;
   readonly trackCount: number;
   readonly anchorRank: number | null;

@@ -1029,13 +1029,7 @@ export class WorkerEngineV4 {
           op: 'reader-page',
           page: {
             method: 'reader-page/1',
-            doc: page.doc, tokens: page.tokens, docCharsUtf16: page.docCharsUtf16,
-            text: page.text,
-            tokenStartsUtf16: page.tokenStartsUtf16, tokenEndsUtf16: page.tokenEndsUtf16,
-            sentenceBounds: page.sentenceBounds, paragraphBounds: page.paragraphBounds,
-            anchor: page.anchor, previous: page.previous, next: page.next,
-            atStart: page.atStart, atEnd: page.atEnd, docTokenCount: page.docTokenCount,
-            cappedBy: page.cappedBy, marks: page.marks, marksTruncated: page.marksTruncated,
+            ...page,
           },
         },
       });
@@ -1061,9 +1055,7 @@ export class WorkerEngineV4 {
         snapshot: snapshot.id,
         data: {
           op: 'occurrence-step',
-          seriesId: stepped.seriesId,
-          groupId: stepped.groupId,
-          step: stepped.step,
+          ...stepped,
         },
       });
       return;

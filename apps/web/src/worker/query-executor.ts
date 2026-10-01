@@ -19,6 +19,7 @@
  */
 
 import {
+  CapError,
   buildMatchesAxis,
   buildResolver,
   company as computeCompany,
@@ -701,6 +702,18 @@ export class QueryExecutor {
     return result;
   }
 
+  /** Preserve track ordinals while isolating capped evidence from navigation. */
+  private navigationOccurrences(prepared: PreparedTracks, selection: ResolvedSelection, track: { readonly seriesId: string; readonly group: TermGroupSpec }, unavailable: string[]): NumericOccurrences {
+    try { return prepared.occurrences(track.group); }
+    catch (error) {
+      if (!(error instanceof CapError)) throw error;
+      unavailable.push(track.seriesId);
+      return { snapshot: this.published().snapshot.id, selection: selection.hash,
+        docOrdinal: new Uint32Array(), pos: new Uint32Array(), spanTokens: new Uint32Array(),
+        memberOffsets: new Uint32Array([0]), memberOrdinals: new Uint32Array() };
+    }
+  }
+
   /** reader-page/1: a bounded directional source slice over ONE
    *  document, marks sliced from the SAME cached occurrences as every other
    *  lane (computed under the BASE selection the engine passes — never a
@@ -711,14 +724,16 @@ export class QueryExecutor {
     tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],
     request: { readonly doc: string; readonly cursor: Parameters<typeof planReaderPage>[3]; readonly maxTokens: number },
     checkpoint: QueryCheckpoint,
-  ): Promise<ReturnType<typeof materializeReaderPage>> {
+  ): Promise<ReturnType<typeof materializeReaderPage> & { readonly unavailableTracks?: readonly string[] }> {
     const { snapshot, boundTexts, ready: readyMap } = this.published();
     const ready = readyMap.get(request.doc);
     if (!ready) throw new DependencyError('shard', request.doc);
+    planReaderPage(snapshot, request.doc, ready.shard, request.cursor, request.maxTokens, []);
+    const unavailable: string[] = [];
     const prepared = await this.prepareTracks(selection, tracks.map((track) => track.group), checkpoint);
     const trackOccs = [];
     for (const track of tracks) {
-      trackOccs.push(prepared.occurrences(track.group));
+      trackOccs.push(this.navigationOccurrences(prepared, selection, track, unavailable));
       await checkpoint();
     }
     const plan = planReaderPage(snapshot, request.doc, ready.shard, request.cursor, request.maxTokens, trackOccs);
@@ -730,7 +745,7 @@ export class QueryExecutor {
       tracks.map((track) => ({ seriesId: track.seriesId, groupId: track.group.id })),
     );
     await checkpoint(); // final kernel checkpoint (race parity)
-    return page;
+    return unavailable.length === 0 ? page : { ...page, unavailableTracks: unavailable };
   }
 
   /** occurrence-step/1: the nearest exact hit from ANY active track, using the
@@ -746,17 +761,20 @@ export class QueryExecutor {
     readonly seriesId: string;
     readonly groupId: string;
     readonly step: OccurrenceStepResultV1;
+    readonly unavailableTracks?: readonly string[];
   }> {
     if (tracks.length === 0) throw new RangeError('occurrence stepping requires an active track');
     const { snapshot } = this.published();
     const prepared = await this.prepareTracks(selection, tracks.map((track) => track.group), checkpoint);
+    const unavailable: string[] = [];
     const candidates: {
       readonly track: (typeof tracks)[number];
       readonly occurrences: NumericOccurrences;
       readonly step: OccurrenceStepResultV1;
     }[] = [];
     for (const track of tracks) {
-      const occ = prepared.occurrences(track.group);
+      const occ = this.navigationOccurrences(prepared, selection, track, unavailable);
+      if (unavailable.includes(track.seriesId)) { await checkpoint(); continue; }
       candidates.push({
         track,
         occurrences: occ,
@@ -798,8 +816,10 @@ export class QueryExecutor {
       })));
     }
     await checkpoint();
+    if (candidates.length === 0) throw new CapError('Every active term exceeds the occurrence limit; disable a broad term to navigate references.');
     const result = chosen ?? candidates[0]!;
     return {
+      ...(unavailable.length === 0 ? {} : { unavailableTracks: unavailable }),
       seriesId: result.track.seriesId,
       groupId: result.track.group.id,
       step: result.step,
@@ -814,15 +834,16 @@ export class QueryExecutor {
     includeAxis: boolean,
     checkpoint: QueryCheckpoint,
   ): Promise<{
-    readonly window: MatchesWindowV1;
+    readonly window: MatchesWindowV1 & { readonly unavailableTracks?: readonly string[] };
     readonly axis?: MatchesAxisArraysV1;
   }> {
     const { snapshot, bound, boundTexts } = this.published();
     const prepared = await this.prepareTracks(selection, tracks.map((track) => track.group), checkpoint);
 
+    const unavailable: string[] = [];
     const trackOccurrences: NumericOccurrences[] = [];
     for (const track of tracks) {
-      trackOccurrences.push(prepared.occurrences(track.group));
+      trackOccurrences.push(this.navigationOccurrences(prepared, selection, track, unavailable));
       await checkpoint();
     }
     const axis = this.matchesAxisFor(selection, tracks, trackOccurrences);
@@ -835,13 +856,14 @@ export class QueryExecutor {
       request,
     );
     await checkpoint();
-    const window = materializeMatchesWindow(
+    const materialized = materializeMatchesWindow(
       snapshot,
       numeric,
       boundTexts,
       tracks.map((track) => ({ seriesId: track.seriesId, groupId: track.group.id })),
     );
     await checkpoint();
+    const window = unavailable.length === 0 ? materialized : { ...materialized, unavailableTracks: unavailable };
     return includeAxis ? { window, axis: copyMatchesAxis(axis) } : { window };
   }
 

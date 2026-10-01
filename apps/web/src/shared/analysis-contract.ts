@@ -33,6 +33,9 @@ import type {
   KeynessTableRequestV1,
   OccurrenceStepRequestV1,
   OccurrenceStepResultV1,
+  ReaderCursor,
+  ReaderPageMark,
+  ReaderPageResult,
 } from '@texttrends/core';
 
 /** The source format vocabulary is core's — re-exported rather than
@@ -79,6 +82,7 @@ export interface MatchesWindowQueryRequestV1 {
 }
 
 export interface MatchesWindowResultV1 {
+  readonly unavailableTracks?: readonly string[];
   readonly method: 'matches-window/1';
   readonly total: number;
   readonly trackCount: number;
@@ -130,46 +134,17 @@ export type QueryOpV4 =
 export interface ReaderPageRequestV1 {
   readonly method: 'reader-page/1';
   readonly doc: string;
-  readonly cursor:
-    | { readonly kind: 'around'; readonly token: number }
-    | { readonly kind: 'from'; readonly token: number }
-    | { readonly kind: 'before'; readonly token: number };
+  readonly cursor: ReaderCursor;
   readonly maxTokens: number;
 }
 
 /** A reader mark on the wire, bound to the request's series/group identity
  *  by the core materializer (the bounded match-window precedent). */
-export interface ReaderPageMarkV1 {
-  readonly seriesId: string;
-  readonly groupId: string;
-  readonly tokens: { readonly start: number; readonly end: number };
-  readonly members: readonly number[];
-  readonly charsUtf16: { readonly start: number; readonly end: number };
-  readonly clippedStart: boolean;
-  readonly clippedEnd: boolean;
-}
+export type ReaderPageMarkV1 = ReaderPageMark;
 
-export interface ReaderPageResultV1 {
+export interface ReaderPageResultV1 extends ReaderPageResult {
   readonly method: 'reader-page/1';
-  readonly doc: string;
-  readonly tokens: { readonly start: number; readonly end: number };
-  readonly docCharsUtf16: { readonly start: number; readonly end: number };
-  readonly text: string;
-  readonly tokenStartsUtf16: readonly number[];
-  readonly tokenEndsUtf16: readonly number[];
-  /** Index-authored unit boundaries relative to `tokens.start`. A terminal
-   *  boundary equal to the page token length is retained when genuine. */
-  readonly sentenceBounds: readonly number[];
-  readonly paragraphBounds: readonly number[];
-  readonly anchor: { readonly token: number; readonly relToken: number; readonly charsUtf16: { readonly start: number; readonly end: number } } | null;
-  readonly previous: { readonly kind: 'before'; readonly token: number } | null;
-  readonly next: { readonly kind: 'from'; readonly token: number } | null;
-  readonly atStart: boolean;
-  readonly atEnd: boolean;
-  readonly docTokenCount: number;
-  readonly cappedBy: 'tokens' | 'text' | null;
-  readonly marks: readonly ReaderPageMarkV1[];
-  readonly marksTruncated: boolean;
+  readonly unavailableTracks?: readonly string[];
 }
 
 /** The dispersion result type re-exported for the app boundary (components
@@ -185,6 +160,9 @@ export type {
   OccurrenceStepHitV1,
   OccurrenceStepRequestV1,
   OccurrenceStepResultV1,
+  ReaderCursor,
+  ReaderPageMark,
+  ReaderPageResult,
 } from '@texttrends/core';
 export type {
   InventoryRequestV1,
@@ -237,6 +215,7 @@ export type QueryResultDataV4 =
   | { readonly op: 'reader-page'; readonly page: ReaderPageResultV1 }
   | {
       readonly op: 'occurrence-step';
+      readonly unavailableTracks?: readonly string[];
       readonly seriesId: string;
       readonly groupId: string;
       readonly step: OccurrenceStepResultV1;

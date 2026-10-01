@@ -1379,6 +1379,7 @@ export function createAppRuntime(
               request,
               axis,
               resident: {
+                ...(data.window.unavailableTracks ? { unavailableTracks: data.window.unavailableTracks } : {}),
                 total: data.window.total,
                 trackCount: data.window.trackCount,
                 anchorRank: data.window.anchorRank,

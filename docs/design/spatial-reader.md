@@ -59,7 +59,10 @@ layout-neutral; bold weight must not move a page seam.
 
 Read→Atlas issues no source query. Atlas→Read reuses a still-authenticated page
 covering the token or requests the normal bounded source slice. Snapshot and
-matching-identity guards remain mandatory. Stale query marks and capped marks
+matching-identity guards remain mandatory. A term that exceeds its raw
+occurrence cap is reported as unavailable for marks; source pages and marks
+from other terms still render. Matches and reference stepping likewise
+continue with available terms, preserving track ordinals. Stale query marks and capped marks
 have conditional notices; source cannot silently claim a superseded query.
 
 ## Chrome and pointer ownership

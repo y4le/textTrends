@@ -455,7 +455,7 @@ export function KwicPanel({
       </div>
     );
   } else if (resident && total === 0) {
-    body = <p className="kwic-message">{findMode ? 'No occurrences of the Find query.' : 'No occurrences of the enabled terms.'}</p>;
+    body = <p className="kwic-message">{(resident.unavailableTracks?.length ?? 0) > 0 ? 'No occurrences from available terms.' : findMode ? 'No occurrences of the Find query.' : 'No occurrences of the enabled terms.'}</p>;
   } else {
     body = (
       <div
@@ -645,6 +645,9 @@ export function KwicPanel({
       className="kwic-panel"
     >
       {showHeading && <h2 id="matches-heading">Matches</h2>}
+      {(resident?.unavailableTracks?.length ?? 0) > 0 && (
+        <p className="kwic-message" role="status">{resident!.unavailableTracks!.length} broad term(s) exceed the occurrence limit. Other terms remain available; disable broad terms to include a narrower query.</p>
+      )}
       {body}
       <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
         {announcement}
