@@ -571,6 +571,8 @@ html[data-trend-row-resizing='true'] * {
 
 .frequency-table-shell {
   --data-grid-header-height: var(--data-header-block-size);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   container-type: inline-size;
   position: relative;
   min-block-size: 10rem;
@@ -579,6 +581,8 @@ html[data-trend-row-resizing='true'] * {
 }
 
 .frequency-table-port {
+  grid-column: 1;
+  grid-row: 1;
   block-size: 100%;
   min-block-size: 0;
   max-inline-size: 100%;
@@ -1683,6 +1687,15 @@ html[data-trend-row-resizing='true'] * {
   align-items: stretch;
   border-inline-start: 1px solid var(--rule-strong);
   background: var(--bg);
+}
+
+/* Keep Vocabulary's controls beside the scrollport. An overlay hides the last
+ * sort button and can intercept clicks or cover the native scrollbar. */
+.frequency-column-toolbar {
+  position: static;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
 }
 
 .data-grid-column-toolbar button {
