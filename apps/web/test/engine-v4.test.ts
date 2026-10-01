@@ -9,6 +9,7 @@ import { begin, buf, coldIngest, FOLD, harness, utf8, wolfGroup, type Harness } 
 import { buildDocSpec as docSpec, extractLiteral as extractDocument } from './support/spec-fixtures.ts';
 import {
   bindShardsIncremental,
+  composeSnapshot,
   createBindingSession,
   DEFAULT_INDEX_RECIPE,
   INGEST_CAPS_V0,
@@ -29,6 +30,7 @@ vi.mock('@texttrends/core', async (importOriginal) => {
   return {
     ...actual,
     bindShardsIncremental: vi.fn(actual.bindShardsIncremental),
+    composeSnapshot: vi.fn(actual.composeSnapshot),
     createBindingSession: vi.fn(actual.createBindingSession),
     occurrences: vi.fn(actual.occurrences),
     resolveSelection: vi.fn(actual.resolveSelection),
@@ -188,6 +190,127 @@ describe('actual aggregate ingest caps (injected small caps)', () => {
 });
 
 describe('cold ingest', () => {
+  async function heldFirstPublication(h: Harness) {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let entered = false;
+    const real = await vi.importActual<typeof import('@texttrends/core')>('@texttrends/core');
+    vi.mocked(composeSnapshot).mockImplementationOnce(async (...args) => {
+      entered = true;
+      await held;
+      return real.composeSnapshot(...args);
+    });
+    const first = coldIngest(h, 'g', 'a', 'wolf fox', 10);
+    await vi.waitFor(() => expect(entered).toBe(true));
+    return { first, release };
+  }
+
+  it('batches queued cold arrivals with the same final identity as sequential ingest', async () => {
+    const specs = await Promise.all(['a', 'b', 'c', 'd'].map((id) => docSpec(id, 'wolf fox')));
+    const h = harness();
+    await begin(h, specs);
+    const { first, release } = await heldFirstPublication(h);
+    const rest = ['b', 'c', 'd'].map((id, index) => coldIngest(h, 'g', id, 'wolf fox', 11 + index));
+    await vi.waitFor(() => expect(h.all('progress').filter((event) => event.phase === 'compose')).toHaveLength(4));
+    release();
+    await Promise.all([first, ...rest]);
+    expect(h.all('snapshot-published')).toHaveLength(2);
+    expect(h.last('snapshot-published').readyDocs).toEqual(['a', 'b', 'c', 'd']);
+    const sequential = harness();
+    await begin(sequential, specs);
+    for (const [index, id] of ['a', 'b', 'c', 'd'].entries()) await coldIngest(sequential, 'g', id, 'wolf fox', 20 + index);
+    expect(h.last('snapshot-published').snapshot).toBe(sequential.last('snapshot-published').snapshot);
+  });
+
+  it('cancels one queued job without cancelling its batch neighbours', async () => {
+    const h = harness();
+    await begin(h, await Promise.all(['a', 'b', 'c'].map((id) => docSpec(id, 'wolf fox'))));
+    const { first, release } = await heldFirstPublication(h);
+    const b = coldIngest(h, 'g', 'b', 'wolf fox', 11);
+    const c = coldIngest(h, 'g', 'c', 'wolf fox', 12);
+    await vi.waitFor(() => expect(h.all('progress').filter((event) => event.phase === 'compose')).toHaveLength(3));
+    await h.send({ t: 'cancel', job: 11 });
+    release();
+    await Promise.all([first, b, c]);
+    expect(h.last('snapshot-published').readyDocs).toEqual(['a', 'c']);
+    expect(h.all('cancelled').map((event) => event.job)).toEqual([11]);
+  });
+
+
+  it('cancels a neighbour during batch composition without resurrecting it', async () => {
+    const h = harness();
+    await begin(h, await Promise.all(['a', 'b', 'c'].map((id) => docSpec(id, 'wolf fox'))));
+    const { first, release } = await heldFirstPublication(h);
+    const real = await vi.importActual<typeof import('@texttrends/core')>('@texttrends/core');
+    let releaseBatch!: () => void;
+    const heldBatch = new Promise<void>((resolve) => { releaseBatch = resolve; });
+    let composingBatch = false;
+    vi.mocked(composeSnapshot).mockImplementationOnce(async (...args) => {
+      composingBatch = true;
+      await heldBatch;
+      return real.composeSnapshot(...args);
+    });
+    const b = coldIngest(h, 'g', 'b', 'wolf fox', 11);
+    const c = coldIngest(h, 'g', 'c', 'wolf fox', 12);
+    await vi.waitFor(() => expect(h.all('progress').filter((event) => event.phase === 'compose')).toHaveLength(3));
+    release();
+    await vi.waitFor(() => expect(composingBatch).toBe(true));
+    await h.send({ t: 'cancel', job: 11 });
+    releaseBatch();
+    await Promise.all([first, b, c]);
+    expect(h.last('snapshot-published').readyDocs).toEqual(['a', 'c']);
+    expect(h.all('snapshot-published').some((event) => event.readyDocs.includes('b'))).toBe(false);
+    expect(h.all('cancelled').map((event) => event.job)).toEqual([11]);
+  });
+
+  it('reports a batched crossing document under its own job', async () => {
+    const h = harness({ ...INGEST_CAPS_V0, maxProjectTextUtf16: 25 });
+    const texts = ['wolf fox', 'wolf fox hare ox.', 'wolf fox hare ox.'];
+    const specs = await Promise.all(['a', 'b', 'c'].map(async (id, index) => {
+      const spec = await docSpec(id, texts[index]!);
+      return { ...spec, source: { ...spec.source, byteLength: 1 }, extraction: { ...spec.extraction, expectedTextLengthUtf16: 1 } };
+    }));
+    await begin(h, specs);
+    const { first, release } = await heldFirstPublication(h);
+    const b = coldIngest(h, 'g', 'b', texts[1]!, 11);
+    const c = coldIngest(h, 'g', 'c', texts[2]!, 12);
+    await vi.waitFor(() => expect(h.all('progress').filter((event) => event.phase === 'compose')).toHaveLength(3));
+    release(); await Promise.all([first, b, c]);
+    expect(h.last('snapshot-published').readyDocs).toEqual(['a', 'b']);
+    expect(h.all('error').map((event) => [event.code, event.job])).toEqual([['CAP_EXCEEDED', 12]]);
+  });
+
+  it('isolates a malformed prepared neighbour when batch validation fails', async () => {
+    const h = harness();
+    await begin(h, await Promise.all(['a', 'b', 'c'].map((id) => docSpec(id, 'wolf fox'))));
+    const real = await vi.importActual<typeof import('@texttrends/core')>('@texttrends/core');
+    vi.mocked(bindShardsIncremental).mockImplementation(async (...args) => {
+      if (args[1].docs.some((doc) => doc.doc === 'b')) throw new RangeError('malformed prepared shard');
+      return real.bindShardsIncremental(...args);
+    });
+    try {
+      const { first, release } = await heldFirstPublication(h);
+      const b = coldIngest(h, 'g', 'b', 'wolf fox', 11);
+      const c = coldIngest(h, 'g', 'c', 'wolf fox', 12);
+      await vi.waitFor(() => expect(h.all('progress').filter((event) => event.phase === 'compose')).toHaveLength(3));
+      release(); await Promise.all([first, b, c]);
+      expect(h.last('snapshot-published').readyDocs).toEqual(['a', 'c']);
+      expect(h.all('error').map((event) => event.job)).toEqual([11]);
+    } finally { vi.mocked(bindShardsIncremental).mockImplementation(real.bindShardsIncremental); }
+  });
+
+  it('drops all staged work when the generation is replaced mid-composition', async () => {
+    const h = harness();
+    await begin(h, await Promise.all(['a', 'b'].map((id) => docSpec(id, 'wolf fox'))));
+    const { first, release } = await heldFirstPublication(h);
+    const b = coldIngest(h, 'g', 'b', 'wolf fox', 11);
+    await vi.waitFor(() => expect(h.all('progress').filter((event) => event.phase === 'compose')).toHaveLength(2));
+    await begin(h, [], 'replacement');
+    release();
+    await Promise.all([first, b]);
+    expect(h.all('snapshot-published')).toEqual([]);
+  });
+
   it('a first cold ingest publishes the document with honest progress', async () => {
     const h = harness();
     const spec = await docSpec('a', '# Part I\n\nthe wolf ran far\n\n# Part II\n\na wolf slept', { format: 'md' });

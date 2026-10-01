@@ -93,14 +93,15 @@ test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc o
 
   // Snapshot ready sets grow monotonically through the full manifest.
   const published = events(t, { direction: 'from-worker', t: 'snapshot-published' });
-  expect(published.length).toBe(DOC_COUNT);
+  expect(published.length).toBeGreaterThan(0);
+  expect(published.length).toBeLessThanOrEqual(DOC_COUNT);
   const counts = published.map((e) => e.readyCount!);
   expect(counts).toEqual([...counts].sort((a, b) => a - b));
   expect(counts.at(-1)).toBe(DOC_COUNT);
 
   // UI completion through accessible semantics: the trend surface and the
   // Inputs text table with all three additive starter series.
-  await expect(page.locator('svg').first()).toBeVisible();
+  await expect(page.getByRole('slider', { name: 'Reading position scrubber' })).toBeVisible();
   await gotoPlace(page, 'inputs');
   const bookAnalysis = page.getByRole('table', { name: 'Text details' });
   await expect(bookAnalysis).toBeVisible();

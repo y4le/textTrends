@@ -179,6 +179,15 @@ interface PreparedDocument {
   readonly shardCached: boolean;
 }
 
+interface PublicationRequest {
+  completed: boolean;
+  readonly job: number;
+  readonly generation: GenerationStateV4;
+  readonly items: readonly { prepared: PreparedDocument; token: DocWorkToken }[];
+  readonly resolve: (items: readonly PreparedDocument[]) => void;
+  readonly reject: (error: unknown) => void;
+}
+
 /** The verified inputs prepareFromText builds the remaining artifacts from.
  *  The text travels ONLY as its VerifiedText capability — minted exactly once
  *  per document (cold: at extraction; warm: at the stored-text check). */
@@ -247,7 +256,8 @@ export class WorkerEngineV4 {
   private generation: GenerationStateV4 | null = null;
   private readonly activeJobs = new Set<number>();
   private readonly cancelledJobs = new Set<number>();
-  private composing: Promise<unknown> = Promise.resolve();
+  private readonly pendingPublications: PublicationRequest[] = [];
+  private publishing = false;
   private readonly envWarned = new Set<StorageWarningCodeV4>();
   /** The ingest caps — INGEST_CAPS_V0 in production; a test may inject smaller
    *  values to exercise the aggregate-cap paths without near-limit buffers. */
@@ -809,12 +819,67 @@ export class WorkerEngineV4 {
    * snapshot was composed around it.
    */
   private commitDocuments(job: number, gen: GenerationStateV4, items: readonly { prepared: PreparedDocument; token: DocWorkToken }[]): Promise<readonly PreparedDocument[]> {
-    const run = this.composing.then<readonly PreparedDocument[]>(async () => {
-      this.gate(job, gen);
+    const completion = new Promise<readonly PreparedDocument[]>((resolve, reject) => {
+      const request: PublicationRequest = {
+        job, generation: gen, items, completed: false,
+        resolve: (result) => { if (!request.completed) { request.completed = true; resolve(result); } },
+        reject: (error) => { if (!request.completed) { request.completed = true; reject(error); } },
+      };
+      this.pendingPublications.push(request);
+    });
+    if (!this.publishing) {
+      this.publishing = true;
+      void this.drainPublications();
+    }
+    return completion;
+  }
+
+  /** The first ready document starts immediately. While it composes, later
+   * arrivals accumulate for the next turn. Each request retains its own job
+   * cancellation, document epochs, errors and artifact-write outcome. */
+  private async drainPublications(): Promise<void> {
+    try {
+      while (this.pendingPublications.length > 0) {
+        const generation = this.pendingPublications[0]!.generation;
+        const batch = this.pendingPublications.splice(0,
+          this.pendingPublications.findIndex((item) => item.generation !== generation) < 0
+            ? this.pendingPublications.length
+            : this.pendingPublications.findIndex((item) => item.generation !== generation));
+        try { await this.publishBatch(generation, batch); }
+        catch (error) {
+          // One damaged prepared record must not fail its valid neighbours.
+          // No publication occurs before validation succeeds, so retry each
+          // request independently only on this exceptional path.
+          for (const request of batch) {
+            if (request.completed) continue;
+            if (batch.length === 1) { request.reject(error); continue; }
+            try { await this.publishBatch(generation, [request]); }
+            catch (failure) { request.reject(failure); }
+          }
+        }
+      }
+    } finally { this.publishing = false; }
+  }
+
+  private async publishBatch(gen: GenerationStateV4, requests: readonly PublicationRequest[]): Promise<void> {
+    const active = new Set(requests.filter((request) => !request.completed));
+    const checkActive = (): boolean => {
+      let changed = false;
+      for (const request of active) {
+        try { this.gate(request.job, gen); }
+        catch (error) { active.delete(request); request.reject(error); changed = true; }
+      }
+      return changed;
+    };
+    checkActive();
+    let committed: readonly PreparedDocument[] = [];
+    const publish = async (): Promise<readonly PreparedDocument[]> => {
       // Recompose loop: converges because each iteration drops at least one
       // superseded document, and a document never re-enters.
       for (;;) {
-        const owned = items.filter((i) => this.owns(i.token));
+        checkActive();
+        const owned = [...active].flatMap((request) => request.items.map((item) => ({ ...item, job: request.job })))
+          .filter((item) => this.owns(item.token));
         if (owned.length === 0) return []; // nothing left to publish
         const stagedBase = gen.publicationEpoch;
 
@@ -827,20 +892,20 @@ export class WorkerEngineV4 {
         const ownedByDoc = new Map(owned.map((i) => [i.prepared.doc, i]));
         let running = 0;
         for (const [id, vt] of gen.texts) if (!ownedByDoc.has(id)) running += verifiedTextOf(vt).length;
-        const included: { prepared: PreparedDocument; token: DocWorkToken }[] = [];
-        const rejected: string[] = [];
+        const included: typeof owned = [];
+        const rejected: { doc: string; job: number }[] = [];
         for (const doc of gen.docs) {
           const item = ownedByDoc.get(doc);
           if (!item) continue;
           if (running + item.prepared.text.length > this.caps.maxProjectTextUtf16) {
-            rejected.push(doc);
+            rejected.push({ doc, job: item.job });
             continue; // a later, smaller document may still fit
           }
           running += item.prepared.text.length;
           included.push(item);
         }
         if (included.length === 0) {
-          for (const doc of rejected) this.emitError('CAP_EXCEEDED', { job, generation: gen.generation, message: `document '${doc}' would exceed the project text cap`, recoverable: true });
+          for (const { doc, job } of rejected) this.emitError('CAP_EXCEEDED', { job, generation: gen.generation, message: `document '${doc}' would exceed the project text cap`, recoverable: true });
           return [];
         }
 
@@ -876,8 +941,8 @@ export class WorkerEngineV4 {
         // composition, recompose: the next iteration drops that token before
         // reselecting, so a stale owner never emits a duplicate CAP_EXCEEDED for
         // a document the live ingest now owns.
-        this.gate(job, gen);
-        if (gen.publicationEpoch !== stagedBase || owned.some((i) => !this.owns(i.token))) {
+        const changed = checkActive();
+        if (changed || gen.publicationEpoch !== stagedBase || owned.some((i) => !this.owns(i.token))) {
           continue; // recompose around whatever is still owned
         }
         // Queries and materializers share the binding-owned copy. The session
@@ -908,7 +973,7 @@ export class WorkerEngineV4 {
         });
         // Report the crossing document(s) ONCE, after the surviving subset has
         // committed (never on a recompose that will be retried).
-        for (const doc of rejected) this.emitError('CAP_EXCEEDED', { job, generation: gen.generation, message: `document '${doc}' would exceed the project text cap`, recoverable: true });
+        for (const { doc, job } of rejected) this.emitError('CAP_EXCEEDED', { job, generation: gen.generation, message: `document '${doc}' would exceed the project text cap`, recoverable: true });
         // Only the documents that ACTUALLY committed may have their disposable
         // artifacts persisted — a document dropped during composition or by the
         // cap must not leave cache records for an unpublished build.
@@ -916,9 +981,12 @@ export class WorkerEngineV4 {
           ...prepared, ready: residentReady.get(prepared.doc)!, shard: residentReady.get(prepared.doc)!.shard,
         }));
       }
-    });
-    this.composing = run.catch(() => []);
-    return run;
+    };
+    committed = await publish();
+    const byDoc = new Map(committed.map((item) => [item.doc, item]));
+    for (const request of active) request.resolve(request.items
+      .filter((item) => this.owns(item.token) && byDoc.has(item.prepared.doc))
+      .map((item) => byDoc.get(item.prepared.doc)!));
   }
 
   /** Best-effort disposable cache writes AFTER a document has passed the commit
