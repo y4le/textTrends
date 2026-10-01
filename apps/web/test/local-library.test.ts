@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
-import { openDB } from 'idb';
+import { deleteDB, openDB } from 'idb';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EMPTY_NOTEBOOK, hashSourceBytes, type WorkspaceV1 } from '@texttrends/core';
 import {
@@ -266,6 +266,28 @@ describe('BrowserLocalLibrary', () => {
     expect(await reopened.loadWorkspace()).toEqual({ kind: 'ready', workspace: expected });
     expect(new TextDecoder().decode(await (await reopened.file(saved.id)).arrayBuffer())).toBe('workspace prose');
     await reopened.close();
+  });
+
+  it('refuses stale reads and writes after another tab deletes the database', async () => {
+    const name = `local-library-${crypto.randomUUID()}`;
+    const first = new BrowserLocalLibrary(name);
+    const second = new BrowserLocalLibrary(name);
+    const saved = (await first.add([file('novel.txt', 'saved source')]))[0]!.item;
+    await first.saveWorkspace(workspace(saved.id));
+    await second.loadWorkspace();
+    await deleteDB(name);
+    for (const stale of [first, second]) {
+      await expect(stale.saveWorkspace(workspace(saved.id))).rejects.toThrow(/reset in another tab.*Reload/);
+      await expect(stale.list()).rejects.toThrow(/reset in another tab.*Reload/);
+      await expect(stale.add([file('new.txt', 'must not resurrect')])).rejects.toThrow(/reset in another tab.*Reload/);
+    }
+    const fresh = new BrowserLocalLibrary(name);
+    expect(await fresh.loadWorkspace()).toEqual({ kind: 'absent' });
+    expect(await fresh.list()).toEqual([]);
+    const newSource = (await fresh.add([file('fresh.txt', 'new user intent')]))[0]!.item;
+    await fresh.saveWorkspace(workspace(newSource.id));
+    expect(await fresh.loadWorkspace()).toMatchObject({ kind: 'ready' });
+    await fresh.close();
   });
 
   it('distinguishes an absent workspace from a damaged one', async () => {

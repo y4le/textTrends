@@ -77,6 +77,9 @@ Each library instance captures a restore epoch. Library reads and mutations chec
 it; mutations compare inside their transaction. Restore advances it atomically,
 so older tabs cannot overwrite or delete the loaded setup and concurrent restores
 cannot both commit from the same epoch. Stale tabs receive “Reload to continue.”
+Full database deletion also retires every existing library connection. Those
+instances refuse subsequent reads and writes until reload, so a stale tab cannot
+recreate reset data after the epoch record has been deleted.
 Ordinary edits within an epoch retain the existing last-write-wins model; this
 feature adds no merging, tab election, or notification channel.
 

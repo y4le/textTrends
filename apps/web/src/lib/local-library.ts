@@ -161,12 +161,14 @@ function itemFromRecord(record: StoredLocalMetadataV1): LocalLibraryItem {
 export class BrowserLocalLibrary {
   private database: Promise<IDBPDatabase<LocalLibraryDb>> | null = null;
   private epoch: string | null = null;
+  private resetElsewhere = false;
 
   constructor(private readonly name = LOCAL_LIBRARY_DB_NAME) {}
 
   /** Ordinary tabs retain last-write-wins semantics. A restore changes the
    * epoch so a tab opened before replacement cannot write the old setup back. */
   private async checkEpoch(store: { get(key: string): Promise<unknown> }): Promise<string> {
+    if (this.resetElsewhere) throw new Error('textTrends data was reset in another tab. Reload to continue.');
     const stored = await store.get(WORKSPACE_EPOCH);
     if (stored !== undefined && typeof stored !== 'string') throw new Error('The saved workspace epoch is damaged.');
     const epoch = stored ?? 'initial';
@@ -176,6 +178,7 @@ export class BrowserLocalLibrary {
   }
 
   private open(): Promise<IDBPDatabase<LocalLibraryDb>> {
+    if (this.resetElsewhere) return Promise.reject(new Error('textTrends data was reset in another tab. Reload to continue.'));
     if (this.database !== null) return this.database;
     let abandoned = false;
     let upgrading = false;
@@ -228,7 +231,10 @@ export class BrowserLocalLibrary {
     this.database = opening;
     void opening.then(
       (database) => {
-        database.addEventListener('versionchange', () => {
+        database.addEventListener('versionchange', (event) => {
+          // Deletion removes the epoch record too. Never recreate the database
+          // from this stale instance and resurrect its in-memory workspace.
+          if (event.newVersion === null) this.resetElsewhere = true;
           database.close();
           if (this.database === opening) this.database = null;
         });
