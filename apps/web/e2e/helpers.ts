@@ -64,7 +64,15 @@ export async function clearDemoInputs(page: Page): Promise<void> {
     const remove = active
       .getByRole('button', { name: `Remove ${book.title} from active inputs`, exact: true })
       .first();
-    if ((await remove.count()) > 0) await remove.click();
+    if ((await remove.count()) > 0) {
+      // Removal starts another generation. Its ready next-step controls can
+      // appear between mouse-down and mouse-up and move the next button.
+      // Settle the surviving demo inputs before the next native click.
+      const remaining = await active.getByRole('list', { name: 'Active input order' })
+        .getByRole('listitem').count();
+      await awaitReadyCount(page, remaining);
+      await remove.click();
+    }
     await expect(remove).toHaveCount(0);
   }
 }
