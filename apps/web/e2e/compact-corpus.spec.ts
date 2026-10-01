@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   awaitAllReady,
+  awaitReadyCount,
   clearNotebook,
   DOC_COUNT,
   gotoPlace,
@@ -192,4 +193,44 @@ test('wide Catalog keeps useful comparison columns and additive detail', async (
   await expect(page.getByRole('region', { name: 'Term counts' })).toHaveCount(0);
   await expect(documentRows).toHaveCount(DOC_COUNT);
   await expectNoBodyOverflow(page);
+});
+
+test('a linked passage keeps Inputs facts stable and clearing restores both Compare profiles', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.locator('.scope-organ > [role="status"]')).toContainText('No active inputs');
+  await page.getByLabel('Add files').setInputFiles([
+    { name: 'alpha.txt', mimeType: 'text/plain', buffer: Buffer.from('wolf pine trail moon '.repeat(30)) },
+    { name: 'beta.txt', mimeType: 'text/plain', buffer: Buffer.from('wave salt harbor sail '.repeat(30)) },
+  ]);
+  await awaitReadyCount(page, 2);
+  const summary = page.locator('.catalog-summary').getByRole('definition');
+  const tokens = page.getByRole('table', { name: 'Text details' }).locator('tbody > tr[data-catalog-book] .catalog-book-tokens > .selectable-stat');
+  await expect.poll(async () => (await tokens.allTextContents()).every((value) => /120/.test(value))).toBe(true);
+  const baselineSummary = await summary.allTextContents();
+  const baselineTokens = await tokens.allTextContents();
+  await gotoPlace(page, 'trends');
+  const scrubber = page.getByRole('slider', { name: 'Corpus footer position' });
+  await scrubber.focus();
+  await scrubber.press('Home');
+  await scrubber.press('s');
+  for (let index = 0; index < 12; index++) await scrubber.press('Shift+ArrowRight');
+  await scrubber.press('Enter');
+  await expect(page.getByRole('region', { name: 'Corpus status' })).toContainText('13 tokens');
+  await gotoPlace(page, 'compare');
+  await expect(page.getByLabel('Left comparison input')).toHaveValue('__selection__');
+  await expect(page.getByLabel('Left comparison input')).toBeDisabled();
+  await gotoPlace(page, 'inputs');
+  await expect(summary).toHaveText(baselineSummary);
+  await expect(tokens).toHaveText(baselineTokens);
+  await gotoPlace(page, 'compare');
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await page.getByRole('button', { name: 'Use all texts', exact: true }).click();
+  await expect.poll(async () => (await trace(page)).events.filter((event) =>
+    event.seq > mark && event.direction === 'to-worker' && event.t === 'query' && event.op === 'inventory').length).toBe(2);
+  await gotoPlace(page, 'compare');
+  await expect(page.getByLabel('Left comparison input')).toBeEnabled();
+  await expect(page.getByLabel('Left comparison input')).not.toHaveValue('__selection__');
+  await gotoPlace(page, 'inputs');
+  await expect(summary).toHaveText(baselineSummary);
+  await expect(tokens).toHaveText(baselineTokens);
 });

@@ -1,8 +1,4 @@
-/**
- * Slice-2 H browser proof: matches and barcode rows carry snapshot-bound
- * open intents into the lazy canonical reader; rapid navigation delivers stale
- * worker results physically out of order without relabeling the current page.
- */
+/** Snapshot-bound Reader navigation over deterministic local source fixtures. */
 
 import { expect, test, type Page, type Worker } from '@playwright/test';
 import {

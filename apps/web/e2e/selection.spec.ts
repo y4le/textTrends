@@ -1,5 +1,5 @@
 /**
- * Slice-2 E acceptance: linked range selection is one committed set of
+ * Linked selection ownership: linked range selection is one committed set of
  * half-open document spans shared by every detail consumer. The worker gate
  * deliberately lets selection A finish inside the worker but withholds its
  * messages until selection B has settled, proving the browser store rejects
@@ -270,12 +270,19 @@ test('pointer and keyboard selections share detail results and stale results can
   await expect.poll(() => gateHeld(worker)).toBe(2);
   await expect(page.locator('[data-trend-organ="overview"]'))
     .toHaveAttribute('data-range-pending', 'true');
+  const clearMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'Clear range' }).click();
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(0);
   await expect(page.locator('[data-trend-organ="overview"]')).not.toHaveAttribute('data-range-pending');
   await gateRelease(worker);
   await expect(page.getByRole('button', { name: 'Clear range' })).toHaveCount(0);
+  await expect.poll(async () => (await trace(page)).events.some((event) =>
+    event.seq > clearMark && event.direction === 'to-worker' && event.t === 'query' && event.op === 'freq-list')).toBe(true);
+  const clearQueries = (await trace(page)).events.filter((event) =>
+    event.seq > clearMark && event.direction === 'to-worker' && event.t === 'query');
+  expect(clearQueries.filter((event) => ['trend', 'dispersion', 'inventory'].includes(event.op ?? ''))).toEqual([]);
+
   termTotal = page.getByRole('list', { name: 'Term totals' })
     .getByRole('listitem').filter({ hasText: 'wolf' })
     .locator('[data-term-occurrence-count]');

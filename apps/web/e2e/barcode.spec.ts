@@ -1,10 +1,4 @@
-/**
- * Slice-2 commit D acceptance: the dispersion barcode over a deterministic
- * imported corpus — the strip renders with an honest per-track summary, the
- * occurrence navigation centers the merged match set at the EXACT
- * position (job-correlated fresh evidence), and a resize issues NO worker
- * query (resident-data redraw only, ruling §D).
- */
+/** Dispersion barcode behavior over deterministic local source fixtures. */
 
 import { expect, test } from '@playwright/test';
 import { awaitAllReady, awaitReadyCount, clearDemoInputs, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';

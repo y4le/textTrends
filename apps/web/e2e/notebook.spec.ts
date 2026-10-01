@@ -1,16 +1,4 @@
-/**
- * Slice-1 commit E acceptance (recorded ruling §4E): the query notebook in
- * the real browser over a tiny deterministic imported corpus. Proves:
- * - a multi-alias term (token + phrase + prefix, authored in one comma field)
- *   drives trends and matches as OR
- *   alternatives, with the complete phrase span in the match node;
- * - visibility removes the track globally, including from Matches, while
- *   zero-hit remains a real, visible ready state;
- * - a case-SENSITIVE member distinguishes what the folded default merges;
- * - the panel controls carry stable group-qualified accessible names and
- *   native checked/pressed state.
- * No live network; everything ships from the dev server.
- */
+/** Authored notebook behavior over deterministic local source fixtures. */
 
 import { expect, test, type Page } from '@playwright/test';
 import { awaitAllReady, awaitReadyCount, clearDemoInputs, clearNotebook, gotoPlace, openQuickAdd, submitAndAwaitFreshResults, trace } from './helpers.ts';
