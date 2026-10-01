@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /**
- * Refresh the public built-in demos that do not have a dedicated author-corpus
- * updater. Every target stages and validates all of its texts before replacing
+ * Refresh every public built-in demo through one staged corpus/manifest owner. Every target stages and validates all of its texts before replacing
  * the checked-in corpus and its exact integrity manifest.
  *
  * Usage: node scripts/update-demo-corpora.mjs
- *        node scripts/update-demo-corpora.mjs bible|quran|political|shakespeare|inaugurals|darwin|classics
+ *        node scripts/update-demo-corpora.mjs sherlock|austen|bible|quran|political|shakespeare|inaugurals|darwin|classics
  */
 
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { unzipSync } from 'fflate';
 import { StandardEbooksClient } from '@texttrends/standard-ebooks';
 import {
@@ -16,7 +17,6 @@ import {
   fetchBytes,
   fetchText,
   normalizeLf,
-  refreshExistingCorpusManifest,
   stripGutenbergEnvelope,
 } from './demo-corpus-lib.mjs';
 
@@ -94,17 +94,138 @@ const SHAKESPEARE_PLAYS = Object.freeze([
   ['The Two Noble Kinsmen', 'william-shakespeare_john-fletcher_the-two-noble-kinsmen'],
 ]);
 
+const SHERLOCK_BOOKS = [
+  {
+    doc: '1 - A Study in Scarlet - Arthur Conan Doyle',
+    title: 'A Study in Scarlet',
+    repository: 'arthur-conan-doyle_a-study-in-scarlet',
+  },
+  {
+    doc: '2 - The Sign of the Four - Arthur Conan Doyle',
+    title: 'The Sign of the Four',
+    repository: 'arthur-conan-doyle_the-sign-of-the-four',
+  },
+  {
+    doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle',
+    title: 'The Adventures of Sherlock Holmes',
+    repository: 'arthur-conan-doyle_the-adventures-of-sherlock-holmes',
+  },
+  {
+    doc: '4 - The Memoirs of Sherlock Holmes - Arthur Conan Doyle',
+    title: 'The Memoirs of Sherlock Holmes',
+    repository: 'arthur-conan-doyle_the-memoirs-of-sherlock-holmes',
+  },
+  {
+    doc: '5 - The Hound of the Baskervilles - Arthur Conan Doyle',
+    title: 'The Hound of the Baskervilles',
+    repository: 'arthur-conan-doyle_the-hound-of-the-baskervilles',
+  },
+  {
+    doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle',
+    title: 'The Return of Sherlock Holmes',
+    repository: 'arthur-conan-doyle_the-return-of-sherlock-holmes',
+  },
+  {
+    doc: '7 - The Valley of Fear - Arthur Conan Doyle',
+    title: 'The Valley of Fear',
+    repository: 'arthur-conan-doyle_the-valley-of-fear',
+  },
+  {
+    doc: '8 - His Last Bow - Arthur Conan Doyle',
+    title: 'His Last Bow',
+    repository: 'arthur-conan-doyle_his-last-bow',
+  },
+  {
+    doc: '9 - The Casebook of Sherlock Holmes - Arthur Conan Doyle',
+    title: 'The Casebook of Sherlock Holmes',
+    repository: 'arthur-conan-doyle_the-casebook-of-sherlock-holmes',
+  },
+];
+
+const AUSTEN_BOOKS = [
+  {
+    doc: '1 - Sense and Sensibility - Jane Austen',
+    title: 'Sense and Sensibility',
+    repository: 'jane-austen_sense-and-sensibility',
+  },
+  {
+    doc: '2 - Pride and Prejudice - Jane Austen',
+    title: 'Pride and Prejudice',
+    repository: 'jane-austen_pride-and-prejudice',
+  },
+  {
+    doc: '3 - Mansfield Park - Jane Austen',
+    title: 'Mansfield Park',
+    repository: 'jane-austen_mansfield-park',
+  },
+  {
+    doc: '4 - Emma - Jane Austen',
+    title: 'Emma',
+    repository: 'jane-austen_emma',
+  },
+  {
+    doc: '5 - Northanger Abbey - Jane Austen',
+    title: 'Northanger Abbey',
+    repository: 'jane-austen_northanger-abbey',
+  },
+  {
+    doc: '6 - Persuasion - Jane Austen',
+    title: 'Persuasion',
+    repository: 'jane-austen_persuasion',
+  },
+];
+
 const CLASSIC_NOVELS = Object.freeze([
-  ['01 - Frankenstein - Mary Shelley', 'Frankenstein'],
-  ['02 - Dracula - Bram Stoker', 'Dracula'],
-  ['03 - Moby Dick - Herman Melville', 'Moby Dick'],
-  ['04 - The Picture of Dorian Gray - Oscar Wilde', 'The Picture of Dorian Gray'],
-  ['05 - Jane Eyre - Charlotte Brontë', 'Jane Eyre'],
-  ['06 - Wuthering Heights - Emily Brontë', 'Wuthering Heights'],
-  ['07 - Great Expectations - Charles Dickens', 'Great Expectations'],
-  ['08 - The Adventures of Huckleberry Finn - Mark Twain', 'The Adventures of Huckleberry Finn'],
-  ['09 - Little Women - Louisa May Alcott', 'Little Women'],
-  ['10 - Anne of Green Gables - L. M. Montgomery', 'Anne of Green Gables'],
+  {
+    doc: '01 - Frankenstein - Mary Shelley',
+    title: 'Frankenstein',
+    repository: 'mary-shelley_frankenstein',
+  },
+  {
+    doc: '02 - Dracula - Bram Stoker',
+    title: 'Dracula',
+    repository: 'bram-stoker_dracula',
+  },
+  {
+    doc: '03 - Moby Dick - Herman Melville',
+    title: 'Moby Dick',
+    repository: 'herman-melville_moby-dick',
+  },
+  {
+    doc: '04 - The Picture of Dorian Gray - Oscar Wilde',
+    title: 'The Picture of Dorian Gray',
+    repository: 'oscar-wilde_the-picture-of-dorian-gray',
+  },
+  {
+    doc: '05 - Jane Eyre - Charlotte Brontë',
+    title: 'Jane Eyre',
+    repository: 'charlotte-bronte_jane-eyre',
+  },
+  {
+    doc: '06 - Wuthering Heights - Emily Brontë',
+    title: 'Wuthering Heights',
+    repository: 'emily-bronte_wuthering-heights',
+  },
+  {
+    doc: '07 - Great Expectations - Charles Dickens',
+    title: 'Great Expectations',
+    repository: 'charles-dickens_great-expectations',
+  },
+  {
+    doc: '08 - The Adventures of Huckleberry Finn - Mark Twain',
+    title: 'The Adventures of Huckleberry Finn',
+    repository: 'mark-twain_the-adventures-of-huckleberry-finn',
+  },
+  {
+    doc: '09 - Little Women - Louisa May Alcott',
+    title: 'Little Women',
+    repository: 'louisa-may-alcott_little-women',
+  },
+  {
+    doc: '10 - Anne of Green Gables - L. M. Montgomery',
+    title: 'Anne of Green Gables',
+    repository: 'l-m-montgomery_anne-of-green-gables',
+  },
 ]);
 
 const DARWIN_EDITIONS = Object.freeze([
@@ -150,6 +271,7 @@ async function standardEbookDocuments(books, map) {
     const title = book.title ?? book[0];
     const downloaded = await downloadStandardEbook(client, book.repository ?? book[1], title);
     assert(downloaded.source.kind === 'release', `${title}: source was not an official release`);
+    assert(downloaded.source.repository === `standardebooks/${book.repository ?? book[1]}`, `${title}: unexpected source repository ${downloaded.source.repository}`);
     assert(downloaded.warnings.length === 0, `${title}: extraction produced warnings`);
     assert(downloaded.metadata.title === title, `${title}: release title is ${downloaded.metadata.title}`);
     documents.push(map(book, downloaded.text, index));
@@ -441,12 +563,11 @@ async function updateDarwin() {
   await commitCorpus({ directory: 'darwin-origin', manifestName: 'DARWIN_ORIGIN', documents });
 }
 
-async function updateClassics() {
-  await refreshExistingCorpusManifest({
-    directory: 'standard-ebooks',
-    manifestName: 'CLASSIC_NOVELS',
-    documents: CLASSIC_NOVELS.map(([doc, title]) => ({ doc, title })),
-  });
+async function updateAuthorCorpus(books, directory, manifestName) {
+  const documents = await standardEbookDocuments(books, (book, text) => ({
+    doc: book.doc, title: book.title, text: `${text.trim()}\n`,
+  }));
+  await commitCorpus({ directory, manifestName, documents });
 }
 
 const UPDATERS = Object.freeze({
@@ -456,22 +577,28 @@ const UPDATERS = Object.freeze({
   shakespeare: updateShakespeare,
   inaugurals: updateInaugurals,
   darwin: updateDarwin,
-  classics: updateClassics,
+  sherlock: () => updateAuthorCorpus(SHERLOCK_BOOKS, 'sherlock', 'SHERLOCK'),
+  austen: () => updateAuthorCorpus(AUSTEN_BOOKS, 'austen', 'AUSTEN'),
+  classics: () => updateAuthorCorpus(CLASSIC_NOVELS, 'standard-ebooks', 'CLASSIC_NOVELS'),
 });
+
+export async function refreshDemoCorpus(target) {
+  assert(Object.hasOwn(UPDATERS, target), `unknown corpus ${JSON.stringify(target)}; choose ${Object.keys(UPDATERS).join(', ')}`);
+  await UPDATERS[target]();
+}
 
 async function main() {
   const arguments_ = process.argv.slice(2).filter((argument) => argument !== '--');
   assert(arguments_.length <= 1, 'choose at most one corpus target');
   const requested = arguments_[0];
   if (requested !== undefined) {
-    assert(Object.hasOwn(UPDATERS, requested), `unknown corpus ${JSON.stringify(requested)}; choose ${Object.keys(UPDATERS).join(', ')}`);
-    await UPDATERS[requested]();
+    await refreshDemoCorpus(requested);
     return;
   }
   for (const updater of Object.values(UPDATERS)) await updater();
 }
 
-const invokedDirectly = process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href;
+const invokedDirectly = process.argv[1] !== undefined && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
 if (invokedDirectly) {
   main().catch((error) => {
     console.error(error);

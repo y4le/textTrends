@@ -194,7 +194,7 @@ export async function libraryProject(
  *  meanings so a future BOM/1252/transform file can diverge without a data-model
  *  change, and a TextHash can never be routed into a source/extraction key. The
  *  hashes are the authoritative warm-reopen identities the worker verifies. */
-export const SHERLOCK: readonly { doc: string; title: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
+export const SHERLOCK: readonly BuiltinDocFixture[] = [
   { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', title: 'A Study in Scarlet', bytes: 243457, textLengthUtf16: 238367, sourceHash: '9a8fb27682b3c441f5ae94133bec243338cf33604c231cbbfbf9dc939cd90b4a', textHash: '9a8fb27682b3c441f5ae94133bec243338cf33604c231cbbfbf9dc939cd90b4a' },
   { doc: '2 - The Sign of the Four - Arthur Conan Doyle', title: 'The Sign of the Four', bytes: 236437, textLengthUtf16: 231255, sourceHash: '6aaf169211a16d024b6144074586d0ca32b6a27fcc2d2df26bfed512dc593e1a', textHash: '6aaf169211a16d024b6144074586d0ca32b6a27fcc2d2df26bfed512dc593e1a' },
   { doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle', title: 'The Adventures of Sherlock Holmes', bytes: 576164, textLengthUtf16: 561275, sourceHash: '768d3d31e334e7138acc2e302fe390cd35115c3cd2db0a08fbc7884182cb467e', textHash: '768d3d31e334e7138acc2e302fe390cd35115c3cd2db0a08fbc7884182cb467e' },
@@ -206,7 +206,7 @@ export const SHERLOCK: readonly { doc: string; title: string; bytes: number; tex
   { doc: '9 - The Casebook of Sherlock Holmes - Arthur Conan Doyle', title: 'The Casebook of Sherlock Holmes', bytes: 455606, textLengthUtf16: 443018, sourceHash: '34f47c8cc14133b9cab96bc0621a45c1f7a3aafb443cdbc377a58ccefc2efab1', textHash: '34f47c8cc14133b9cab96bc0621a45c1f7a3aafb443cdbc377a58ccefc2efab1' },
 ];
 
-export const AUSTEN: readonly { doc: string; title: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
+export const AUSTEN: readonly BuiltinDocFixture[] = [
   { doc: '1 - Sense and Sensibility - Jane Austen', title: 'Sense and Sensibility', bytes: 680078, textLengthUtf16: 668537, sourceHash: '28af5a66ce42d4404597b69a0515b898b135d1a62002b356a3903cfc6870f3cd', textHash: '28af5a66ce42d4404597b69a0515b898b135d1a62002b356a3903cfc6870f3cd' },
   { doc: '2 - Pride and Prejudice - Jane Austen', title: 'Pride and Prejudice', bytes: 695888, textLengthUtf16: 684097, sourceHash: '40c27855a8dc3ba6db2a7d9c819902ce538d4be1f5c69d81c693cbc912774545', textHash: '40c27855a8dc3ba6db2a7d9c819902ce538d4be1f5c69d81c693cbc912774545' },
   { doc: '3 - Mansfield Park - Jane Austen', title: 'Mansfield Park', bytes: 893089, textLengthUtf16: 881543, sourceHash: '35b87fc0d15ca145478655dd54022b3b0471d12b7b95a3437d41c0eb40ac057c', textHash: '35b87fc0d15ca145478655dd54022b3b0471d12b7b95a3437d41c0eb40ac057c' },
@@ -215,7 +215,7 @@ export const AUSTEN: readonly { doc: string; title: string; bytes: number; textL
   { doc: '6 - Persuasion - Jane Austen', title: 'Persuasion', bytes: 470176, textLengthUtf16: 464737, sourceHash: '86336fa710a623600f88e0e4a4a1bc25ec8363f47c651b1d0e4834d8033979f3', textHash: '86336fa710a623600f88e0e4a4a1bc25ec8363f47c651b1d0e4834d8033979f3' },
 ];
 
-export const ASOIF: readonly { doc: string; title: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
+export const ASOIF: readonly BuiltinDocFixture[] = [
   { doc: '1 - A Game of Thrones - George R. R. Martin', title: 'A Game of Thrones', bytes: 1589135, textLengthUtf16: 1589135, sourceHash: '0c18548fd97bc83cf9c6e62c73443595b002e1babeccc60888df0aec5bb858ef', textHash: '0c18548fd97bc83cf9c6e62c73443595b002e1babeccc60888df0aec5bb858ef' },
   { doc: '2 - A Clash of Kings - George R. R. Martin', title: 'A Clash of Kings', bytes: 1732896, textLengthUtf16: 1732892, sourceHash: 'f6f3816664d419adf436b25837d2cf172da028c4fb3423e66c9627ff683ddfe6', textHash: 'f6f3816664d419adf436b25837d2cf172da028c4fb3423e66c9627ff683ddfe6' },
   { doc: '3 - A Storm of Swords - George R. R. Martin', title: 'A Storm of Swords', bytes: 2248306, textLengthUtf16: 2248306, sourceHash: 'df415ab2967ebcd7b298ff2a2b8187fef092c46b4b0c90acafa83e0280b2bfcb', textHash: 'df415ab2967ebcd7b298ff2a2b8187fef092c46b4b0c90acafa83e0280b2bfcb' },
@@ -223,7 +223,7 @@ export const ASOIF: readonly { doc: string; title: string; bytes: number; textLe
   { doc: '5 - A Dance with Dragons - George R. R. Martin', title: 'A Dance with Dragons', bytes: 2261026, textLengthUtf16: 2260424, sourceHash: '9a5731820527226336b49549c9643f702e7123fa52c87878cf68de83901d6039', textHash: '9a5731820527226336b49549c9643f702e7123fa52c87878cf68de83901d6039' },
 ];
 
-export const LOTR: readonly { doc: string; title: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
+export const LOTR: readonly BuiltinDocFixture[] = [
   { doc: '1 - The Fellowship of the Ring - J. R. R. Tolkien', title: 'The Fellowship of the Ring', bytes: 1000126, textLengthUtf16: 994303, sourceHash: 'a32d1b2c8a487b614ca4a1367261a976af4e3618810122893025ff13b09a0450', textHash: 'a32d1b2c8a487b614ca4a1367261a976af4e3618810122893025ff13b09a0450' },
   { doc: '2 - The Two Towers - J. R. R. Tolkien', title: 'The Two Towers', bytes: 817956, textLengthUtf16: 817178, sourceHash: '2ca2c50996b260524c3ce2670177e82b577fc04785883627f51a543b94b2f747', textHash: '2ca2c50996b260524c3ce2670177e82b577fc04785883627f51a543b94b2f747' },
   { doc: '3 - The Return of the King - J. R. R. Tolkien', title: 'The Return of the King', bytes: 723615, textLengthUtf16: 709748, sourceHash: '96cad064a56aa3cd67f47d59b3c10e856fe6717ab293524beaad8f88d1e617c2', textHash: '96cad064a56aa3cd67f47d59b3c10e856fe6717ab293524beaad8f88d1e617c2' },
