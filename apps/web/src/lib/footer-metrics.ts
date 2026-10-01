@@ -589,7 +589,21 @@ export function dockTargetForFooter(
     if (footerAt(middle) < targetFooter) low = middle + 1;
     else high = middle;
   }
-  return low;
+  if (footerAt(low) === targetFooter) return low;
+  // Reader can retire its Terms chrome as one lane, creating a small local
+  // dip. Verify the binary-search result and fall back to the nearest reachable
+  // footer instead of assuming monotonicity across that discontinuity.
+  let best = low;
+  let distance = Math.abs(footerAt(low) - targetFooter);
+  for (let target = Math.ceil(bounds.minBlockSize); target <= bounds.maxBlockSize; target++) {
+    const candidateDistance = Math.abs(footerAt(target) - targetFooter);
+    if (candidateDistance < distance) {
+      best = target;
+      distance = candidateDistance;
+      if (distance === 0) break;
+    }
+  }
+  return best;
 }
 
 /** Reader keeps the shared analytical footer but gives source text to the

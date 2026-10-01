@@ -642,6 +642,16 @@ describe('eager footer metrics', () => {
     }
   });
 
+  it('checks the inverse result across a discrete Reader lane discontinuity', () => {
+    const input = { width: 'wide', coarse: false, trackCount: 0, footerPresent: true,
+      targetBlockSize: null, viewportBlockSize: 900, availableBlockSize: 700 } as const;
+    const footerSizes = [0, 1, 4, 2, 3, 5];
+    const resolve = (value: Parameters<typeof dockSizing>[0]) => ({ ...dockSizing(value),
+      minBlockSize: 0, maxBlockSize: 5, footerBlockSize: footerSizes[value.targetBlockSize ?? 5]!,
+    });
+    expect(dockTargetForFooter(input, 2, resolve)).toBe(3);
+  });
+
   it('drops the barcode as one lane and never grows it beyond the existing cap', () => {
     const bounds = dockSizing({
       width: 'regular',
