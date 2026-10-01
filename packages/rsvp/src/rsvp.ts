@@ -277,19 +277,20 @@ function includesBoundary(bounds: readonly number[], boundary: number): boolean 
 }
 
 function trailingPunctuationEnd(text: string, start: number, limit: number): number {
-  let cursor = start;
-  while (cursor < limit) {
-    const codePoint = text.codePointAt(cursor);
-    if (codePoint === undefined) break;
-    const character = String.fromCodePoint(codePoint);
-    if (/\s/u.test(character)) break;
-    cursor += character.length;
-  }
-  return cursor;
+  // Spaced punctuation belongs to the preceding word; opening punctuation
+  // immediately before the next word remains that word's leading decoration.
+  const gapEnd = attachedLeadingStart(text, start, limit);
+  return start + text.slice(start, gapEnd).trimEnd().length;
 }
 
-function attachedLeadingStart(text: string, previousEnd: number, tokenStart: number): number {
-  const gap = text.slice(previousEnd, tokenStart);
+function attachedLeadingStart(text: string, previousEnd: number | undefined, tokenStart: number): number {
+  const base = previousEnd ?? 0;
+  const gap = text.slice(base, tokenStart);
+  if (previousEnd === undefined) return gap.length - gap.trimStart().length;
+  // Initial/open punctuation remains with the following word even when a
+  // language writes a space after its quote or bracket.
+  const opening = gap.search(/(?<=\s)[\p{Ps}\p{Pi}]/u);
+  if (opening >= 0) return base + opening;
   let lastWhitespaceEnd = -1;
   for (let cursor = 0; cursor < gap.length;) {
     const codePoint = gap.codePointAt(cursor);
@@ -320,11 +321,11 @@ export function rsvpWordFrame(
     throw new RangeError('RSVP token has invalid source offsets');
   }
   const previousEnd = relativeToken > 0 ? page.tokenEndsUtf16[relativeToken - 1] : undefined;
-  const displayStart = previousEnd === undefined
-    ? tokenStart
-    : attachedLeadingStart(page.text, previousEnd, tokenStart);
+  const displayStart = attachedLeadingStart(page.text, previousEnd, tokenStart);
   const nextStart = page.tokenStartsUtf16[relativeToken + 1] ?? page.text.length;
-  const displayEnd = trailingPunctuationEnd(page.text, tokenEnd, nextStart);
+  const displayEnd = page.tokenStartsUtf16[relativeToken + 1] === undefined
+    ? tokenEnd + page.text.slice(tokenEnd).trimEnd().length
+    : trailingPunctuationEnd(page.text, tokenEnd, nextStart);
   const bare = page.text.slice(tokenStart, tokenEnd);
   const graphemes = rsvpGraphemes(bare);
   const anchorIndex = rsvpAnchorIndex(graphemes.length);

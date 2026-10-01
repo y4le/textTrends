@@ -598,3 +598,28 @@ describe('RSVP pacing', () => {
       .toThrow(RangeError);
   });
 });
+
+describe('spaced Speed punctuation', () => {
+  it.each([
+    ['Er sagte „Alpha“ weiter.', ['Er', 'sagte', '„Alpha“', 'weiter.']],
+    ['Er sagte ‚Alpha‘ weiter.', ['Er', 'sagte', '‚Alpha‘', 'weiter.']],
+    ['Han sagde »Alpha« videre.', ['Han', 'sagde', '»Alpha«', 'videre.']],
+    ['»Alpha« sagde han.', ['»Alpha«', 'sagde', 'han.']],
+  ])('preserves touching closing quotes in %s', (text, expected) => {
+    const source = textPage(text);
+    expect(expected.map((_, token) => rsvpFrameAt(source, token, frameLimits(1)).text)).toEqual(expected);
+  });
+  it('keeps spaced opening quotes with the following word, including the first word', () => {
+    const source = textPage('« gamma » dit : « alpha »');
+    expect(rsvpFrameAt(source, 0, frameLimits(1)).text).toBe('« gamma »');
+    expect(rsvpFrameAt(source, 1, frameLimits(1)).text).toBe('dit :');
+    expect(rsvpFrameAt(source, 2, frameLimits(1)).text).toBe('« alpha »');
+  });
+  it('keeps spaced clause marks visible and stops a multiword frame', () => {
+    const source = textPage('alpha , beta . “gamma”');
+    expect(rsvpFrameAt(source, 0, frameLimits(1)).text).toBe('alpha ,');
+    expect(rsvpFrameAt(source, 0, frameLimits(3)).words).toHaveLength(1);
+    expect(rsvpFrameAt(source, 1, frameLimits(1)).text).toBe('beta .');
+    expect(rsvpFrameAt(source, 2, frameLimits(1)).text).toBe('“gamma”');
+  });
+});
