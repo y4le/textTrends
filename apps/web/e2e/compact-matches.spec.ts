@@ -360,3 +360,25 @@ test('short landscape Matches leaves a usable anchored results viewport', async 
   expect(geometry.termsRailHeight).toBe(54);
   expect(geometry.termTargetBlockSize).toBe(40);
 });
+
+
+test('Matches header keys stay on the header and grid Enter opens Reader', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'matches');
+  const grid = page.getByRole('grid', { name: 'Matches' });
+  await expect(grid.locator('[role="row"][aria-rowindex]').first()).toBeVisible();
+  const info = grid.locator('.data-grid-header-info').first();
+  await info.focus();
+  await info.press('Enter');
+  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
+  await grid.focus();
+  await grid.press('Enter');
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  await expect(reader).toBeVisible();
+  await reader.press('Escape');
+  await expect(grid).toBeFocused();
+  const before = await grid.getAttribute('aria-activedescendant');
+  await grid.press('ArrowDown');
+  await expect(grid).not.toHaveAttribute('aria-activedescendant', before!);
+});

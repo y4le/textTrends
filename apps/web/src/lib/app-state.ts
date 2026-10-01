@@ -133,6 +133,10 @@ export type MatchesActivationOrigin =
 export interface KwicState {
   readonly snapshot: string;
   readonly trackKey: string;
+  /** Ordinals in the resident context marks belong to this captured wire order. */
+  readonly trackSeriesIds?: readonly string[];
+  /** A forced exact row reveal owns its request until it settles. */
+  readonly revealPending?: boolean;
   readonly request: {
     readonly anchor: MatchesAnchorV1;
     readonly before: number;
@@ -681,6 +685,7 @@ export interface AppState {
    * filled on both sides of its centered cursor. */
   setFooterPassageMargin(tokens: number): void;
   runFooterPassage(): void;
+  retryDisplayedAnalysis(): void;
   runQueries(): void;
 
   // ── Session command wrappers (forward to the one attached session). ──

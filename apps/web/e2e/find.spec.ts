@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, DOC_COUNT, gotoPlace, simulateKeyboard } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearNotebook, DOC_COUNT, gotoPlace, simulateKeyboard } from './helpers.ts';
 
 test('the header exposes Find to touch and restores focus on close', async ({ browser }) => {
   const context = await browser.newContext({
@@ -573,4 +573,22 @@ test('Reader controls exposes a touch-sized Find takeover in the reading bar', a
   await expect(find).toHaveCount(0);
   await expect(reader.getByRole('button', { name: /Open Reader controls for/ })).toBeFocused();
   expect(await prosePane.boundingBox()).toEqual(paneBox);
+});
+
+
+test('submitted Find draws Trends with an empty notebook and clearing restores the starter', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
+  await clearNotebook(page);
+  await expect(page.getByRole('heading', { name: 'Start with a term' })).toBeVisible();
+  await page.getByRole('button', { name: 'Find', exact: true }).click();
+  const find = page.getByRole('search', { name: 'Find in corpus' });
+  const input = find.getByRole('searchbox', { name: 'Find term or aliases' });
+  await input.fill('the');
+  await input.press('Enter');
+  await expect(page.getByRole('slider', { name: 'Reading position scrubber' })).toBeVisible();
+  await expect.poll(() => page.locator('[data-series-path]').evaluateAll((paths) => new Set(paths.map((path) => path.getAttribute('data-series-path'))).size)).toBe(1);
+  await expect(page.getByRole('heading', { name: 'Start with a term' })).toHaveCount(0);
+  await find.getByRole('button', { name: 'Clear and close find' }).click();
+  await expect(page.getByRole('heading', { name: 'Start with a term' })).toBeVisible();
 });

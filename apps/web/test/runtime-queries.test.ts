@@ -886,3 +886,43 @@ describe('store query intent discipline', () => {
     }
   });
 });
+
+it('keeps Matches wire order and resident context through notebook reorder', async () => {
+  const f = harness();
+  f.port.publishSnapshot('g1', 's1', ['a']);
+  f.store.getState().mergeStarterTerms('holmes, watson');
+  const ids = f.store.getState().series.map((item) => item.id);
+  f.store.getState().requestMatchesWindow({ kind: 'rank', rank: 0 }, { before: 40, after: 40, contextTokens: 80 });
+  f.kwics().at(-1)!.resolve(fakeMatches(1));
+  await flush();
+  const resident = f.store.getState().kwic?.resident;
+  const count = f.kwics().length;
+  f.store.getState().reorderGroups([...ids].reverse());
+  f.store.getState().requestMatchesWindow({ kind: 'rank', rank: 0 }, { before: 40, after: 40, contextTokens: 80 });
+  expect(f.kwics()).toHaveLength(count);
+  expect(f.store.getState().kwic?.resident).toBe(resident);
+  expect(f.store.getState().kwic?.trackSeriesIds).toEqual(ids);
+  f.store.getState().runQueries();
+  expect((f.store.getState().kwic?.request)).toMatchObject({ before: 40, after: 40, contextTokens: 80 });
+  f.runtime.dispose();
+});
+
+
+it('keeps an exact forced Matches reveal alive when a mounted viewport requests its resident target', async () => {
+  const f = harness();
+  f.port.publishSnapshot('g1', 's1', ['a']);
+  f.store.getState().mergeStarterTerms('holmes');
+  f.kwics().at(-1)!.resolve(fakeMatches(1));
+  await flush();
+  const seriesId = f.store.getState().series[0]!.id;
+  f.store.getState().centerKwicAt(seriesId, 'a', 10, { kind: 'occurrence' });
+  const forced = f.kwics().at(-1)!;
+  const count = f.kwics().length;
+  f.store.getState().requestMatchesWindow({ kind: 'position', doc: 'a', token: 10 }, { before: 40, after: 40, contextTokens: 80 });
+  expect(f.kwics()).toHaveLength(count);
+  expect(forced.cancelled).toBe(false);
+  f.store.getState().requestMatchesWindow({ kind: 'position', doc: 'a', token: 50 }, { before: 40, after: 40, contextTokens: 80 });
+  expect(f.kwics()).toHaveLength(count + 1);
+  expect(forced.cancelled).toBe(true);
+  f.runtime.dispose();
+});

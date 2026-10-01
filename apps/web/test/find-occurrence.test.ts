@@ -81,6 +81,25 @@ describe('temporary corpus Find', () => {
     return f;
   };
 
+  it('retries the Find analysis displayed by Atlas even with no authored terms', async () => {
+    const f = setup();
+    f.store.getState().submitFind('wolf');
+    const failed = f.issued.filter((entry) => entry.op === 'dispersion').at(-1)!;
+    failed.reject(new Error('failed Find distribution'));
+    await flush();
+    const before = f.issued.length;
+    f.store.getState().retryDisplayedAnalysis();
+    const retry = f.issued.slice(before);
+    expect(retry.map((entry) => entry.op).sort()).toEqual(['dispersion', 'trend']);
+    const dispersion = retry.find((entry) => entry.op === 'dispersion')!;
+    dispersion.resolve(dispersionResultFor(dispersion));
+    await flush();
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find', find: { dispersion: { status: 'ready' } },
+    });
+    f.runtime.dispose();
+  });
+
   it('keeps the persistence source list exhaustive as the workspace projection evolves', () => {
     const f = harness(undefined, { workspace: new FakeWorkspaceStore() });
     f.port.publishSnapshot('g1', 's1', ['a']);

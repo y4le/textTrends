@@ -162,13 +162,14 @@ export function KwicPanel({
   const contextMentionStyle = useCallback((part: MatchesContextPart): CSSProperties | undefined => {
     const ordinal = part.trackOrdinals[0];
     if (!part.marked || ordinal === undefined) return undefined;
-    const color = seriesColor(displayedSeries[ordinal]?.style ?? DEFAULT_SERIES_STYLE);
+    const seriesId = kwic?.trackSeriesIds?.[ordinal] ?? displayedSeries[ordinal]?.id;
+    const color = seriesColor(seriesById.get(seriesId ?? '')?.style ?? DEFAULT_SERIES_STYLE);
     return {
       color: 'var(--fg)',
       background: `color-mix(in srgb, ${color} 20%, transparent)`,
       borderBottom: `2px solid ${color}`,
     };
-  }, [displayedSeries]);
+  }, [displayedSeries, kwic?.trackSeriesIds, seriesById]);
   const rankedRows = useMemo(
     () => rows.map((row, index) => ({ row, rank: (resident?.firstRank ?? 0) + index })),
     [resident?.firstRank, rows],
@@ -405,6 +406,7 @@ export function KwicPanel({
   ];
 
   const onGridKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || event.defaultPrevented) return;
     if (shortcutMatches(event, 'row-open')) {
       const row = rowAtRank(activeRank);
       if (row) {

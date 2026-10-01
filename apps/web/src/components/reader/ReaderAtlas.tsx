@@ -221,7 +221,7 @@ export function ReaderAtlas({
   const selectPosition = useApp((state) => state.selectAtlasPosition);
   const centerKwicAt = useApp((state) => state.centerKwicAt);
   const closeReader = useApp((state) => state.closeReader);
-  const runQueries = useApp((state) => state.runQueries);
+  const retryAnalysis = useApp((state) => state.retryDisplayedAnalysis);
   const presentation = usePresentation();
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const scrollFrame = useRef(0);
@@ -683,7 +683,7 @@ export function ReaderAtlas({
         >
           <span>{distributionStatus}</span>
           {dispersionState?.status === 'error' && (
-            <button type="button" onClick={runQueries} style={SMALL_BUTTON_STYLE}>retry analysis</button>
+            <button type="button" onClick={retryAnalysis} style={SMALL_BUTTON_STYLE}>retry analysis</button>
           )}
         </div>
       )}

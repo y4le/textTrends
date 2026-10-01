@@ -1,6 +1,7 @@
 // Passive timing marks are removed from the normal production build.
 if (__TT_E2E__) performance.mark('tt:module:trends');
 
+import { findScope } from '../lib/interaction.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { TrendPanel } from '../components/TrendPanel.tsx';
 import { TrendDistribution } from '../components/trends/TrendDistribution.tsx';
@@ -8,6 +9,7 @@ import { TrendDistribution } from '../components/trends/TrendDistribution.tsx';
 export function TrendsPlace() {
   if (__TT_E2E__) performance.mark('tt:render:trends');
   const series = useApp((state) => state.series);
+  const hasFind = useApp((state) => findScope(state.interaction)?.find !== null && findScope(state.interaction)?.find !== undefined);
   const trackTerm = () => {
     const openEntry = (attempt: number) => {
       const input = document.getElementById('term-inline-add-input');
@@ -27,7 +29,7 @@ export function TrendsPlace() {
 
   return (
     <div className="analysis-stack">
-      {series.length === 0
+      {series.length === 0 && !hasFind
         ? (
             <section className="trend-empty-state" aria-labelledby="trend-empty-heading">
               <h2 id="trend-empty-heading">Start with a term</h2>

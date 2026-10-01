@@ -1220,6 +1220,10 @@ export function createAppRuntime(
         || (resident.firstRank + resident.rows.length === resident.total && fromLast >= 0);
     };
 
+    const matchesTrackSpecs = (series: readonly SeriesIntent[]) => effectiveTrackSpecs(
+      [...series].sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0),
+    );
+
     /** Latest-wins bounded window request. Sparse axes survive neighboring
      * windows under the same snapshot + ordered matching identity. */
     const runMatchesWindow = (
@@ -1228,16 +1232,17 @@ export function createAppRuntime(
         readonly before: number;
         readonly after: number;
         readonly contextTokens?: number;
-      } = { before: 24, after: 24 },
+      } | undefined = undefined,
       force = false,
     ) => {
+      window ??= get().kwic?.request ?? { before: 24, after: 24 };
       const { snapshot, series, scrub } = get();
       if (!snapshot) {
         matchesLane.supersede();
         set({ kwic: null, matchesReveal: null });
         return;
       }
-      const tracks = effectiveTrackSpecs(series);
+      const tracks = matchesTrackSpecs(series);
       if (tracks === null || tracks.wire.length === 0) {
         matchesLane.supersede();
         set({ kwic: null, matchesReveal: null });
@@ -1265,6 +1270,13 @@ export function createAppRuntime(
       ) return;
       const trackKey = JSON.stringify(tracks.identities);
       const held = get().kwic;
+      if (!force
+        && held?.snapshot === snapshot.snapshot
+        && held.trackKey === trackKey
+        && held.state.status === 'pending'
+        && held.revealPending
+        && held.request !== null
+        && sameAnchor(held.request.anchor, anchor)) return;
       if (
         !force
         && held?.snapshot === snapshot.snapshot
@@ -1330,6 +1342,8 @@ export function createAppRuntime(
         kwic: {
           snapshot: snapshot.snapshot,
           trackKey,
+          trackSeriesIds: tracks.wire.map((track) => track.seriesId),
+          revealPending: force && get().matchesReveal !== null,
           request,
           axis: retainedAxis,
           resident: retainedWindow,
@@ -1378,6 +1392,7 @@ export function createAppRuntime(
             kwic: {
               snapshot: snapshot.snapshot,
               trackKey,
+              trackSeriesIds: tracks.wire.map((track) => track.seriesId),
               request,
               axis,
               resident: {
@@ -1402,6 +1417,7 @@ export function createAppRuntime(
           kwic: {
             snapshot: snapshot.snapshot,
             trackKey,
+            trackSeriesIds: tracks.wire.map((track) => track.seriesId),
             request,
             axis: state.kwic?.snapshot === snapshot.snapshot && state.kwic.trackKey === trackKey
               ? state.kwic.axis
@@ -2600,6 +2616,11 @@ export function createAppRuntime(
         if (increased && target) scheduleFooterPassage(target);
       },
 
+      retryDisplayedAnalysis() {
+        if (findScope(get().interaction)?.find) runFindAnalysis();
+        else get().runQueries();
+      },
+
       runQueries() {
         const { snapshot, series, trendBins } = get();
         occurrenceLane.supersede();
@@ -2757,7 +2778,7 @@ export function createAppRuntime(
           },
         );
         const live = get();
-        const tracks = effectiveTrackSpecs(live.series);
+        const tracks = matchesTrackSpecs(live.series);
         const trackKey = tracks === null ? '' : JSON.stringify(tracks.identities);
         set({
           matchesReveal: origin?.kind !== 'bucket'
