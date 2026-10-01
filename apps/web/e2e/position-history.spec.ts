@@ -78,10 +78,12 @@ test('reading position history traverses the workbench and Reader without using 
   await page.keyboard.press('Control+o');
   await expect(reader).toBeVisible();
   await expect(readerPage).not.toHaveAttribute('data-reader-anchor', readerAnchor!);
+  await expect(reader.getByRole('status', { name: 'Reader keyboard status' })).toContainText('Previous reading position');
   expect(await page.evaluate(() => history.length)).toBe(readerBrowserHistoryLength);
   await expect(reader.getByRole('button', { name: 'Return to workbench', exact: true }))
     .toBeVisible();
 
   await page.keyboard.press('Control+i');
   await expect(readerPage).toHaveAttribute('data-reader-anchor', readerAnchor!);
+  await expect(reader.getByRole('status', { name: 'Reader keyboard status' })).toContainText('Next reading position');
 });

@@ -8,7 +8,7 @@ import { trackLegend } from '../../lib/track-legend.ts';
 import { sameReaderPlace } from '../../lib/reader-intent.ts';
 import { UtilityPane } from '../UtilityPane.tsx';
 import { useReaderChromeModel } from './useReaderChromeModel.ts';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 function ReaderCommandButton({
   command,
@@ -49,6 +49,20 @@ export function ReaderControlsPane({
   readonly onOpenFind: () => void;
   readonly onAnnounce: (message: string) => void;
 }) {
+  const [announcement, setAnnouncement] = useState('');
+  const announcementFrame = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (announcementFrame.current !== null) cancelAnimationFrame(announcementFrame.current);
+  }, []);
+  const announce = (message: string) => {
+    if (announcementFrame.current !== null) cancelAnimationFrame(announcementFrame.current);
+    setAnnouncement('');
+    announcementFrame.current = requestAnimationFrame(() => {
+      announcementFrame.current = null;
+      setAnnouncement(message);
+    });
+    onAnnounce(message);
+  };
   const place = useApp((state) => state.readerPlace);
   const pageState = useApp((state) => state.readerPage);
   const notebook = useApp((state) => state.notebook);
@@ -93,19 +107,19 @@ export function ReaderControlsPane({
   const movePage = (direction: -1 | 1) => {
     const target = direction === -1 ? navigation?.previous : navigation?.next;
     if (target === null || target === undefined) return;
-    onAnnounce('');
+    announce(direction === -1 ? 'Previous page.' : 'Next page.');
     navigateReader(target);
   };
   const moveReference = (direction: -1 | 1) => {
-    onAnnounce('');
+    announce(direction === -1 ? 'Finding previous reference.' : 'Finding next reference.');
     stepOccurrence(direction);
   };
   const moveText = (direction: -1 | 1) => {
-    onAnnounce('');
-    stepDocument(direction);
+    const target = stepDocument(direction);
+    announce(target ? direction === -1 ? 'Previous text.' : 'Next text.' : direction === -1 ? 'First readable text.' : 'Last readable text.');
   };
   const moveToBoundary = (boundary: 'start' | 'end') => {
-    onAnnounce('');
+    announce(boundary === 'start' ? 'Start of text.' : 'End of text.');
     if (boundary === 'start') {
       navigateReader({ kind: 'from', token: 0 });
     } else if (position !== null && position.tokenCount > 0) {
@@ -132,6 +146,7 @@ export function ReaderControlsPane({
       className="reader-controls-pane"
       onClose={onClose}
     >
+      <p className="visually-hidden" role="status" aria-live="polite">{announcement}</p>
       <div className="reader-controls-sections">
         <section className="reader-controls-position" aria-labelledby="reader-controls-position-heading">
           <h3 id="reader-controls-position-heading">Position</h3>

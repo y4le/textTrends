@@ -775,3 +775,28 @@ describe('latest-wins full reader intent', () => {
     });
   });
 });
+
+describe('Reader browser-history budget', () => {
+  it('retargets a retained Reader layer 200 times without rewriting its browser entry', async () => {
+    const history = new FakeHistoryPort('/textTrends/?p=matches');
+    const f = harness(undefined, { history });
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    const open = (token: number) => f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token, from: 'kwic', anchor: 'position',
+    });
+    open(0);
+    f.readers().at(-1)!.resolve(fakeReaderPage(0, 200, 200_000, 'a', 0));
+    await flush();
+    const before = { pushes: history.pushes, replaces: history.replaces };
+    for (let i = 0; i < 200; i++) {
+      const token = 20_000 + i;
+      f.store.getState().seekReader(token, 'commit');
+      f.readers().at(-1)!.resolve(fakeReaderPage(token, token + 200, 200_000, 'a', token));
+      await flush();
+    }
+    expect({ pushes: history.pushes, replaces: history.replaces }).toEqual(before);
+    expect(f.store.getState().readerPlace?.cursor.token).toBe(20_199);
+    expect(f.store.getState().layers.filter((layer) => layer.kind === 'reader')).toHaveLength(1);
+    f.runtime.dispose();
+  });
+});

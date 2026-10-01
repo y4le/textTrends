@@ -1,3 +1,4 @@
+import { sameReaderPlace, type ReaderPlace } from './lib/reader-intent.ts';
 import { retryableLazy } from './components/retryable-lazy.tsx';
 import {
   Suspense,
@@ -176,7 +177,9 @@ export function App() {
     && activeTextCount === 0
     && pendingInputCount === 0;
   const readerOpen = readerPlace !== null;
-  const [readerKeyboardStatus, setReaderKeyboardStatus] = useState('');
+  const [readerStatus, setReaderStatus] = useState<{ place: ReaderPlace | null; message: string }>({ place: null, message: '' });
+  const readerKeyboardStatus = sameReaderPlace(readerStatus.place, readerPlace) ? readerStatus.message : '';
+  const setReaderKeyboardStatus = (message: string) => setReaderStatus({ place: useApp.getState().readerPlace, message });
   const findReturnFocus = useRef<HTMLElement | null>(null);
   const restoreFindFocus = useRef(false);
   const previousFindScope = useRef(findScope(interaction) !== null);
@@ -512,7 +515,69 @@ export function App() {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [readerOpen, readerScale]);
+  }, [interaction.kind, readerOpen, readerScale]);
+
+  const handleReaderKeyDown = (event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent) => {
+    if (handleInteractionShortcut(event)) return;
+    if (interaction.kind === 'rsvp') {
+      handleRootShortcut(event, 'rsvp');
+      return;
+    }
+    if (!rootShortcutAllowed(event)) return;
+    if (shortcutMatches(event, 'reader-close')) {
+      event.preventDefault();
+      closeReader();
+      return;
+    }
+    if (readerScale === 'read' && shortcutMatches(event, 'reader-page-previous')) {
+      event.preventDefault();
+      moveReaderPage(-1);
+      return;
+    }
+    if (readerScale === 'read' && shortcutMatches(event, 'reader-page-next')) {
+      event.preventDefault();
+      moveReaderPage(1);
+      return;
+    }
+    if (shortcutMatches(event, 'reader-occurrence-next')) {
+      event.preventDefault();
+      setReaderKeyboardStatus('');
+      stepOccurrence(1);
+      return;
+    }
+    if (shortcutMatches(event, 'reader-occurrence-previous')) {
+      event.preventDefault();
+      setReaderKeyboardStatus('');
+      stepOccurrence(-1);
+      return;
+    }
+    if (shortcutMatches(event, 'reader-text-previous')) {
+      event.preventDefault();
+      moveReaderDocument(-1);
+      return;
+    }
+    if (shortcutMatches(event, 'reader-text-next')) {
+      event.preventDefault();
+      moveReaderDocument(1);
+      return;
+    }
+    if (readerScale === 'read' && shortcutMatches(event, 'reader-book-start')) {
+      event.preventDefault();
+      setReaderKeyboardStatus('');
+      navigateReader({ kind: 'from', token: 0 });
+      return;
+    }
+    if (readerScale === 'read' && shortcutMatches(event, 'reader-book-end')) {
+      event.preventDefault();
+      const page = readerPage?.state.status === 'ready' ? readerPage.state.page : null;
+      if (page && page.docTokenCount > 0) {
+        setReaderKeyboardStatus('');
+        navigateReader({ kind: 'before', token: page.docTokenCount });
+      }
+      return;
+    }
+    handleRootShortcut(event, 'reader');
+  };
 
   useEffect(() => {
     const onDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -523,6 +588,10 @@ export function App() {
       if (utilityPane !== null) return;
       if (handlePositionHistoryShortcut(event)) return;
       if (handleInteractionShortcut(event)) return;
+      if (readerOpen && event.target === document.body) {
+        handleReaderKeyDown(event);
+        return;
+      }
       handleRootShortcut(
         event,
         readerOpen ? interaction.kind === 'rsvp' ? 'rsvp' : 'reader' : 'workbench',
@@ -531,7 +600,7 @@ export function App() {
     };
     document.addEventListener('keydown', onDocumentKeyDown);
     return () => document.removeEventListener('keydown', onDocumentKeyDown);
-  }, [interaction.kind, presentation.reducedMotion, readerOpen, utilityPane]);
+  }, [interaction.kind, presentation.reducedMotion, readerOpen, readerScale, readerNavigation, readerPage, utilityPane]);
 
   useEffect(() => {
     const current = findScope(interaction) !== null;
@@ -558,10 +627,6 @@ export function App() {
         ?.focus({ preventScroll: true });
     });
   }, [interaction.kind, place, readerOpen]);
-
-  useEffect(() => {
-    setReaderKeyboardStatus('');
-  }, [readerPlace]);
 
   useEffect(() => {
     if (!readerOpen) return undefined;
@@ -672,67 +737,7 @@ export function App() {
         data-reader-fit-size={readerVisibleRange?.geometry.split(':', 1)[0]}
         aria-labelledby="reader-title"
         tabIndex={-1}
-        onKeyDown={(event) => {
-          if (handleInteractionShortcut(event)) return;
-          if (interaction.kind === 'rsvp') {
-            handleRootShortcut(event, 'rsvp');
-            return;
-          }
-          if (!rootShortcutAllowed(event)) return;
-          if (shortcutMatches(event, 'reader-close')) {
-            event.preventDefault();
-            closeReader();
-            return;
-          }
-          if (readerScale === 'read' && shortcutMatches(event, 'reader-page-previous')) {
-            event.preventDefault();
-            moveReaderPage(-1);
-            return;
-          }
-          if (readerScale === 'read' && shortcutMatches(event, 'reader-page-next')) {
-            event.preventDefault();
-            moveReaderPage(1);
-            return;
-          }
-          if (shortcutMatches(event, 'reader-occurrence-next')) {
-            event.preventDefault();
-            setReaderKeyboardStatus('');
-            stepOccurrence(1);
-            return;
-          }
-          if (shortcutMatches(event, 'reader-occurrence-previous')) {
-            event.preventDefault();
-            setReaderKeyboardStatus('');
-            stepOccurrence(-1);
-            return;
-          }
-          if (shortcutMatches(event, 'reader-text-previous')) {
-            event.preventDefault();
-            moveReaderDocument(-1);
-            return;
-          }
-          if (shortcutMatches(event, 'reader-text-next')) {
-            event.preventDefault();
-            moveReaderDocument(1);
-            return;
-          }
-          if (readerScale === 'read' && shortcutMatches(event, 'reader-book-start')) {
-            event.preventDefault();
-            setReaderKeyboardStatus('');
-            navigateReader({ kind: 'from', token: 0 });
-            return;
-          }
-          if (readerScale === 'read' && shortcutMatches(event, 'reader-book-end')) {
-            event.preventDefault();
-            const page = readerPage?.state.status === 'ready' ? readerPage.state.page : null;
-            if (page && page.docTokenCount > 0) {
-              setReaderKeyboardStatus('');
-              navigateReader({ kind: 'before', token: page.docTokenCount });
-            }
-            return;
-          }
-          handleRootShortcut(event, 'reader');
-        }}
+        onKeyDown={handleReaderKeyDown}
       >
         <span
           className="visually-hidden"

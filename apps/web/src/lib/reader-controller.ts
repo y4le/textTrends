@@ -107,9 +107,6 @@ export function createReaderController(deps: ReaderDependencies) {
     target: ReaderNavigationTarget,
     anchor: ReaderAnchorKind = 'position',
     from?: ReaderOpenIntent['from'],
-    options: {
-      readonly preview?: boolean;
-    } = {},
   ): void => {
     const place = get().readerPlace;
     const cursor = target.cursor;
@@ -151,7 +148,9 @@ export function createReaderController(deps: ReaderDependencies) {
       layers,
       {
         preserveReaderNavigation: sameDocument,
-        writeHistory: options.preview !== true,
+        // Reader targets are retained in the local layer registry. The bounded
+        // browser entry stores only layer ids, which did not change.
+        writeHistory: false,
       },
     );
     if (!sameDocument) readerWalk = null;
@@ -513,8 +512,6 @@ export function createReaderController(deps: ReaderDependencies) {
       replaceReaderTarget(
         { doc: place.doc, cursor: { kind: 'from', token } },
         'position',
-        undefined,
-        activeSession === null ? {} : { preview: true },
       );
     },
 

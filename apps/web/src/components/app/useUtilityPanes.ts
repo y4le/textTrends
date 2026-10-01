@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { useApp } from '../../lib/store-instance.ts';
 import { globalSettingsEntry, type SettingsContext, type SettingsEntry } from '../../lib/settings-entry.ts';
 import type { ShortcutHelpContext } from '../../lib/shortcuts.ts';
@@ -22,11 +22,32 @@ export function useUtilityPanes({ onOpen, findReturnFocus }: {
   readonly findReturnFocus: RefObject<HTMLElement | null>;
 }) {
   const place = useApp((s) => s.place);
+  const readerPlace = useApp((s) => s.readerPlace);
   const interaction = useApp((s) => s.interaction);
   const exitInteraction = useApp((s) => s.exitInteraction);
   const setRsvpPlaying = useApp((s) => s.setRsvpPlaying);
   const [utilityPane, setUtilityPane] = useState<OpenUtilityPane | null>(null);
   const utilityPaneReturnFocus = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if ((utilityPane?.kind === 'reader-controls' && readerPlace === null)
+      || (utilityPane?.kind === 'speed-settings' && interaction.kind !== 'rsvp')) {
+      setUtilityPane(null);
+      utilityPaneReturnFocus.current = null;
+      const restore = (attempt: number) => {
+        if (document.getElementById('root')?.inert && attempt < 3) {
+          requestAnimationFrame(() => restore(attempt + 1));
+          return;
+        }
+        const active = document.activeElement;
+        if (active && active !== document.body && active.isConnected) return;
+        const state = useApp.getState();
+        document.getElementById(state.readerPlace ? 'reader-region' : `place-${state.place}-heading`)
+          ?.focus({ preventScroll: true });
+      };
+      requestAnimationFrame(() => restore(0));
+    }
+  }, [interaction.kind, readerPlace, utilityPane]);
+
   const openHelp = (context: ShortcutHelpContext, fromUtilityPane = false) => {
     onOpen();
     if (!fromUtilityPane) {

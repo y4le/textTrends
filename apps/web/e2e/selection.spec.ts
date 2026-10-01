@@ -240,6 +240,11 @@ test('pointer and keyboard selections share detail results and stale results can
   const matches = page.getByRole('grid', { name: 'Matches' });
   await expect(matches.locator('[role="row"][aria-rowindex]')).toHaveCount(3);
   await expect(matches.locator('[role="row"][data-linked-selection="true"]')).toHaveCount(1);
+  await matches.locator('[role="row"][data-linked-selection="true"]').getByRole('button').first().click();
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  await expect(reader.locator('[data-reader-selection="true"]').first()).toBeVisible();
+  await reader.press('Escape');
+  await expect(reader).toHaveCount(0);
   await gotoPlace(page, 'trends');
   await expect(page.getByRole('group', { name: 'Trend view' })).toHaveCount(0);
   await expect(page.getByTestId('linked-selection')).toBeVisible();

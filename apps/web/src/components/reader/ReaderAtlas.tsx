@@ -540,7 +540,8 @@ export function ReaderAtlas({
   const moveHorizontal = (direction: -1 | 1) => {
     const base = navigationPosition.current ?? { doc: place.doc, token: activeToken };
     const index = order.indexOf(base.doc);
-    const doc = index < 0 ? undefined : order[index + direction];
+    const candidates = index < 0 ? [] : direction === 1 ? order.slice(index + 1) : order.slice(0, index).reverse();
+    const doc = candidates.find((id) => (tokenCounts.get(id) ?? 0) > 0);
     if (doc === undefined) {
       cancelAnnouncement();
       onAnnounce(direction < 0 ? 'First readable text.' : 'Last readable text.');
@@ -606,6 +607,7 @@ export function ReaderAtlas({
     column: AtlasColumnVM,
     layoutColumn: AtlasLayoutColumn,
   ) => {
+    if (!event.isPrimary || event.button !== 0) return;
     if (event.pointerType !== 'touch') {
       hitTrack(event, column, layoutColumn);
       return;

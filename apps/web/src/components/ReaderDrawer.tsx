@@ -126,7 +126,7 @@ function ReaderProse({
         overflowWrap: 'anywhere',
       }}
     >
-      {segments.map((segment, index) => {
+      {segments.map((segment) => {
         const mark = coveringMark(segment);
         const inSelection =
           selected !== null
@@ -142,7 +142,7 @@ function ReaderProse({
         if (!mark) {
           return (
             <span
-              key={index}
+              key={`${segment.start}:${segment.end}`}
               data-reader-offset={segment.start}
               data-reader-cursor={inCursor || undefined}
               data-reader-cursor-start={inCursor && segment.start === cursor?.start || undefined}
@@ -161,10 +161,10 @@ function ReaderProse({
         const clippedEnd = mark.clippedEnd && segment.end === mark.charsUtf16.end;
         return (
           <span
-            key={index}
+            key={`${segment.start}:${segment.end}`}
             role="button"
             tabIndex={0}
-            aria-label={`Find ${labelOf.get(mark.seriesId) ?? mark.seriesId} reference in Matches`}
+            aria-label={`${text} · Find ${labelOf.get(mark.seriesId) ?? mark.seriesId} reference in Matches`}
             title={[
               'Show this full reference in Matches',
               clippedStart ? 'continues from previous page' : '',

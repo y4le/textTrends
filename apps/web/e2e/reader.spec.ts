@@ -457,3 +457,34 @@ test('an exact barcode occurrence opens the reader', async ({ page }) => {
   await expect(drawer.locator('[data-reader-page]')).toHaveAttribute('data-reader-anchor', '450');
   await drawer.getByRole('button', { name: 'Return to workbench', exact: true }).click();
 });
+
+test('Reader body focus keeps page keys and owned controls close on browser Back', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await gotoPlace(page, 'matches');
+  await page.getByRole('grid', { name: 'Matches' })
+    .getByRole('button', { name: 'wolf', exact: true }).click();
+  const reader = page.getByRole('main', { name: /Reader: reader/ });
+  const source = reader.locator('[data-reader-page]');
+  await expect(source).toBeVisible();
+  await reader.focus();
+  await reader.press('Shift+S');
+  await expect(reader).toHaveAttribute('data-shortcut-context', 'rsvp');
+  await reader.getByRole('button', { name: 'Return to Reader', exact: true }).click();
+  await expect(reader).toHaveAttribute('data-shortcut-context', 'reader');
+  await expect(source).toBeVisible();
+  const before = await source.getAttribute('data-reader-page');
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
+  await page.keyboard.press('ArrowRight');
+  await expect(source).not.toHaveAttribute('data-reader-page', before!);
+  await reader.getByRole('button', { name: /Open Reader controls for/ }).click();
+  const controls = page.getByRole('dialog', { name: 'Reader controls', exact: true });
+  await controls.getByRole('button', { name: 'Previous page', exact: true }).click();
+  await expect(controls.getByRole('status')).toHaveText('Previous page.');
+  await expect(source).toBeVisible();
+  await page.goBack();
+  await expect(controls).toHaveCount(0);
+  await expect(reader).toHaveCount(0);
+  await expect(page.locator('#matches-grid')).toBeFocused();
+});
