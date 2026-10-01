@@ -1,66 +1,8 @@
 /* Original tokens.css lines 6734-7361. Loaded in fixed order by main.tsx.
  * Rules overlap across these files; moving them requires a cascade review. */
 
-/* Find owns the Terms row in retained workbench/Atlas docks. Reader uses its
- * one-row takeover above; the floating variant remains for standalone hosts. */
-.find-bar--floating {
-  position: fixed;
-  z-index: 79;
-  inset-inline:
-    calc(var(--space-4) + env(safe-area-inset-left, 0px))
-    calc(var(--space-4) + env(safe-area-inset-right, 0px));
-  inset-block-end:
-    calc(
-      var(--keyboard-inset)
-      + var(--dock-block-size)
-      + var(--space-2)
-      + env(safe-area-inset-bottom, 0px)
-    );
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-2) var(--space-3);
-  max-inline-size: 72rem;
-  margin-inline: auto;
-  padding: var(--space-2);
-  border: 1px solid var(--rule-strong);
-  background: color-mix(in srgb, var(--bg) 96%, transparent);
-  box-shadow: 0 0.6rem 1.8rem color-mix(in srgb, #000 18%, transparent);
-}
-
-html.reader-open .find-bar--floating {
-  inset-block-end:
-    calc(
-      var(--keyboard-inset)
-      + var(--space-2)
-      + env(safe-area-inset-bottom, 0px)
-    );
-}
-
-.find-bar-form,
-.find-bar-actions {
-  display: flex;
-  min-inline-size: 0;
-  align-items: stretch;
-  gap: var(--space-1);
-}
-
-.find-bar-label {
-  align-self: center;
-  font-weight: 600;
-}
-
-.find-bar-form input {
-  min-inline-size: 8ch;
-  flex: 1 1 20rem;
-  border: 1px solid var(--rule-strong);
-  padding-inline: var(--space-2);
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-  font-family: var(--font-mono);
-}
-
-.find-bar button {
+/* Reader Find controls; dock Find inherits DockTakeover controls. */
+.find-bar--reader button {
   border: 1px solid var(--rule-strong);
   padding-inline: var(--space-2);
   background: var(--bg);
@@ -69,12 +11,12 @@ html.reader-open .find-bar--floating {
   font: inherit;
 }
 
-.find-bar button:disabled {
+.find-bar--reader button:disabled {
   color: var(--fg-muted);
   cursor: default;
 }
 
-.find-bar button.find-bar-icon-action {
+.find-bar--reader button.find-bar-icon-action {
   display: inline-flex;
   min-inline-size: max(44px, var(--term-target-block-size));
   align-items: center;
@@ -90,19 +32,6 @@ html.reader-open .find-bar--floating {
   block-size: 1em;
   align-items: center;
   justify-content: center;
-}
-
-.find-bar button.find-bar-result {
-  display: flex;
-  min-inline-size: 0;
-  inline-size: 100%;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: start;
 }
 
 .find-bar[data-takeover] .dock-takeover-result {
@@ -137,53 +66,10 @@ html.reader-open .find-bar--floating {
   white-space: nowrap;
 }
 
-.find-bar-status,
-.find-bar-error {
-  grid-column: 1 / -1;
-  min-block-size: 1.3em;
-  margin: 0;
-  font-size: var(--text-xs);
-}
-
-.find-bar-status {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  color: var(--fg-muted);
-}
-
 .find-bar-status-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.find-bar-error {
-  color: var(--accent-text);
-}
-
-@media (max-width: 599.98px) {
-  .find-bar--floating {
-    inset-inline:
-      calc(var(--space-2) + env(safe-area-inset-left, 0px))
-      calc(var(--space-2) + env(safe-area-inset-right, 0px));
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .find-bar--floating .find-bar-form {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-  }
-
-  .find-bar--floating .find-bar-actions {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .find-bar-form input {
-    font-size: 16px;
-  }
-
 }
 
 .term-manager-header {

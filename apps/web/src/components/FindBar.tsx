@@ -23,12 +23,12 @@ type FindBarProps =
   | {
       readonly onClose: () => void;
       readonly onExitReader?: never;
-      readonly placement?: 'rail' | 'floating';
+      readonly placement: 'rail';
     };
 
 export function FindBar(props: FindBarProps) {
   const { onClose } = props;
-  const placement = props.placement ?? 'floating';
+  const placement = props.placement;
   const onExitReader = props.placement === 'reader' ? props.onExitReader : undefined;
   const interaction = useApp((state) => state.interaction);
   const interactionError = useApp((state) => state.interactionError);
@@ -53,7 +53,6 @@ export function FindBar(props: FindBarProps) {
   const progress = findMatchProgress(find, matches);
   const rail = placement === 'rail';
   const reader = placement === 'reader';
-  const takeover = rail || reader;
   const submittedDraft = find !== null && draft === submittedRaw;
   const notebookAtCapacity = notebookTermCount >= NOTEBOOK_LIMITS_V1.maxGroups;
   const analysisAtCapacity = activeTermCount >= MAX_KWIC_TRACKS;
@@ -121,22 +120,6 @@ export function FindBar(props: FindBarProps) {
     setSaveError('');
     setSaveStatus(`Saved ${find.query.label} to Terms.`);
   };
-  const statusContent = (
-    <>
-      <span className="find-bar-status-text">{status}</span>
-      {progress !== null && (
-        <span
-          className="find-bar-match-progress"
-          data-find-match-progress
-          aria-label={`Find match ${progress.current.toLocaleString()} of ${progress.total.toLocaleString()}`}
-        >
-          <span aria-hidden="true">
-            {progress.current.toLocaleString()}/{progress.total.toLocaleString()}
-          </span>
-        </span>
-      )}
-    </>
-  );
 
   return (
     <section
@@ -145,7 +128,7 @@ export function FindBar(props: FindBarProps) {
       role="search"
       aria-label="Find in corpus"
       aria-busy={model.busy}
-      data-takeover={takeover ? 'find' : undefined}
+      data-takeover="find"
       onKeyDown={handleKeyDown}
     >
       {reader ? (
@@ -279,7 +262,7 @@ export function FindBar(props: FindBarProps) {
             {interactionError ?? saveError}
           </p>
         </>
-      ) : rail ? (
+      ) : (
         <>
           <DockTakeover
             mode="find"
@@ -414,108 +397,6 @@ export function FindBar(props: FindBarProps) {
           <p
             id="corpus-find-error"
             className="visually-hidden"
-            role="alert"
-            aria-live="assertive"
-            aria-atomic="true"
-          >
-            {interactionError ?? saveError}
-          </p>
-        </>
-      ) : (
-        <>
-          <label
-            className={rail ? 'term-bar-label' : 'find-bar-label'}
-            htmlFor={FIND_INPUT_ID}
-          >
-            Find
-          </label>
-          <form className="find-bar-form" onSubmit={submit}>
-            <input
-              id={FIND_INPUT_ID}
-              type="search"
-              value={draft}
-              aria-label="Find term or aliases"
-              placeholder="word, phrase, alias*"
-              aria-describedby="corpus-find-status corpus-find-error"
-              enterKeyHint="search"
-              autoComplete="off"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              onChange={(event) => {
-                setDraft(event.currentTarget.value);
-                setSaveStatus('');
-                setSaveError('');
-                if (interactionError !== null) clearInteractionError();
-              }}
-            />
-            <button type="submit" className="coarse-target" aria-label="Submit find">Find</button>
-            <button
-              type="button"
-              className="coarse-target"
-              aria-label="Save Find as term"
-              title={saveTitle}
-              disabled={saveDisabled}
-              onClick={saveCurrentFind}
-            >
-              Save
-            </button>
-          </form>
-          <div className="find-bar-actions">
-            <button
-              type="button"
-              className="coarse-target find-bar-icon-action"
-              aria-label="Previous match"
-              aria-keyshortcuts={shortcutAria(['find-previous'])}
-              disabled={!model.hasSubmittedQuery}
-              onClick={() => stepFind(-1)}
-            >
-              <span className="find-bar-action-glyph" aria-hidden="true">←</span>
-            </button>
-            <button
-              ref={nextRef}
-              type="button"
-              className="coarse-target find-bar-icon-action"
-              aria-label="Next match"
-              aria-keyshortcuts={shortcutAria(['find-next'])}
-              disabled={!model.hasSubmittedQuery}
-              onClick={() => stepFind(1)}
-            >
-              <span className="find-bar-action-glyph" aria-hidden="true">→</span>
-            </button>
-            <button
-              type="button"
-              className="coarse-target find-bar-icon-action"
-              aria-label="Clear and close find"
-              aria-keyshortcuts={shortcutAria(['find-close'])}
-              onClick={onClose}
-            >
-              <span className="find-bar-action-glyph" aria-hidden="true">×</span>
-            </button>
-          </div>
-          <p
-            id="corpus-find-status"
-            className="find-bar-status"
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            {find?.state.status === 'ready' ? (
-              <button
-                id={FIND_RESULT_ID}
-                type="button"
-                className="find-bar-result"
-                title="Open current Find result in Reader"
-                onClick={openCurrentResult}
-              >
-                <span className="visually-hidden">Open current Find result in Reader: </span>
-                {statusContent}
-              </button>
-            ) : statusContent}
-          </p>
-          <p
-            id="corpus-find-error"
-            className="find-bar-error"
             role="alert"
             aria-live="assertive"
             aria-atomic="true"
