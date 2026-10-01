@@ -39,6 +39,7 @@ export function TrendRowResizeHandle({
     readonly startPitch: number;
     detent: TrendRowDetentState;
     lastTarget: number;
+    moved: boolean;
   } | null>(null);
 
   useEffect(() => () => {
@@ -62,7 +63,7 @@ export function TrendRowResizeHandle({
   };
   const scheduleTarget = (next: number) => {
     pendingTarget.current = next;
-    if (drag.current) drag.current.lastTarget = next;
+    if (drag.current) { drag.current.lastTarget = next; drag.current.moved = true; }
     resizeFrame.current ??= requestAnimationFrame(() => {
       resizeFrame.current = null;
       const pending = pendingTarget.current;
@@ -77,7 +78,7 @@ export function TrendRowResizeHandle({
     drag.current = null;
     setResizeActive(false);
     setDetentHint(null);
-    onCommit(active.lastTarget);
+    if (active.moved) onCommit(active.lastTarget);
   };
   const stateText = `${sizing.rowPitch} pixels per text · ${
     sizing.titlesPainted ? 'titles shown' : 'titles hidden'
@@ -98,6 +99,7 @@ export function TrendRowResizeHandle({
   };
 
   const resizeByKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     const direction = event.key === 'ArrowDown' || event.key === 'PageDown'
       ? 1
       : event.key === 'ArrowUp' || event.key === 'PageUp'
@@ -204,6 +206,7 @@ export function TrendRowResizeHandle({
           startPitch: sizing.rowPitch,
           detent: beginTrendRowDetent(sizing.rowPitch, sizing.minPitch, event.clientY),
           lastTarget: sizing.rowPitch,
+          moved: false,
         };
         event.currentTarget.setPointerCapture(event.pointerId);
         setResizeActive(true);

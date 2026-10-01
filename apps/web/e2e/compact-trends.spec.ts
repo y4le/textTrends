@@ -323,3 +323,81 @@ test('short landscape restores Trends content and moves footer focus to Terms', 
   await expect.poll(async () => (await page.locator('.workbench-dock').boundingBox())!.height)
     .toBe(tallDockHeight);
 });
+
+
+test('Trends retains focus and row pitch while analysis reissues are held', async ({ page }) => {
+  const workerPromise = page.waitForEvent('worker');
+  await page.goto('./');
+  const worker = await workerPromise;
+  await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
+  await page.getByRole('button', { name: 'Separate rows, equal width', exact: true }).click();
+  const scrubber = page.getByRole('slider', { name: 'Reading position scrubber' });
+  const handle = page.getByRole('separator', { name: 'Resize trend rows' });
+  await expect(handle).toBeVisible();
+  const pitch = await handle.getAttribute('aria-valuenow');
+  const saved = await page.evaluate(() => localStorage.getItem('texttrends/trend-rows/2'));
+  await worker.evaluate(() => {
+    const scope = globalThis as unknown as {
+      postMessage(message: unknown, transfer?: Transferable[]): void;
+      __ttHeldTrends?: { messages: { message: unknown; transfer?: Transferable[] }[]; release(): void };
+    };
+    const send = scope.postMessage.bind(scope);
+    const gate = {
+      messages: [] as { message: unknown; transfer?: Transferable[] }[],
+      release() {
+        scope.postMessage = send;
+        for (const held of this.messages.splice(0)) send(held.message, held.transfer);
+      },
+    };
+    scope.__ttHeldTrends = gate;
+    scope.postMessage = (message, transfer) => {
+      const candidate = message as { t?: string; data?: { op?: string } };
+      if (candidate.t === 'result' && ['trend', 'dispersion'].includes(candidate.data?.op ?? '')) gate.messages.push({ message, ...(transfer ? { transfer } : {}) });
+      else send(message, transfer);
+    };
+  });
+  await scrubber.focus();
+  const visibility = page.getByRole('button', { name: /^Shown in analysis:/ }).first();
+  await visibility.evaluate((button) => (button as HTMLElement).click());
+  await expect.poll(() => worker.evaluate(() => (globalThis as unknown as { __ttHeldTrends?: { messages: unknown[] } }).__ttHeldTrends?.messages.length ?? 0)).toBeGreaterThan(0);
+  await expect(scrubber).toBeFocused();
+  await expect(scrubber.locator('..')).toHaveAttribute('aria-busy', 'true');
+  await expect(handle).toHaveAttribute('aria-valuenow', pitch!);
+  await handle.click();
+  await handle.press('Control+PageDown');
+  await expect(handle).toHaveAttribute('aria-valuenow', pitch!);
+  expect(await page.evaluate(() => localStorage.getItem('texttrends/trend-rows/2'))).toBe(saved);
+  await scrubber.focus();
+  expect(await scrubber.evaluate((element) => {
+    let reachedDocument = false;
+    const listener = () => { reachedDocument = true; };
+    document.addEventListener('keydown', listener, { once: true });
+    const event = new KeyboardEvent('keydown', { key: 'ArrowRight', ctrlKey: true, bubbles: true, cancelable: true });
+    element.dispatchEvent(event);
+    document.removeEventListener('keydown', listener);
+    return reachedDocument && !event.defaultPrevented;
+  })).toBe(true);
+  await worker.evaluate(() => (globalThis as unknown as { __ttHeldTrends?: { release(): void } }).__ttHeldTrends?.release());
+  await expect(scrubber.locator('..')).not.toHaveAttribute('aria-busy', 'true');
+  await expect(scrubber).toBeFocused();
+});
+
+
+test('a precise pointer resumes scrubbing after a touch hold anchor', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
+  const scrubber = page.getByRole('slider', { name: 'Reading position scrubber' });
+  const bounds = await scrubber.boundingBox();
+  if (!bounds) throw new Error('Trends has no geometry');
+  const x = bounds.x + bounds.width * 0.25;
+  const y = bounds.y + 20;
+  await scrubber.dispatchEvent('pointerdown', { pointerId: 71, pointerType: 'touch', isPrimary: true, button: 0, clientX: x, clientY: y });
+  await expect(page.getByText(/Range start set at/)).toBeVisible();
+  await scrubber.dispatchEvent('pointermove', { pointerId: 72, pointerType: 'pen', isPrimary: true, clientX: bounds.x + bounds.width * 0.75, clientY: y });
+  await expect(page.getByText(/Range start set at/)).toBeVisible();
+  await scrubber.dispatchEvent('pointerup', { pointerId: 71, pointerType: 'touch', isPrimary: true, button: 0, clientX: x, clientY: y });
+  const anchored = await scrubber.getAttribute('aria-valuenow');
+  await scrubber.dispatchEvent('pointermove', { pointerId: 72, pointerType: 'pen', isPrimary: true, clientX: bounds.x + bounds.width * 0.75, clientY: y });
+  await expect(scrubber).not.toHaveAttribute('aria-valuenow', anchored!);
+  await expect(page.getByText(/Range start set at/)).toHaveCount(0);
+});

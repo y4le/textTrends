@@ -36,7 +36,7 @@ import {
 } from '../lib/barcode-view.ts';
 import { DEFAULT_SERIES_STYLE } from '../lib/series-style.ts';
 import { trendSeriesGate } from '../lib/trend-series-gate.ts';
-import type { SeriesIntent } from '../lib/app-state.ts';
+import type { AppState, SeriesIntent } from '../lib/app-state.ts';
 import {
   TREND_VIEW_ORDER,
   trendViewAccessibleName,
@@ -73,20 +73,47 @@ const trendRowStorage = typeof window === 'undefined'
   ? null
   : browserStorage(window, 'local');
 
+type TrendInputs = Pick<AppState,
+  'series' | 'interaction' | 'trends' | 'selectedTrends' | 'dispersion'
+  | 'selectedDispersion' | 'linkedSelection' | 'snapshot'>;
+
+/** Keep the settled stage mounted while its current snapshot is recomputed.
+ * Retained evidence is visibly busy and cannot publish analytical gestures. */
 export function TrendPanel() {
-  // Deliberately NO `scrub` subscription here: it updates once per
-  // pointer animation frame, and this component's render rebuilds every path,
-  // hover rect, and totals row. The ScrubSurface child owns the
-  // per-frame state; this panel re-renders on data/view/resize changes and
-  // bounded Find-mode transitions, never on ambient cursor motion.
-  const series = useApp((s) => s.series);
-  const interaction = useApp((s) => s.interaction);
-  const project = useApp((s) => s.projectSession?.project ?? null);
-  const trends = useApp((s) => s.trends);
-  const selectedTrends = useApp((s) => s.selectedTrends);
-  const dispersion = useApp((s) => s.dispersion);
-  const selectedDispersion = useApp((s) => s.selectedDispersion);
-  const linkedSelection = useApp((s) => s.linkedSelection);
+  const series = useApp((state) => state.series);
+  const interaction = useApp((state) => state.interaction);
+  const trends = useApp((state) => state.trends);
+  const selectedTrends = useApp((state) => state.selectedTrends);
+  const dispersion = useApp((state) => state.dispersion);
+  const selectedDispersion = useApp((state) => state.selectedDispersion);
+  const linkedSelection = useApp((state) => state.linkedSelection);
+  const snapshot = useApp((state) => state.snapshot);
+  const scope = findScope(interaction);
+  const find = scope?.find ?? null;
+  const pending = scope !== null && find !== null
+    ? find.trend.status === 'pending'
+    : [...trends.values()].some((state) => state.status === 'pending');
+  const inputs: TrendInputs = { series, interaction, trends, selectedTrends,
+    dispersion, selectedDispersion, linkedSelection, snapshot };
+  const resident = useRef<TrendInputs | null>(null);
+  useLayoutEffect(() => {
+    if (!pending) resident.current = inputs;
+  }, [inputs, pending]);
+  const held = pending && resident.current?.snapshot?.snapshot === snapshot?.snapshot
+    ? resident.current
+    : null;
+  return <TrendPanelContent inputs={held ?? inputs} pending={pending && held !== null} />;
+}
+
+function TrendPanelContent({ inputs, pending }: {
+  readonly inputs: TrendInputs;
+  readonly pending: boolean;
+}) {
+  // Cursor frames remain child-owned; neither this stage nor its input owner
+  // subscribes to ambient scrub changes.
+  const { series, interaction, trends, selectedTrends, dispersion,
+    selectedDispersion, linkedSelection } = inputs;
+  const project = useApp((state) => state.projectSession?.project ?? null);
   const trendView = useApp((s) => s.trendView);
   const setTrendView = useApp((s) => s.setTrendView);
   const trendMeasure = useApp((s) => s.trendMeasure);
@@ -174,7 +201,7 @@ export function TrendPanel() {
   const readyGeo = activeReady[0]?.trend ?? ghostReady[0]?.trend ?? null;
   const reservedTrackCount = findMode ? Math.max(series.length, activeSeries.length) : 0;
   const sizingTrackCount = useMemo(() => {
-    if (graphGate !== 'ready' || !readyGeo) return reservedTrackCount;
+    if (graphGate !== 'ready' || !readyGeo || displayedDispersion === null) return Math.max(activeSeries.length, reservedTrackCount);
     return Math.max(
       projectedBarcodeTracks(
         displayedDispersion,
@@ -348,7 +375,7 @@ export function TrendPanel() {
     target: BarcodeActivation | null,
     openExact = false,
   ) => {
-    if (!target) return;
+    if (pending || !target) return;
     centerKwicAt(
       track.seriesId,
       target.doc,
@@ -401,11 +428,13 @@ export function TrendPanel() {
   const maxValue = Math.max(1e-9, dataMaxValue);
   const strokeFor = () => geometry.strokeWidth;
   const previewRowPitch = (target: number | null) => {
+    if (pending) return;
     setRowPitchPreference(target === null
       ? null
       : trendRowPitchPreference(target, rowPitchContext));
   };
   const commitRowPitch = (target: number | null) => {
+    if (pending) return;
     if (findMode && target !== null) {
       setRowPitchPreference(committedRowPitchPreference.current);
       return;
@@ -422,7 +451,7 @@ export function TrendPanel() {
   };
 
   return (
-    <section {...guideAnchorProps('trend-plate')}>
+    <section {...guideAnchorProps('trend-plate')} aria-busy={pending || undefined}>
       <TrendPanelHeader>
         {viewSwitcher}
         <BarcodeLegend
@@ -435,6 +464,7 @@ export function TrendPanel() {
           onActivate={activateBarcode}
         />
       </TrendPanelHeader>
+      {pending && <p role="status">computing trends…</p>}
       {failed.length > 0 && (
         <p
           role="alert"
@@ -461,6 +491,7 @@ export function TrendPanel() {
       )}
       {/* ScrubSurface owns cursor updates; keep its chart children stable. */}
       <ScrubSurface
+        pending={pending}
         containerRef={setContainerEl}
         trendView={trendView}
         docs={docs}

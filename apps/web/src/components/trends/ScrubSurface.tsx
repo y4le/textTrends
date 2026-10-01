@@ -15,7 +15,7 @@ import {
   seriesXFromTokenEdge,
   seriesTokenFromX,
   stepAlongSequence,
-  trendBinAtToken,
+  stepTrendBin,
   trendStageDocument,
   trendStageHit,
   type SequenceLayout,
@@ -116,6 +116,7 @@ type StagePointerTarget =
  */
 export function ScrubSurface({
   containerRef,
+  pending = false,
   trendView,
   docs,
   titleByDoc,
@@ -139,6 +140,7 @@ export function ScrubSurface({
   children,
 }: {
   containerRef: (el: HTMLDivElement | null) => void;
+  pending?: boolean;
   trendView: TrendView;
   docs: readonly string[];
   titleByDoc: ReadonlyMap<string, string>;
@@ -540,10 +542,6 @@ export function ScrubSurface({
     const d = docs.indexOf(current.doc);
     if (d < 0) return;
     const tc = docTokenCount[d] ?? 0;
-    const currentBin = trendBinAtToken(trend, d, current.token);
-    const binWidth = currentBin === null
-      ? 1
-      : Math.max(1, currentBin.span.end - currentBin.span.start);
     const step = (delta: number): ScrubTarget | null => {
       if (trendView === 'series') {
         const next = stepAlongSequence(d, current.token, delta, layout);
@@ -556,8 +554,8 @@ export function ScrubSurface({
     else if (shortcutMatches(e, 'trend-step-five-next')) next = step(5);
     else if (shortcutMatches(e, 'trend-step-previous')) next = step(-1);
     else if (shortcutMatches(e, 'trend-step-next')) next = step(1);
-    else if (shortcutMatches(e, 'trend-bin-previous')) next = step(-binWidth);
-    else if (shortcutMatches(e, 'trend-bin-next')) next = step(binWidth);
+    else if (shortcutMatches(e, 'trend-bin-previous')) next = stepTrendBin(trend, current.doc, current.token, -1, trendView === 'series');
+    else if (shortcutMatches(e, 'trend-bin-next')) next = stepTrendBin(trend, current.doc, current.token, 1, trendView === 'series');
     else if (shortcutMatches(e, 'trend-book-start')) next = { doc: current.doc, token: 0 };
     else if (shortcutMatches(e, 'trend-book-end')) next = { doc: current.doc, token: Math.max(0, tc - 1) };
     else return;
@@ -707,8 +705,46 @@ export function ScrubSurface({
     readonly pointerType: string;
     moved: boolean;
   } | null>(null);
+  useEffect(() => {
+    if (!pending) return;
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    frame.current = null;
+    pointerSample.current = null;
+    clearTouchHold();
+    touchGesture.current = beginTouchRangeGesture();
+    pointerTap.current = null;
+    pointerDrag.current = null;
+    rangeHandleDrag.current = null;
+    titleGesture.current = idleTrendTitleGesture();
+    setPreview(null);
+  }, [pending]);
+  const blockPending = (event: React.SyntheticEvent) => {
+    if (!pending) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
   return (
-    <div ref={containerRef} style={{ width: '100%', position: 'relative' }}>
+    <div
+      ref={containerRef}
+      style={{ width: '100%', position: 'relative' }}
+      aria-busy={pending || undefined}
+      onPointerDownCapture={blockPending}
+      onPointerMoveCapture={blockPending}
+      onPointerUpCapture={blockPending}
+      onClickCapture={blockPending}
+      onDoubleClickCapture={blockPending}
+      onKeyDownCapture={(event) => {
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        if (([
+          'trend-step-previous', 'trend-step-next',
+          'trend-step-five-previous', 'trend-step-five-next',
+          'trend-bin-previous', 'trend-bin-next',
+          'trend-book-start', 'trend-book-end',
+          'trend-selection-start', 'trend-selection-commit',
+          'trend-toggle-view',
+        ] as const).some((id) => shortcutMatches(event, id))) blockPending(event);
+      }}
+    >
       <div
         ref={sliderRef}
         className="trend-scrubber"
@@ -814,7 +850,14 @@ export function ScrubSurface({
             applyTouchRangeEffect(transition.effect);
             return;
           }
-          if (touchGesture.current.phase !== 'idle') return;
+          if (touchGesture.current.phase !== 'idle') {
+            const gesture = touchGesture.current;
+            if ((gesture.phase !== 'anchored' && gesture.phase !== 'spent') || gesture.heldPointerIds.length > 0) return;
+            clearTouchHold();
+            const reset = resetTouchRangeGesture(gesture);
+            touchGesture.current = beginTouchRangeGesture();
+            applyTouchRangeEffect(reset.effect);
+          }
           const precise = pointerIntentFor(e.pointerType) === 'precise';
           const target = targetFromPointer(px, py, precise);
           const tap = pointerTap.current;
@@ -936,7 +979,14 @@ export function ScrubSurface({
             applyTouchRangeEffect(transition.effect);
             return;
           }
-          if (touchGesture.current.phase !== 'idle') return;
+          if (touchGesture.current.phase !== 'idle') {
+            const gesture = touchGesture.current;
+            if ((gesture.phase !== 'anchored' && gesture.phase !== 'spent') || gesture.heldPointerIds.length > 0) return;
+            clearTouchHold();
+            const reset = resetTouchRangeGesture(gesture);
+            touchGesture.current = beginTouchRangeGesture();
+            applyTouchRangeEffect(reset.effect);
+          }
           if (origin.zone === 'barcode' || e.pointerType !== 'mouse') {
             if (precise) e.currentTarget.setPointerCapture(e.pointerId);
             pointerTap.current = {

@@ -13,6 +13,7 @@ import {
   seriesXFromToken,
   seriesXFromTokenEdge,
   stepAlongSequence,
+  stepTrendBin,
   trendStageHit,
   trendLabelBands,
   trendStageDocument,
@@ -385,5 +386,23 @@ describe('document label geometry', () => {
         focusTop: pitch, focusHeight: pitch, titlePainted: false,
       },
     ]);
+  });
+});
+
+
+describe('adjacent observed trend bins', () => {
+  it('crosses unequal-width document bins without skipping the shorter document', () => {
+    const trend: NumericTrend = {
+      ...trendWithDenominators([50, 50, 0, 5, 5], [0, 0, 0, 0, 0]),
+      order: ['long', 'empty', 'short'],
+      rowOffsets: Uint32Array.from([0, 2, 3, 5]),
+      binStartToken: Uint32Array.from([0, 50, 0, 0, 5]),
+      docTokenCount: [100, 0, 10],
+      sequenceBases: [0, 100, 100],
+    };
+    expect(stepTrendBin(trend, 'long', 80, 1, true)).toEqual({ doc: 'short', token: 4 });
+    expect(stepTrendBin(trend, 'short', 4, -1, true)).toEqual({ doc: 'long', token: 54 });
+    expect(stepTrendBin(trend, 'long', 80, 1, false)).toBeNull();
+    expect(stepTrendBin(trend, 'short', 4, 1, true)).toEqual({ doc: 'short', token: 9 });
   });
 });

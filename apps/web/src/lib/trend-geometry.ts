@@ -124,6 +124,37 @@ export function trendBinAtToken(
   return null;
 }
 
+/** Step one observed bin, keeping the within-bin offset bounded when the
+ * next document has narrower bins. Empty bins and documents are skipped. */
+export function stepTrendBin(
+  trend: NumericTrend,
+  doc: string,
+  token: number,
+  direction: -1 | 1,
+  crossDocuments: boolean,
+): { readonly doc: string; readonly token: number } | null {
+  let ordinal = trend.order.indexOf(doc);
+  const current = trendBinAtToken(trend, ordinal, token);
+  if (ordinal < 0 || current === null) return null;
+  const offset = token - current.span.start;
+  let local = current.row - (trend.rowOffsets[ordinal] ?? 0) + direction;
+  while (ordinal >= 0 && ordinal < trend.order.length) {
+    const rows = trendRowsForDoc(trend, ordinal);
+    while (local >= 0 && local < rows.count) {
+      const span = trendBinSpan(trend, ordinal, local);
+      if (span.end > span.start) return {
+        doc: trend.order[ordinal]!,
+        token: span.start + Math.min(offset, span.end - span.start - 1),
+      };
+      local += direction;
+    }
+    if (!crossDocuments) return null;
+    ordinal += direction;
+    local = direction === 1 ? 0 : trendRowsForDoc(trend, ordinal).count - 1;
+  }
+  return null;
+}
+
 /** Clamp a point into its book's pixel span [x0, x1], applying the requested
  *  boundary gaps only when the span can contain them — a narrower span
  *  collapses to its midpoint rather than letting the bounds cross and eject
