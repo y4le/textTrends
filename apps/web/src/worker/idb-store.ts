@@ -3,7 +3,7 @@
  *
  * PROVISIONAL NAMESPACE: the index recipe is still
  * 'texttrends/index-recipe/0-provisional', so every record in this database
- * is disposable by design. The database name's trailing 'db4' is the DATABASE
+ * is disposable by design. The database name's trailing 'db5' is the DATABASE
  * LAYOUT version, not IndexRecipeV1.
  * Recipe graduation opens a NEW database name and never reads provisional
  * records as canonical — there will never be a migration of these records.
@@ -60,7 +60,45 @@ interface StoredShardV1 {
   readonly shard: DocumentIndexV1;
 }
 
+export const ARTIFACT_CACHE_MAX_BYTES = 256 * 1024 * 1024;
+export const ARTIFACT_CACHE_MAX_ENTRIES = 1536;
+export interface ArtifactCachePolicy { readonly maxBytes: number; readonly maxEntries: number }
+const DEFAULT_CACHE_POLICY: ArtifactCachePolicy = { maxBytes: ARTIFACT_CACHE_MAX_BYTES, maxEntries: ARTIFACT_CACHE_MAX_ENTRIES };
+function validateCachePolicy(policy: ArtifactCachePolicy): void {
+  if (!Number.isSafeInteger(policy.maxBytes) || policy.maxBytes <= 0 || policy.maxBytes > ARTIFACT_CACHE_MAX_BYTES
+    || !Number.isSafeInteger(policy.maxEntries) || policy.maxEntries <= 0 || policy.maxEntries > ARTIFACT_CACHE_MAX_ENTRIES) throw new RangeError('artifact cache policy may only reduce the positive hard bounds');
+}
+type ArtifactTable = 'texts' | 'shards' | 'extractions';
+interface CacheEntry {
+  readonly id: string;
+  readonly store: ArtifactTable;
+  readonly key: readonly string[];
+  readonly bytes: number;
+  readonly usedAt: number;
+}
+function entryId(store: ArtifactTable, key: readonly string[]): string { return JSON.stringify([store, ...key]); }
+function validCacheEntry(value: unknown): value is CacheEntry {
+  if (!isRecord(value) || !['texts', 'shards', 'extractions'].includes(String(value.store))
+    || !Array.isArray(value.key) || !value.key.every((key) => typeof key === 'string' && key.length <= 256)
+    || !Number.isSafeInteger(value.bytes) || (value.bytes as number) <= 0
+    || !Number.isSafeInteger(value.usedAt) || (value.usedAt as number) < 0) return false;
+  const store = value.store as ArtifactTable;
+  const count = store === 'texts' ? 2 : store === 'extractions' ? 3 : 4;
+  return value.key.length === count && value.id === entryId(store, value.key as string[]);
+}
+/** Conservative payload accounting; no JSON expansion of typed arrays. */
+function shardBytes(shard: DocumentIndexV1): number {
+  let bytes = 256;
+  for (const value of Object.values(shard)) {
+    if (ArrayBuffer.isView(value)) bytes += value.byteLength;
+  }
+  if (Array.isArray(shard.vocabulary)) for (const key of shard.vocabulary) bytes += 16 + key.length * 2;
+  if (shard.postings) for (const value of Object.values(shard.postings)) if (ArrayBuffer.isView(value)) bytes += value.byteLength;
+  return bytes;
+}
+
 interface ArtifactDb extends DBSchema {
+  entries: { key: string; value: CacheEntry; indexes: { usedAt: number } };
   extractions: {
     key: ['texttrends/stored-extraction/1', string, string];
     value: StoredExtractionV1;
@@ -103,9 +141,12 @@ export class IdbArtifactStore implements ArtifactStore {
   /** After a quota (or any) write failure, further writes are suppressed for
    *  the session; reads keep working — the open database is still valid. */
   private writesDisabled = false;
+  private writing: Promise<void> = Promise.resolve();
+  private accessClock = 0;
   private readonly warnedOnce = new Set<StorageWarningCode>();
 
-  constructor(db: IDBPDatabase<ArtifactDb>, warn: WarnStorage) {
+  constructor(db: IDBPDatabase<ArtifactDb>, warn: WarnStorage, private readonly policy: ArtifactCachePolicy = DEFAULT_CACHE_POLICY) {
+    validateCachePolicy(policy);
     this.db = db;
     this.warn = warn;
   }
@@ -134,22 +175,92 @@ export class IdbArtifactStore implements ArtifactStore {
     return admit(record);
   }
 
-  private async write(op: (db: IDBPDatabase<ArtifactDb>) => Promise<unknown>): Promise<void> {
-    if (!this.db || this.writesDisabled) return;
-    try {
-      await op(this.db);
-    } catch (e) {
-      this.writesDisabled = true;
-      this.warnOnce(
-        'CACHE_WRITE_FAILED',
-        `cache write failed (persistence disabled for this session; results unaffected): ${e instanceof Error ? e.message : String(e)}`,
-      );
-    }
+  private write(op: (db: IDBPDatabase<ArtifactDb>) => Promise<unknown>): Promise<void> {
+    const run = this.writing.then(async () => {
+      if (!this.db || this.writesDisabled) return;
+      try { await op(this.db); }
+      catch (error) {
+        this.writesDisabled = true;
+        this.warnOnce('CACHE_WRITE_FAILED', `cache write failed (persistence disabled for this session; results unaffected): ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+    this.writing = run;
+    return run;
+  }
+
+  private stamp(): number { return this.accessClock = Math.max(Date.now(), this.accessClock + 1); }
+
+  private touch(store: ArtifactTable, key: readonly string[]): void {
+    void this.write(async (db) => {
+      const tx = db.transaction('entries', 'readwrite');
+      const entry = await tx.store.get(entryId(store, key));
+      const newest = await tx.store.index('usedAt').openCursor(null, 'prev');
+      if (newest && validCacheEntry(newest.value)) this.accessClock = Math.max(this.accessClock, newest.value.usedAt);
+      if (validCacheEntry(entry)) await tx.store.put({ ...entry, usedAt: this.stamp() });
+      await tx.done;
+    });
+  }
+
+  /** Payload and eviction metadata commit atomically. Only metadata is read
+   * during pruning; resident shards are never cloned merely to measure them. */
+  private putRecord(store: ArtifactTable, key: readonly string[], record: StoredTextV1 | StoredShardV1 | StoredExtractionV1, bytes: number): Promise<void> {
+    return this.write(async (db) => {
+      const tx = db.transaction(['texts', 'shards', 'extractions', 'entries'], 'readwrite');
+      const id = entryId(store, key);
+      const storedEntries = await tx.objectStore('entries').getAll();
+      const tables = ['texts', 'shards', 'extractions'] as const;
+      const counts = await Promise.all(tables.map((table) => tx.objectStore(table).count()));
+      let entries: CacheEntry[];
+      if (storedEntries.some((entry) => !validCacheEntry(entry))
+        || tables.some((table, index) => counts[index] !== storedEntries.filter((entry) => entry.store === table).length)) {
+        // A damaged ledger cannot account for its payloads: discard only the
+        // recomputable cache, then admit the current write into a fresh ledger.
+        for (const table of ['texts', 'shards', 'extractions', 'entries'] as const) await tx.objectStore(table).clear();
+        this.warnOnce('CACHE_CORRUPT', 'cache accounting was damaged; disposable artifacts were cleared');
+        entries = [];
+      } else entries = storedEntries.filter((entry) => entry.id !== id);
+      this.accessClock = entries.reduce((clock, entry) => Math.max(clock, entry.usedAt), this.accessClock);
+      let total = entries.reduce((sum, entry) => sum + entry.bytes, 0);
+      let count = entries.length;
+      await tx.objectStore(store).delete(key as never);
+      await tx.objectStore('entries').delete(id);
+      if (bytes <= this.policy.maxBytes) {
+        entries.sort((left, right) => left.usedAt - right.usedAt || left.id.localeCompare(right.id));
+        for (const victim of entries) {
+          if (total + bytes <= this.policy.maxBytes && count + 1 <= this.policy.maxEntries) break;
+          await tx.objectStore(victim.store).delete(victim.key as never);
+          await tx.objectStore('entries').delete(victim.id);
+          total -= victim.bytes;
+          count--;
+        }
+        await tx.objectStore(store).put(record as never);
+        await tx.objectStore('entries').put({ id, store, key, bytes, usedAt: this.stamp() });
+      }
+      await tx.done;
+    });
+  }
+
+  private deleteRecord(store: ArtifactTable, key: readonly string[]): Promise<void> {
+    // Corruption repair stays available even when cache writes are disabled.
+    const run = this.writing.then(async () => {
+      if (!this.db) return;
+      const tx = this.db.transaction([store, 'entries'], 'readwrite');
+      await tx.objectStore(store).delete(key as never);
+      await tx.objectStore('entries').delete(entryId(store, key));
+      await tx.done;
+    }).catch(() => {});
+    this.writing = run;
+    return run;
   }
 
   getText(hash: string): Promise<CacheRead<string>> {
     return this.read(
-      (db) => db.get('texts', ['texttrends/stored-text/1', hash]),
+      async (db) => {
+        const key = ['texttrends/stored-text/1', hash];
+        const record = await db.get('texts', key as never);
+        if (record !== undefined) this.touch('texts', key);
+        return record;
+      },
       (record) => {
         const reason = checkTextEnvelope(record, hash);
         return reason === null
@@ -161,7 +272,12 @@ export class IdbArtifactStore implements ArtifactStore {
 
   getExtraction(key: ExtractionCacheKey): Promise<CacheRead<string>> {
     return this.read(
-      (db) => db.get('extractions', ['texttrends/stored-extraction/1', key.source, key.recipe]),
+      async (db) => {
+        const id = ['texttrends/stored-extraction/1', key.source, key.recipe];
+        const record = await db.get('extractions', id as never);
+        if (record !== undefined) this.touch('extractions', id);
+        return record;
+      },
       (record) => {
         if (!isRecord(record) || record.schema !== 'texttrends/stored-extraction/1'
           || record.sourceHash !== key.source || record.recipeHash !== key.recipe
@@ -178,30 +294,30 @@ export class IdbArtifactStore implements ArtifactStore {
       schema: 'texttrends/stored-extraction/1', sourceHash: key.source,
       recipeHash: key.recipe, textHash,
     };
-    return this.write((db) => db.put('extractions', record));
+    return this.putRecord('extractions', ['texttrends/stored-extraction/1', key.source, key.recipe], record, 384);
   }
 
   deleteExtraction(key: ExtractionCacheKey): Promise<void> {
-    if (!this.db) return Promise.resolve();
-    return this.db.delete('extractions', ['texttrends/stored-extraction/1', key.source, key.recipe])
-      .catch(() => undefined);
+    return this.deleteRecord('extractions', ['texttrends/stored-extraction/1', key.source, key.recipe]);
   }
 
   putText(hash: string, text: string): Promise<void> {
     const record: StoredTextV1 = { schema: 'texttrends/stored-text/1', hash, text };
-    return this.write((db) => db.put('texts', record));
+    return this.putRecord('texts', ['texttrends/stored-text/1', hash], record, 128 + text.length * 2);
   }
 
   deleteText(hash: string): Promise<void> {
-    // Deletion is corruption REPAIR, not eviction — it must not be gated by
-    // writesDisabled, or a corrupt record would warn forever. Best-effort.
-    if (!this.db) return Promise.resolve();
-    return this.db.delete('texts', ['texttrends/stored-text/1', hash]).catch(() => undefined);
+    return this.deleteRecord('texts', ['texttrends/stored-text/1', hash]);
   }
 
   getShard(key: DocumentIndexCacheKey): Promise<CacheRead<unknown>> {
     return this.read(
-      (db) => db.get('shards', [key.schema, key.text, key.recipe, key.segmenter]),
+      async (db) => {
+        const id = [key.schema, key.text, key.recipe, key.segmenter];
+        const record = await db.get('shards', id as never);
+        if (record !== undefined) this.touch('shards', id);
+        return record;
+      },
       (record) => {
         const reason = checkShardEnvelope(record, key);
         return reason === null
@@ -220,14 +336,11 @@ export class IdbArtifactStore implements ArtifactStore {
       segmenterHash: key.segmenter,
       shard,
     };
-    return this.write((db) => db.put('shards', record));
+    return this.putRecord('shards', [key.schema, key.text, key.recipe, key.segmenter], record, shardBytes(shard));
   }
 
   deleteShard(key: DocumentIndexCacheKey): Promise<void> {
-    if (!this.db) return Promise.resolve();
-    return this.db
-      .delete('shards', [key.schema, key.text, key.recipe, key.segmenter])
-      .catch(() => undefined);
+    return this.deleteRecord('shards', [key.schema, key.text, key.recipe, key.segmenter]);
   }
 
   close(): void {
@@ -250,7 +363,8 @@ export class IdbArtifactStore implements ArtifactStore {
  * blocked open must never stall generation processing, so the open races a
  * bounded timer; if the real database arrives after the fallback won, the
  * late connection is CLOSED rather than switching stores under a live
- * generation. This factory NEVER rejects — the fallback is the answer.
+ * generation. Environmental failures never reject; invalid policy is a
+ * programming error and rejects before any database is opened.
  *
  * `opener` is an injection seam for the pending-open race, which cannot be
  * produced deterministically with a real IndexedDB.
@@ -259,7 +373,9 @@ export async function openArtifactStore(
   warn: WarnStorage,
   blockedTimeoutMs = 2000,
   opener?: () => Promise<IDBPDatabase<ArtifactDb>>,
+  policy: ArtifactCachePolicy = DEFAULT_CACHE_POLICY,
 ): Promise<ArtifactStore> {
+  validateCachePolicy(policy);
   if (typeof indexedDB === 'undefined') {
     warn('CACHE_UNAVAILABLE', 'IndexedDB is not available; results are not persisted');
     return new InMemoryArtifactStore();
@@ -295,7 +411,7 @@ export async function openArtifactStore(
           return;
         }
         settled = true;
-        const store = new IdbArtifactStore(db, warn);
+        const store = new IdbArtifactStore(db, warn, policy);
         db.addEventListener('versionchange', () => store.handleVersionChange());
         resolve(store);
       },
@@ -312,6 +428,7 @@ function defaultOpen(): Promise<IDBPDatabase<ArtifactDb>> {
     upgrade(db) {
       // Layout version 1: creation only. A future layout bump opens a NEW
       // database name — provisional records are never migrated.
+      db.createObjectStore('entries', { keyPath: 'id' }).createIndex('usedAt', 'usedAt');
       db.createObjectStore('texts', { keyPath: ['schema', 'hash'] });
       db.createObjectStore('extractions', { keyPath: ['schema', 'sourceHash', 'recipeHash'] });
       db.createObjectStore('shards', {

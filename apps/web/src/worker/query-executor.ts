@@ -199,11 +199,26 @@ interface MatchesAxisCacheEntry {
   readonly value: MatchesAxisV1;
 }
 
+export const MAX_RESOLVER_CACHE_ENTRIES = 256;
+export const MAX_RESOLVER_CACHE_BYTES = 96 * 1024 * 1024;
+interface ResolverCachePolicy { readonly maxEntries: number; readonly maxBytes: number }
+interface ResolverCacheEntry { readonly doc: string; readonly value: Resolver; readonly bytes: number }
+const DEFAULT_RESOLVER_CACHE_POLICY: ResolverCachePolicy = {
+  maxEntries: MAX_RESOLVER_CACHE_ENTRIES, maxBytes: MAX_RESOLVER_CACHE_BYTES,
+};
+/** Conservative accounting for retained keys, Map slots and id buckets.
+ * Resident shard buffers belong to the generation and are not charged twice. */
+function resolverBytes(resolver: Resolver): number {
+  let bytes = 128;
+  for (const [key, ids] of resolver.map) bytes += 64 + 2 * key.length + 24 + ids.length * 8;
+  return bytes;
+}
+
 export class QueryExecutor {
-  /** Per-doc, per-mode resolver reuse. A commit that replaces a document's
-   *  shard resets that document's map (`publish`); `resolverFor` additionally
-   *  verifies the cached resolver still points at the resident shard. */
-  private readonly resolvers = new Map<string, Map<string, Resolver>>();
+  /** Generation-scoped resolver LRU. In-flight queries retain their acquired
+   * references; evicted maps become collectible after those queries finish. */
+  private readonly resolvers = new Map<string, ResolverCacheEntry>();
+  private resolverCacheBytes = 0;
   /** Ephemeral occurrence cache SHARED by trend and Matches
    *  (Phase E, moved verbatim): keyed by [SnapshotId, SelectionHash,
    *  termGroupIdentity] — the canonical MATCHING identity, never the
@@ -237,7 +252,12 @@ export class QueryExecutor {
     private readonly termCountCachePolicy: TermCountCachePolicy = DEFAULT_TERM_COUNT_CACHE_POLICY,
     private readonly occurrenceCachePolicy: OccurrenceCachePolicy = DEFAULT_OCCURRENCE_CACHE_POLICY,
     private readonly matchesAxisCachePolicy: MatchesAxisCachePolicy = DEFAULT_MATCHES_AXIS_CACHE_POLICY,
+    private readonly resolverCachePolicy: ResolverCachePolicy = DEFAULT_RESOLVER_CACHE_POLICY,
   ) {
+    if (!Number.isSafeInteger(resolverCachePolicy.maxEntries) || resolverCachePolicy.maxEntries <= 0 || resolverCachePolicy.maxEntries > MAX_RESOLVER_CACHE_ENTRIES
+      || !Number.isSafeInteger(resolverCachePolicy.maxBytes) || resolverCachePolicy.maxBytes <= 0 || resolverCachePolicy.maxBytes > MAX_RESOLVER_CACHE_BYTES) {
+      throw new RangeError('resolver cache policy may only reduce the exported hard bounds');
+    }
     if (
       !Number.isSafeInteger(termCountCachePolicy.maxEntries) ||
       termCountCachePolicy.maxEntries <= 0 ||
@@ -288,7 +308,11 @@ export class QueryExecutor {
       this.matchesAxisCacheBytes -= entry.bytes;
     }
     const replaced = new Set(replacedDocs);
-    for (const doc of replaced) this.resolvers.set(doc, new Map());
+    for (const [key, entry] of this.resolvers) {
+      if (!replaced.has(entry.doc)) continue;
+      this.resolvers.delete(key);
+      this.resolverCacheBytes -= entry.bytes;
+    }
     if (replaced.size > 0) {
       for (const [key, entry] of this.termCountCache) {
         if (!replaced.has(entry.doc)) continue;
@@ -315,17 +339,29 @@ export class QueryExecutor {
 
   private async resolverFor(doc: string, mode: MatchMode): Promise<Resolver> {
     const ready = this.published().ready.get(doc);
-    let byMode = this.resolvers.get(doc);
-    if (!byMode) {
-      byMode = new Map();
-      this.resolvers.set(doc, byMode);
-    }
     if (!ready) throw new DependencyError('shard', doc);
-    const key = modeKey(mode);
-    let resolver = byMode.get(key);
-    if (!resolver || resolver.shard !== ready.shard) {
-      resolver = await this.loadResolver(ready.shard, this.indexRecipe, mode);
-      byMode.set(key, resolver);
+    const key = JSON.stringify([doc, modeKey(mode)]);
+    const entry = this.resolvers.get(key);
+    if (entry?.value.shard === ready.shard) {
+      this.resolvers.delete(key);
+      this.resolvers.set(key, entry);
+      return entry.value;
+    }
+    if (entry) { this.resolvers.delete(key); this.resolverCacheBytes -= entry.bytes; }
+    const resolver = await this.loadResolver(ready.shard, this.indexRecipe, mode);
+    // Publication may have replaced the document while the resolver was built.
+    if (this.published().ready.get(doc)?.shard !== ready.shard) return resolver;
+    const concurrent = this.resolvers.get(key);
+    if (concurrent) { this.resolvers.delete(key); this.resolverCacheBytes -= concurrent.bytes; }
+    const bytes = resolverBytes(resolver);
+    if (bytes <= this.resolverCachePolicy.maxBytes) {
+      this.resolvers.set(key, { doc, value: resolver, bytes });
+      this.resolverCacheBytes += bytes;
+      while (this.resolvers.size > this.resolverCachePolicy.maxEntries || this.resolverCacheBytes > this.resolverCachePolicy.maxBytes) {
+        const oldest = this.resolvers.keys().next().value!;
+        this.resolverCacheBytes -= this.resolvers.get(oldest)!.bytes;
+        this.resolvers.delete(oldest);
+      }
     }
     return resolver;
   }

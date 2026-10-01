@@ -11,6 +11,7 @@ import {
   ARTIFACT_DB_NAME,
   ARTIFACT_DB_VERSION,
   IdbArtifactStore,
+  type ArtifactCachePolicy,
   openArtifactStore,
 } from '../src/worker/idb-store.ts';
 import type { StorageWarningCodeV4 as StorageWarningCode } from '../src/worker/protocol-v4.ts';
@@ -38,13 +39,74 @@ beforeEach(() => {
   globalThis.indexedDB = new IDBFactory() as unknown as typeof indexedDB;
 });
 
-async function open(warnings: Warning[] = []) {
-  const store = await openArtifactStore((code, message) => warnings.push({ code, message }));
+async function open(warnings: Warning[] = [], policy?: ArtifactCachePolicy) {
+  const store = await openArtifactStore((code, message) => warnings.push({ code, message }), 2000, undefined, policy);
   expect(store).toBeInstanceOf(IdbArtifactStore);
   return store as IdbArtifactStore;
 }
 
 describe('IdbArtifactStore', () => {
+  it('rejects an invalid policy before opening a database', async () => {
+    await expect(open([], { maxEntries: 0, maxBytes: 4096 })).rejects.toThrow(RangeError);
+  });
+
+  it('repairs missing accounting entries before admitting another payload', async () => {
+    const store = await open();
+    await store.putText('old', 'old text');
+    const db = await openDB(ARTIFACT_DB_NAME, ARTIFACT_DB_VERSION);
+    await db.clear('entries');
+    db.close();
+    await store.putText('new', 'new text');
+    expect((await store.getText('old')).kind).toBe('miss');
+    expect((await store.getText('new')).kind).toBe('hit');
+    store.close();
+  });
+  it('evicts least recently used artifacts under one shared entry budget', async () => {
+    const store = await open([], { maxEntries: 2, maxBytes: 4096 });
+    await store.putText('a', 'alpha');
+    await store.putText('b', 'beta');
+    expect((await store.getText('a')).kind).toBe('hit');
+    await store.putShard(KEY, SHARD);
+    expect((await store.getText('b')).kind).toBe('miss');
+    expect((await store.getText('a')).kind).toBe('hit');
+    expect((await store.getShard(KEY)).kind).toBe('hit');
+    await (store as unknown as { writing: Promise<void> }).writing;
+    store.close();
+    const reopened = await open([], { maxEntries: 2, maxBytes: 4096 });
+    await reopened.putText('c', 'gamma');
+    expect((await reopened.getText('a')).kind).toBe('miss');
+    expect((await reopened.getShard(KEY)).kind).toBe('hit');
+    reopened.close();
+  });
+  it('prunes by estimated bytes and skips artifacts larger than the whole budget', async () => {
+    const warnings: Warning[] = [];
+    const store = await open(warnings, { maxEntries: 10, maxBytes: 300 });
+    await store.putText('a', 'a'.repeat(20));
+    await store.putText('b', 'b'.repeat(20));
+    expect((await store.getText('a')).kind).toBe('miss');
+    expect((await store.getText('b')).kind).toBe('hit');
+    await store.putText('huge', 'c'.repeat(200));
+    expect((await store.getText('huge')).kind).toBe('miss');
+    expect((await store.getText('b')).kind).toBe('hit');
+    expect(warnings).toEqual([]);
+    store.close();
+  });
+
+  it('repairs a damaged accounting ledger without retaining uncharged payloads', async () => {
+    const warnings: Warning[] = [];
+    const store = await open(warnings);
+    await store.putText('old', 'old text');
+    const db = await openDB(ARTIFACT_DB_NAME, ARTIFACT_DB_VERSION);
+    const metadata = (await db.getAll('entries'))[0];
+    await db.put('entries', { ...metadata, bytes: -1 });
+    db.close();
+    await store.putText('new', 'new text');
+    expect((await store.getText('old')).kind).toBe('miss');
+    expect((await store.getText('new')).kind).toBe('hit');
+    expect(warnings.map((warning) => warning.code)).toEqual(['CACHE_CORRUPT']);
+    store.close();
+  });
+
   it('persists source/recipe extraction bindings and repairs invalid identities', async () => {
     const key = { source: 'a'.repeat(64), recipe: 'b'.repeat(64) };
     const hash = 'c'.repeat(64);
@@ -173,13 +235,13 @@ describe('IdbArtifactStore', () => {
     const warnings: Warning[] = [];
     const store = await open(warnings);
     await store.putText('kept', 'still readable');
-    // Force the next write to fail: stub the underlying db.put.
-    const internal = store as unknown as { db: { put: (...a: unknown[]) => Promise<unknown> } };
-    const realPut = internal.db.put.bind(internal.db);
+    // Fail the real atomic write transaction, keeping readonly reads usable.
+    const internal = store as unknown as { db: { transaction: (...a: unknown[]) => unknown } };
+    const realTransaction = internal.db.transaction.bind(internal.db);
     let failNext = true;
-    internal.db.put = (...args: unknown[]) => {
-      if (failNext) return Promise.reject(new DOMException('quota', 'QuotaExceededError'));
-      return realPut(...(args as Parameters<typeof realPut>));
+    internal.db.transaction = (...args: unknown[]) => {
+      if (failNext && args[1] === 'readwrite') throw new DOMException('quota', 'QuotaExceededError');
+      return realTransaction(...args);
     };
     await store.putText('lost', 'never lands');
     expect(warnings.some((w) => w.code === 'CACHE_WRITE_FAILED')).toBe(true);

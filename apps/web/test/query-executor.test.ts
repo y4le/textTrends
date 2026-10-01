@@ -904,6 +904,34 @@ describe('Slice-3 document-term-count cache', () => {
     }
   );
 
+  it('bounds retained resolver maps, recomputes evictions and drops replaced documents', async () => {
+    const { view, snapshot } = await publishedTwoDocs();
+    const load = vi.fn(buildResolver);
+    const executor = new QueryExecutor(DEFAULT_INDEX_RECIPE, load, undefined, undefined, undefined, { maxEntries: 1, maxBytes: 4096 });
+    executor.publish(view, []);
+    const selection = await resolveSelection(snapshot, { docs: ['a'] as never });
+    const run = (exact = false) => executor.trend(selection,
+      { id: 'alpha', countOverlaps: false, members: [{ id: 'm', kind: 'token', surface: 'alpha', match: exact ? { case: 'sensitive', diacritics: 'sensitive' } : FOLD }] },
+      { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } }, async () => {});
+    const first = await run();
+    await run();
+    expect(load).toHaveBeenCalledTimes(1);
+    await run(true);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(await run()).toEqual(first);
+    expect(load).toHaveBeenCalledTimes(3);
+    const cache = executor as unknown as { resolvers: Map<string, { bytes: number }>; resolverCacheBytes: number };
+    expect(cache.resolvers.size).toBe(1);
+    expect(cache.resolverCacheBytes).toBe([...cache.resolvers.values()].reduce((sum, entry) => sum + entry.bytes, 0));
+    executor.publish(view, ['a']);
+    expect(cache.resolvers.size).toBe(0);
+    expect(cache.resolverCacheBytes).toBe(0);
+    const tiny = new QueryExecutor(DEFAULT_INDEX_RECIPE, load, undefined, undefined, undefined, { maxEntries: 1, maxBytes: 1 });
+    tiny.publish(view, []);
+    await tiny.trend(selection, wolfGroup, { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } }, async () => {});
+    expect((tiny as unknown as { resolvers: Map<string, unknown> }).resolvers.size).toBe(0);
+  });
+
   it('accounts occurrence-cache bytes exactly and evicts by the byte LRU', async () => {
     const { view, snapshot } = await publishedTwoDocs();
     const executor = new QueryExecutor(

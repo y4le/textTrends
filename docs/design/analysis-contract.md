@@ -188,14 +188,22 @@ Persistence has two owners:
    bodies; its atomic upgrade preserves original records on failure.
    Workspace-file restore advances an epoch that rejects older tabs' writes.
    Its source/workspace/settings handoff follows the [backup contract](workspace-backup.md).
-2. `texttrends-artifacts-provisional-db4` stores disposable verified text and
+2. `texttrends-artifacts-provisional-db5` stores disposable verified text and
    document indexes, plus extraction bindings from verified source hash and
    extraction recipe hash to text hash. Only committed cold ingestion earns
    such a binding. Library reopen uses the current recipe's binding and deeply
    verifies the referenced text/index; a missing or damaged record falls back
    to original bytes. Legacy workspace text hints are ignored, and portable
    backups reject them. This database can always be discarded and rebuilt
-   from library or bundled source bytes; the new layout does not migrate db3.
+   from library or bundled source bytes; the new layout does not migrate db4.
+   One LRU ledger caps retained payloads at 256 MiB of conservative estimated
+   bytes and 1,536 entries across text, shard and extraction records. Reads
+   refresh recency; writes atomically evict payloads and ledger entries. An
+   oversized artifact remains usable in memory without entering the cache.
+   Invalid accounting discards the disposable cache. These estimates bound
+   payload retention, not browser database overhead or transient allocations.
+   A project near the ingest caps may exceed this budget; eviction makes later
+   reopen rebuild the missing artifacts from source.
    Clear cache and Full reset delete every explicitly owned older artifact
    layout as well as the current one; unrelated browser databases are preserved.
    Full reset also removes historical durable user-data, source-download, and

@@ -269,3 +269,18 @@ chunks. The entry alone measures 82,838 bytes. The independent ceilings are
 160,000 bytes for the closure and 90,000 bytes for the entry. Lazy region
 checks also traverse shared imports; an indirect local-library import now
 fails the gate. These measurements include no corpus publication changes.
+
+### Cache retention (1 October 2026)
+
+Resolver retention is bounded by an LRU of 256 entries and 96 MiB of estimated
+Map/key/id-array payload. Oversized resolvers are computed for the current
+query without being retained. The artifact database separately caps estimated
+payload at 256 MiB and 1,536 entries. These are retention limits; concurrent
+queries, browser overhead and in-flight structured clones can exceed them.
+
+At the review's 8.7M-token scale a resolver mode was estimated at about 66 MiB;
+96 MiB allows that mode to remain warm. Entries from additional modes compete
+for the same budget. This is separate from resident shard memory. Sherlock's
+text and shard payload measured about 5.3 bytes per source character; near the
+64M-character ingest cap a project can exceed the artifact budget and rebuild
+partially on reopen. Corpus shape changes this estimate.
