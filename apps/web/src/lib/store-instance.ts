@@ -246,8 +246,22 @@ async function bootstrap(): Promise<void> {
   if (notices.length > 0) runtime.reportNotice(notices.join(' '));
   session.start(); // only after the store is observing
   if (demoBootRequest !== null && demoBootRequest.id !== null) {
-    void loadDemoCorpus(demoBootRequest.id, 'replace', { getState: runtime.useApp.getState }).then(
-      (result) => runtime.reportNotice(demoLoadNotice(result, 'replace')),
+    void loadDemoCorpus(demoBootRequest.id, 'replace', {
+      getState: runtime.useApp.getState,
+      confirmReplacement: (state, label) => {
+        const session = state.projectSession;
+        const hasWork = (session?.project.data.docs.length ?? 0) > 0
+          || (session?.imports.length ?? 0) > 0
+          || state.unavailableDocs.length > 0
+          || state.notebook.groups.length > 0
+          || state.removedGroups.length > 0;
+        return !hasWork || window.confirm(`Replace your active texts and term notebook with ${label}? This also clears term undo and unavailable text references. Saved library texts remain available.`);
+      },
+    }).then(
+      (result) => {
+        if (result.cancelled) afterAttach?.();
+        runtime.reportNotice(demoLoadNotice(result, 'replace'));
+      },
       (error: unknown) => {
         // On failure, resume any deferred bootstrap persistence.
         afterAttach?.();

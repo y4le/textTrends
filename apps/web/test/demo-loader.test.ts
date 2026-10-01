@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { INGEST_CAPS_V0 } from '@texttrends/core';
 import type { LoadedDemoCorpus } from '../src/lib/demo-corpora.ts';
-import { loadDemoCorpus } from '../src/lib/demo-loader.ts';
+import { demoLoadNotice, loadDemoCorpus } from '../src/lib/demo-loader.ts';
 import {
   BUILTIN_BIBLE_ID,
   BUILTIN_QURAN_ID,
@@ -46,6 +46,30 @@ function harness(fetchCorpus: () => Promise<LoadedDemoCorpus>) {
 }
 
 describe('demo loader', () => {
+  it('asks against current state after acquisition and preserves it when replacement is declined', async () => {
+    let finishFetch!: (corpus: LoadedDemoCorpus) => void;
+    const fetched = new Promise<LoadedDemoCorpus>((resolve) => { finishFetch = resolve; });
+    const subject = harness(() => fetched);
+    const confirmReplacement = vi.fn((state: AppState) => {
+      expect(state.notebook.groups).toEqual([{ id: 'authored-during-download' }]);
+      return false;
+    });
+    const loading = loadDemoCorpus(BUILTIN_SHERLOCK_ID, 'replace', {
+      ...subject.dependencies, confirmReplacement,
+    });
+    expect(confirmReplacement).not.toHaveBeenCalled();
+    subject.state.notebook = { groups: [{ id: 'authored-during-download' }] } as unknown as AppState['notebook'];
+    finishFetch({ option: builtinCorpusOption(BUILTIN_SHERLOCK_ID)!, files: [] });
+    const result = await loading;
+    expect(result).toMatchObject({ cancelled: true, clearedTexts: 0, clearedTerms: 0 });
+    expect(demoLoadNotice(result, 'replace')).toContain('Your workspace was kept.');
+    expect(confirmReplacement).toHaveBeenCalledOnce();
+    expect(subject.state.replaceInputsAndTerms).not.toHaveBeenCalled();
+    expect(subject.state.resetKeynessComparison).not.toHaveBeenCalled();
+    expect(subject.state.mergeStarterTerms).not.toHaveBeenCalled();
+    expect(subject.operation.release).toHaveBeenCalledWith(subject.lease);
+  });
+
   it('does not clear replacement state when the complete corpus cannot be fetched', async () => {
     const failure = new Error('offline');
     const subject = harness(async () => { throw failure; });

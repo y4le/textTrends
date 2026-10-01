@@ -21,7 +21,9 @@ an explicit place, an empty workspace opens Inputs and an active corpus opens
 Trends. Reader is a navigation layer, not another `p` value.
 
 Allowlisted `?demo=` links replace the active corpus and notebook after source
-acquisition and admission succeed; saved library bytes remain. The parameter
+acquisition and admission succeed. If the current workspace has texts, terms,
+term undo, or unavailable references, replacement requires confirmation at
+activation time; declining keeps that workspace. Saved library bytes remain. The parameter
 is removed before ordinary navigation and is consumed once. Sample buttons
 use additive acquisition instead. Public sample slugs are `sherlock`, `austen`,
 `bible`, `quran` (`koran`), `political` (`arguments`), `shakespeare`, `inaugurals`,

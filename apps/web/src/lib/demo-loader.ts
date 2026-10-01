@@ -15,6 +15,7 @@ export const LIBRARY_BUSY_NOTICE = 'Another input is being saved. Try again when
 export type DemoLoadMode = 'additive' | 'replace';
 
 export interface DemoLoadResult {
+  readonly cancelled?: true;
   readonly label: string;
   readonly saved: number;
   readonly alreadySaved: number;
@@ -40,6 +41,8 @@ interface DemoOperationPort {
 
 export interface DemoLoaderDependencies {
   readonly getState: () => AppState;
+  /** Called against current state immediately before destructive activation. */
+  readonly confirmReplacement?: (state: AppState, label: string) => boolean;
   readonly library?: DemoLibraryPort;
   readonly operation?: DemoOperationPort;
   readonly fetchCorpus?: typeof fetchDemoCorpus;
@@ -109,7 +112,18 @@ export async function loadDemoCorpus(
     if (!operation.owns(lease)) throw new Error('The demo load was superseded.');
     if (signal?.aborted) throw signal.reason ?? new Error('The demo load was aborted.');
     if (mode === 'replace') {
-      const cleared = dependencies.getState().replaceInputsAndTerms(files);
+      const current = dependencies.getState();
+      if (dependencies.confirmReplacement?.(current, demo.option.label) === false) {
+        return {
+          cancelled: true, label: demo.option.label,
+          saved: saved.filter((result) => result.added).length,
+          alreadySaved: saved.filter((result) => !result.added).length,
+          activated: 0, alreadyActive: 0,
+          termsAdded: 0, termsActivated: 0, termsSkipped: 0,
+          clearedTexts: 0, clearedTerms: 0,
+        };
+      }
+      const cleared = current.replaceInputsAndTerms(files);
       if (cleared === null) {
         throw new Error(dependencies.getState().commandError ?? 'The demo texts could not be activated.');
       }
@@ -141,6 +155,7 @@ export async function loadDemoCorpus(
 }
 
 export function demoLoadNotice(result: DemoLoadResult, mode: DemoLoadMode): string {
+  if (result.cancelled) return `${result.label}: Replacement cancelled. Your workspace was kept.`;
   const parts = mode === 'replace'
     ? [`Cleared ${result.clearedTexts} text${result.clearedTexts === 1 ? '' : 's'} and ${result.clearedTerms} term${result.clearedTerms === 1 ? '' : 's'}.`]
     : [];
