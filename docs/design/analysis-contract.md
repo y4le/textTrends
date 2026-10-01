@@ -171,6 +171,8 @@ Persistence has two owners:
    to original bytes. Legacy workspace text hints are ignored, and portable
    backups reject them. This database can always be discarded and rebuilt
    from library or bundled source bytes; the new layout does not migrate db3.
+   Clear cache and Full reset delete every explicitly owned older artifact
+   layout as well as the current one; unrelated browser databases are preserved.
 
 The workspace stores corpus references and order, document metadata, notebook
 groups, and analysis-view settings. Reader position, linked selection, current

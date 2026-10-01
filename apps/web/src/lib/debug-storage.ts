@@ -1,5 +1,5 @@
 import { LOCAL_LIBRARY_DB_NAME } from './local-library.ts';
-import { ARTIFACT_DB_NAME } from '../shared/storage-schema.ts';
+import { ARTIFACT_DB_NAMES } from '../shared/storage-schema.ts';
 import { preferenceKeys } from './preferences.ts';
 
 export const OWNED_SESSION_STORAGE_KEYS = Object.freeze(preferenceKeys('session'));
@@ -33,7 +33,7 @@ export async function clearArtifactDatabase(
   factory: IDBFactory = indexedDB,
   onBlocked?: DatabaseBlockedHandler,
 ): Promise<void> {
-  await deleteDatabase(factory, ARTIFACT_DB_NAME, onBlocked);
+  await Promise.all(ARTIFACT_DB_NAMES.map((name) => deleteDatabase(factory, name, onBlocked)));
 }
 
 export async function clearAllApplicationStorage(
@@ -43,7 +43,7 @@ export async function clearAllApplicationStorage(
   local: Pick<Storage, 'removeItem'> | null = null,
 ): Promise<void> {
   await Promise.all([
-    deleteDatabase(factory, ARTIFACT_DB_NAME, onBlocked),
+    ...ARTIFACT_DB_NAMES.map((name) => deleteDatabase(factory, name, onBlocked)),
     deleteDatabase(factory, LOCAL_LIBRARY_DB_NAME, onBlocked),
   ]);
   if (session !== null) {

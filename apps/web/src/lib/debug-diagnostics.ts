@@ -3,7 +3,7 @@ import { workerProtocolVersion, type WorkerClientDiagnostics } from './client.ts
 import { LOCAL_LIBRARY_DB_NAME, LOCAL_LIBRARY_DB_VERSION, localLibrary } from './local-library.ts';
 import type { Presentation } from './presentation.ts';
 import type { AppState } from './app-state.ts';
-import { ARTIFACT_DB_NAME, ARTIFACT_DB_VERSION } from '../shared/storage-schema.ts';
+import { ARTIFACT_DB_NAME, ARTIFACT_DB_VERSION, SUPERSEDED_ARTIFACT_DB_NAMES } from '../shared/storage-schema.ts';
 
 type LaneStatus = 'absent' | 'pending' | 'ready' | 'edge' | 'error';
 
@@ -185,6 +185,7 @@ export async function collectDebugDiagnostics(
       databases: [
         { name: LOCAL_LIBRARY_DB_NAME, version: LOCAL_LIBRARY_DB_VERSION, disposable: false },
         { name: ARTIFACT_DB_NAME, version: ARTIFACT_DB_VERSION, disposable: true },
+        ...SUPERSEDED_ARTIFACT_DB_NAMES.map((name) => ({ name, version: 1, disposable: true })),
       ],
     },
     presentation: {
