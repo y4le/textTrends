@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
-import { awaitAllReady, gotoPlace, openQuickAdd } from './helpers.ts';
+import { awaitAllReady, gotoPlace, openQuickAdd, workspaceRecord } from './helpers.ts';
 
 test('workspace save failures remain visible in Trends and Reader and can be retried', async ({ page }) => {
   await page.goto('./');
@@ -58,4 +58,26 @@ test('a rejected lazy page keeps navigation and offers a recovery route', async 
   await expect(page.getByRole('region', { name: 'Active inputs' })).toBeVisible();
   await expect(fallback).toHaveCount(0);
   await expect(page.locator('#place-inputs-heading')).toBeFocused();
+});
+
+
+test('hiding the page flushes a workspace edit while the debounce clock is held', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.locator('.scope-organ > [role="status"]')).toContainText('No active inputs');
+  await gotoPlace(page, 'trends');
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  const input = await openQuickAdd(page);
+  await input.fill('visibility-clue');
+  await input.press('Enter');
+  const hasTerm = async () => {
+    const record = await workspaceRecord(page) as { notebook?: { groups?: { aliases: string[] }[] } } | undefined;
+    return record?.notebook?.groups?.some((group) => group.aliases.includes('visibility-clue')) ?? false;
+  };
+  expect(await hasTerm()).toBe(false);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect.poll(hasTerm).toBe(true);
 });

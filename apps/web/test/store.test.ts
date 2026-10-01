@@ -1080,6 +1080,33 @@ describe('workbench route and history authority', () => {
 });
 
 describe('the session bridge', () => {
+  it('flushes a pending workspace on hide and releases the visibility listener on disposal', async () => {
+    vi.useFakeTimers();
+    const visibility = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    const removed = vi.spyOn(visibility, 'removeEventListener');
+    vi.stubGlobal('document', visibility);
+    const workspace = new FakeWorkspaceStore();
+    const { runtime, store } = harness(undefined, { workspace });
+    try {
+      store.getState().addTerm({ aliases: ['clue'] });
+      visibility.dispatchEvent(new Event('visibilitychange'));
+      expect(workspace.saves).toHaveLength(0);
+      visibility.visibilityState = 'hidden';
+      visibility.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(workspace.saves).toHaveLength(1);
+      expect(workspace.saves[0]?.notebook.groups.map(groupTitle)).toEqual(['clue']);
+      expect(store.getState().workspacePersistence.phase).toBe('saved');
+      runtime.dispose();
+      expect(removed).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+      visibility.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(workspace.saves).toHaveLength(1);
+    } finally {
+      runtime.dispose(); vi.unstubAllGlobals(); vi.useRealTimers();
+    }
+  });
+
   it('defines a fresh install as a valid empty library workspace', () => {
     const workspace = emptyLibraryWorkspace();
     expect(parseWorkspace(workspace)).toEqual(workspace);

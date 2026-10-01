@@ -8,6 +8,8 @@ import {
   sameWorkspaceSemanticSources,
 } from './workspace-state.ts';
 
+export const WORKSPACE_SAVE_DEBOUNCE_MS = 1_500;
+
 export function createWorkspacePersistence(
   store: Pick<StoreApi<AppState>, 'getState' | 'setState' | 'subscribe'>,
   initialPort: WorkspaceStorePort | null,
@@ -49,7 +51,7 @@ export function createWorkspacePersistence(
     workspaceSaveTimer = setTimeout(() => {
       workspaceSaveTimer = null;
       saveWorkspaceNow();
-    }, 1_500);
+    }, WORKSPACE_SAVE_DEBOUNCE_MS);
     workspaceScheduling = false;
   };
 
