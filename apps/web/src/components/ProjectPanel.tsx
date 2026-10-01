@@ -278,33 +278,6 @@ export function ProjectPanel() {
           <p className="input-card-help">
             These texts are analyzed in this order. Drop saved or new files here; drag rows or use the move buttons to reorder.
           </p>
-          {readyDocs.length > 0 && (
-            <div className="input-next-steps" role="group" aria-label="Explore your texts">
-              <span>{readyDocs.length} text{readyDocs.length === 1 ? '' : 's'} ready. Choose a next step:</span>
-              <button
-                id="inputs-track-term"
-                type="button"
-                onClick={() => {
-                  setPlace('trends');
-                  pushLayer('row-detail', {
-                    surface: 'query-editor', mode: 'manage', create: true,
-                  }, 'term-add');
-                }}
-                style={SMALL_BUTTON_STYLE}
-              >Track a term</button>
-              {firstReadableDoc !== undefined && snapshot !== null && (
-                <button
-                  id="inputs-read"
-                  type="button"
-                  onClick={() => openReader({
-                    snapshot: snapshot.snapshot, doc: firstReadableDoc,
-                    token: 0, from: 'inputs', anchor: 'position',
-                  }, 'inputs-read')}
-                  style={SMALL_BUTTON_STYLE}
-                >Read</button>
-              )}
-            </div>
-          )}
           {unavailableDocs.length > 0 && (
             <section aria-label="Unavailable active texts">
               <p>These active texts are saved but cannot be analyzed. Reimport the original file, or remove its reference here.</p>
@@ -397,6 +370,33 @@ export function ProjectPanel() {
               </li>
             ))}
           </ol>
+          {readyDocs.length > 0 && (
+            <div className="input-next-steps" role="group" aria-label="Explore your texts">
+              <span>{readyDocs.length} text{readyDocs.length === 1 ? '' : 's'} ready. Choose a next step:</span>
+              <button
+                id="inputs-track-term"
+                type="button"
+                onClick={() => {
+                  setPlace('trends');
+                  pushLayer('row-detail', {
+                    surface: 'query-editor', mode: 'manage', create: true,
+                  }, 'term-add');
+                }}
+                style={SMALL_BUTTON_STYLE}
+              >Track a term</button>
+              {firstReadableDoc !== undefined && snapshot !== null && (
+                <button
+                  id="inputs-read"
+                  type="button"
+                  onClick={() => openReader({
+                    snapshot: snapshot.snapshot, doc: firstReadableDoc,
+                    token: 0, from: 'inputs', anchor: 'position',
+                  }, 'inputs-read')}
+                  style={SMALL_BUTTON_STYLE}
+                >Read</button>
+              )}
+            </div>
+          )}
         </section>
 
         <section className="input-card input-card-acquisition" aria-labelledby="input-acquisition-heading">

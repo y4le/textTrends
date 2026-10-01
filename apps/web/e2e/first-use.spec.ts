@@ -1,6 +1,50 @@
 import { expect, test } from '@playwright/test';
 import { awaitReadyCount, gotoPlace, trace } from './helpers.ts';
 
+test('ready next steps do not move a pressed active-input removal button', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    const nativePost = Worker.prototype.postMessage;
+    const gate = window as unknown as { holdTwoInputs?: boolean; releaseTwoInputs?: () => void };
+    Worker.prototype.postMessage = function (message: unknown, transfer?: Transferable[] | StructuredSerializeOptions) {
+      const send = () => Reflect.apply(nativePost, this, transfer === undefined ? [message] : [message, transfer]);
+      const envelope = message as { t?: string; docs?: unknown[] };
+      if (gate.holdTwoInputs && envelope.t === 'begin-generation' && envelope.docs?.length === 2) {
+        gate.holdTwoInputs = false;
+        gate.releaseTwoInputs = send;
+      } else send();
+    };
+  });
+  await page.goto('./?fresh=1');
+  await page.getByLabel('Add files — import and analyze').setInputFiles(
+    [['first', 'forest pine wolf. '], ['second', 'ocean wave salt. '], ['third', 'hill stream bear. ']].map(([name, text]) => ({
+      name: `${name}.txt`, mimeType: 'text/plain', buffer: Buffer.from(text.repeat(30)),
+    })),
+  );
+  await awaitReadyCount(page, 3);
+  const active = page.getByRole('region', { name: 'Active inputs' });
+  const rows = active.getByRole('list', { name: 'Active input order' }).getByRole('listitem');
+  await page.evaluate(() => { (window as unknown as { holdTwoInputs: boolean }).holdTwoInputs = true; });
+  await rows.first().getByRole('button', { name: /^Remove / }).click();
+  await expect(rows).toHaveCount(2);
+  await expect.poll(() => page.evaluate(() =>
+    Boolean((window as unknown as { releaseTwoInputs?: () => void }).releaseTwoInputs))).toBe(true);
+  await expect(active.getByRole('group', { name: 'Explore your texts' })).toHaveCount(0);
+  const remove = rows.first().getByRole('button', { name: /^Remove / });
+  const before = await remove.boundingBox();
+  expect(before).not.toBeNull();
+  await page.mouse.move(before!.x + before!.width / 2, before!.y + before!.height / 2);
+  await page.mouse.down();
+  await page.evaluate(() => (window as unknown as { releaseTwoInputs(): void }).releaseTwoInputs());
+  await awaitReadyCount(page, 2);
+  await expect(active.getByRole('group', { name: 'Explore your texts' })).toBeVisible();
+  const after = await remove.boundingBox();
+  expect(after!.y).toBeCloseTo(before!.y, 1);
+  await page.mouse.up();
+  await expect(rows).toHaveCount(1);
+  await awaitReadyCount(page, 1);
+});
+
 test('ready texts offer Track a term and Read with working history and focus', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   // Hold worker admission, so saved/finalized sources cannot stand in for
