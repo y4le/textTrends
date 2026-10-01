@@ -530,3 +530,57 @@ test('a footer barcode double-click snaps to a nearby exact reference before ope
   await expect(wolves.first()).toHaveCSS('text-decoration-line', 'underline');
   await expect(wolves.last()).not.toHaveCSS('text-decoration-line', 'underline');
 });
+
+
+test('footer passage double-click resolves the source word and occurrence stepping preserves its page window', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
+  const words = Array.from({ length: 500 }, (_, index) => index === 200 || index === 300 ? 'wolf' : `word${String(index).padStart(4, '0')}`);
+  await page.getByLabel('Add files').setInputFiles({ name: 'passage-words.txt', mimeType: 'text/plain', buffer: Buffer.from(words.join(' ')) });
+  await awaitReadyCount(page, 1);
+  await submitAndAwaitFreshResults(page, 'wolf');
+  await gotoPlace(page, 'trends');
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  await slider.focus();
+  await slider.press('Home');
+  await slider.press('w');
+  const passage = page.locator('.footer-passage[data-passage-for]');
+  await expect(passage).toHaveAttribute('data-passage-for', '200');
+  await expect(slider).toHaveAttribute('aria-valuenow', '200');
+  await slider.press('ArrowRight');
+  await expect(slider).not.toHaveAttribute('aria-valuenow', '200');
+  await slider.press('Home');
+  await expect(passage).toHaveAttribute('data-passage-for', '0');
+  const point = await passage.evaluate((root) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const start = node.textContent?.indexOf('word0002') ?? -1;
+      if (start < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, start);
+      range.setEnd(node, start + 'word0002'.length);
+      const box = range.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    }
+    throw new Error('source word is not resident');
+  });
+  await page.mouse.dblclick(point.x, point.y);
+  const reader = page.getByRole('main', { name: /Reader: passage-words/ });
+  await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-anchor', '2');
+});
+
+test('a one-pixel native passage pan at the document start keeps the current token', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  await slider.focus();
+  await slider.press('Home');
+  const passage = page.locator('.footer-passage[data-passage-for]');
+  await expect(passage).toHaveAttribute('data-passage-for', '0');
+  await expect(page.getByRole('button', { name: /Open reader at .* token 1$/ })).toBeVisible();
+  await passage.evaluate((element) => { element.scrollLeft += 1; });
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(slider).toHaveAttribute('aria-valuenow', '0');
+});

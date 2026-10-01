@@ -264,7 +264,6 @@ export function FooterInteractive({
 
 
   useEffect(() => {
-    passageWindow.current = null;
     queuedPageDirection.current = null;
     setKeyboardStatus('');
     setRangeAnnouncement('');
@@ -276,7 +275,6 @@ export function FooterInteractive({
 
   useEffect(() => {
     if (occurrenceNavigation?.state.status !== 'ready') return;
-    passageWindow.current = null;
     queuedPageDirection.current = null;
     setKeyboardStatus('');
   }, [occurrenceNavigation]);
@@ -645,7 +643,7 @@ export function FooterInteractive({
       const target = event.target as (EventTarget & {
         closest?: (selector: string) => unknown;
       }) | null;
-      if (target?.closest?.('[data-shortcut-context="footer"]')) return;
+      if (target?.closest?.('[data-shortcut-context="footer"], table, [role="grid"], [role="table"], .horizontal-data-port')) return;
       // Enter remains the native activation key for links and buttons. The
       // Trends scrubber is a div slider, so Enter can still open Reader when
       // no keyboard range is consuming it locally.

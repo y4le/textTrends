@@ -33,6 +33,6 @@ export function useFooterShuttle<S>(scrub: S, rate: number | null, advance: (at:
       timer.current = null; setAriaScrub(ariaLatest.current);
     }, FOOTER_SHUTTLE_ARIA_INTERVAL_MS);
   }, [scrub, rate]);
-  useEffect(() => () => { stop(); if (timer.current !== null) clearTimeout(timer.current); }, [stop]);
+  useEffect(() => () => { stop(); if (timer.current !== null) clearTimeout(timer.current); timer.current = null; }, [stop]);
   return { ariaScrub, start, stop };
 }

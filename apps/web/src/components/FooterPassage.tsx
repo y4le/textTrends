@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useDisplayPreference } from './PresentationProvider.tsx';
 import { useApp } from '../lib/store-instance.ts';
 import type { FooterPassageState, ScrubTarget } from '../lib/app-state.ts';
 import {
@@ -96,6 +97,8 @@ export function FooterPassage({
     readonly y: number;
   } | null>(null);
   const residentPageKey = useRef('');
+  const nativeCenterBias = useRef(0);
+  const { density } = useDisplayPreference();
   const [canvasFont, setCanvasFont] = useState('');
   const [containerWidth, setContainerWidth] = useState(0);
   const page = passage?.snapshot === snapshot ? passage.page : null;
@@ -114,7 +117,7 @@ export function FooterPassage({
     const style = getComputedStyle(beforeRef.current);
     const next = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
     setCanvasFont((current) => current === next ? current : next);
-  }, [coarse, page, widthClass]);
+  }, [coarse, density, page, widthClass]);
 
   useLayoutEffect(() => {
     const element = passageRef.current;
@@ -195,7 +198,7 @@ export function FooterPassage({
     canvasFont,
   ) / 2, [canvasFont, centerEnd, centerStart, display]);
   const nativeScrollLeft = !stale && crosshairX !== null
-    ? (measuredLayout?.shiftPx ?? centerOffset) - crosshairX
+    ? containerWidth + (measuredLayout?.shiftPx ?? centerOffset) - crosshairX
     : null;
   const pageKey = page
     ? `${page.doc}:${page.tokens.start}:${page.tokens.end}`
@@ -221,9 +224,13 @@ export function FooterPassage({
     // subsequent touch, wheel, and trackpad panning entirely to the browser.
     const maximum = Math.max(0, element.scrollWidth - element.clientWidth);
     const next = Math.max(0, Math.min(maximum, nativeScrollLeft));
+    // True book edges keep the selected word fully visible. Preserve that
+    // center offset for native panning so a one-pixel gesture cannot jump to
+    // an unrelated token under the nominal corpus crosshair.
+    nativeCenterBias.current = centerOffset - (measuredLayout?.shiftPx ?? centerOffset);
     programmaticScrollLeft.current = next;
     element.scrollLeft = next;
-  }, [nativeScrollLeft, pageKey, viewToken]);
+  }, [centerOffset, measuredLayout?.shiftPx, nativeScrollLeft, pageKey, viewToken]);
 
   useEffect(() => () => {
     if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
@@ -251,7 +258,7 @@ export function FooterPassage({
     if (!tokenGeometry || !page || crosshairX === null) return;
     const relative = passageTokenAtTextOffset(
       tokenGeometry,
-      element.scrollLeft + crosshairX,
+      element.scrollLeft + crosshairX - containerWidth + nativeCenterBias.current,
     );
     if (relative === null) return;
     const token = page.tokens.start + relative;
@@ -268,7 +275,7 @@ export function FooterPassage({
         );
       }
     });
-  }, [crosshairX, page, scrub?.token, setScrub, tokenGeometry]);
+  }, [containerWidth, crosshairX, page, scrub?.token, setScrub, tokenGeometry]);
 
   if (scrub === null || crosshairX === null) {
     return <div className="footer-passage footer-passage-message">scrub the corpus strip to read</div>;
@@ -329,7 +336,7 @@ export function FooterPassage({
     <span
       className="footer-passage-text"
       style={{
-        left: stale ? crosshairX : 0,
+        left: stale ? crosshairX : containerWidth,
         transform: stale
           ? `translateX(${(-(measuredLayout?.shiftPx ?? centerOffset)).toFixed(1)}px)`
           : undefined,
@@ -417,6 +424,21 @@ export function FooterPassage({
           markNativeScrollIntent();
         }
       }}
+      onDoubleClick={(event) => {
+        if (!page || !tokenGeometry) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        const relative = passageTokenAtTextOffset(
+          tokenGeometry,
+          event.clientX - bounds.left + event.currentTarget.scrollLeft - containerWidth,
+        );
+        if (relative === null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        openReader({
+          snapshot, doc: page.doc, token: page.tokens.start + relative,
+          from: 'footer', anchor: 'position',
+        }, 'corpus-footer-position');
+      }}
       onWheel={markNativeScrollIntent}
       onScroll={(event) => { syncScrubToScroll(event.currentTarget); }}
       onKeyDown={(event) => {
@@ -435,7 +457,7 @@ export function FooterPassage({
         style={{
           width: Math.max(
             containerWidth,
-            tokenGeometry?.textWidth ?? 0,
+            (tokenGeometry?.textWidth ?? 0) + 2 * containerWidth,
           ),
         }}
       >
