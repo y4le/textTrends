@@ -261,11 +261,13 @@ export function RsvpReader({
       event.preventDefault();
       event.stopPropagation();
       resumeAfterEdit.current = false;
+      finishPaceEdit(false);
       exit();
     } else if (shortcutMatches(event, 'reader-rsvp-toggle')) {
       event.preventDefault();
       event.stopPropagation();
       resumeAfterEdit.current = false;
+      finishPaceEdit(false);
       exit();
     }
   };
@@ -492,6 +494,10 @@ export function RsvpReader({
               disabled={completed}
               aria-pressed={mode.playing}
               aria-keyshortcuts={shortcutAria(['rsvp-toggle-play'])}
+              onPointerDown={() => {
+                // A Play click owns resuming after its preceding input blur.
+                if (editingPaceRef.current) resumeAfterEdit.current = false;
+              }}
               onClick={togglePlaying}
               onKeyDown={stopControlSpace}
             >
@@ -556,7 +562,7 @@ export function RsvpReader({
                 }}
                 onChange={(event) => setPaceDraft(event.currentTarget.value)}
                 onKeyDown={handlePaceKeyDown}
-                onBlur={() => finishPaceEdit(false)}
+                onBlur={() => finishPaceEdit(true)}
               />
             </label>
             <button

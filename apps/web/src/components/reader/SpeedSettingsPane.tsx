@@ -123,6 +123,7 @@ export function SpeedSettingsPane({
     if (commit && Number.isFinite(parsed)) {
       const patch = { [key]: parsed } as Pick<RsvpPacing, NumberSettingKey>;
       const bounded = clampRsvpPacing({ ...mode, ...patch });
+      setDrafts((current) => ({ ...current, [key]: String(bounded[key]) }));
       updatePacing(
         patch,
         `${NUMBER_SETTING_LABEL[key]} ${bounded[key]} ${NUMBER_SETTING_UNIT[key]}`,
@@ -136,7 +137,7 @@ export function SpeedSettingsPane({
     key: NumberSettingKey,
   ) => {
     if (key === 'frameCharLimit' && frameLimitInert) {
-      if (event.key !== 'Tab') {
+      if (event.key !== 'Tab' && event.key !== 'Escape') {
         event.preventDefault();
         event.stopPropagation();
       }
@@ -207,6 +208,7 @@ export function SpeedSettingsPane({
                 }}
                 onChange={(event) => {
                   if (frameLimitInert) return;
+                  editingRef.current = 'frameCharLimit';
                   const value = event.currentTarget.value;
                   setDrafts((current) => ({ ...current, frameCharLimit: value }));
                 }}
@@ -247,6 +249,7 @@ export function SpeedSettingsPane({
                   event.currentTarget.select();
                 }}
                 onChange={(event) => {
+                  editingRef.current = 'sentencePauseMs';
                   const value = event.currentTarget.value;
                   setDrafts((current) => ({ ...current, sentencePauseMs: value }));
                 }}
@@ -277,6 +280,7 @@ export function SpeedSettingsPane({
                   event.currentTarget.select();
                 }}
                 onChange={(event) => {
+                  editingRef.current = 'paragraphPauseMs';
                   const value = event.currentTarget.value;
                   setDrafts((current) => ({ ...current, paragraphPauseMs: value }));
                 }}
@@ -303,6 +307,7 @@ export function SpeedSettingsPane({
                   event.currentTarget.select();
                 }}
                 onChange={(event) => {
+                  editingRef.current = 'lengthEmphasis';
                   const value = event.currentTarget.value;
                   setDrafts((current) => ({ ...current, lengthEmphasis: value }));
                 }}

@@ -816,3 +816,71 @@ test('document completion pauses and keeps focus inside RSVP', async ({ page }) 
   await expect(reader.getByRole('button', { name: 'play', exact: true })).toBeEnabled();
   await expect(reader.getByRole('note', { name: 'Paused sentence context' })).toBeVisible();
 });
+
+test('Speed settings commit repeated edits and pace blur, normalize clamped drafts, and allow Escape', async ({ page }) => {
+  const reader = await openReader(page);
+  await enterRsvp(reader);
+  const pace = reader.getByRole('spinbutton', { name: 'Pace in words per minute' });
+  await pace.fill('425');
+  await pace.press('Tab');
+  await expect(reader.locator('.reader-position')).toContainText('425 WPM');
+  const trigger = reader.getByRole('button', { name: 'Open Speed settings', exact: true });
+  await trigger.click();
+  const settings = page.getByRole('dialog', { name: 'Speed settings' });
+  const sentence = settings.getByRole('spinbutton', { name: 'Sentence rest in milliseconds' });
+  await sentence.fill('100');
+  await sentence.press('Enter');
+  await expect(sentence).toHaveValue('100');
+  await sentence.fill('200');
+  await sentence.press('Enter');
+  await expect(sentence).toHaveValue('200');
+  await sentence.fill('-1');
+  await sentence.press('Enter');
+  await expect(sentence).toHaveValue('0');
+  await sentence.fill('-10');
+  await sentence.press('Enter');
+  await expect(sentence).toHaveValue('0');
+  const limit = settings.getByRole('spinbutton', { name: 'Frame character limit in characters' });
+  await expect(limit).toHaveAttribute('aria-disabled', 'true');
+  await limit.focus();
+  await limit.press('Escape');
+  await expect(settings).toHaveCount(0);
+});
+
+test('Speed pace Escape cancels and clicking Play after an edit resumes once', async ({ page }) => {
+  const reader = await openReader(page);
+  await enterRsvp(reader);
+  const pace = reader.getByRole('spinbutton', { name: 'Pace in words per minute' });
+  const original = await pace.inputValue();
+  await pace.fill('425');
+  await pace.press('Escape');
+  await expect(reader).toHaveAttribute('data-shortcut-context', 'reader');
+  await enterRsvp(reader);
+  await expect(pace).toHaveValue(original);
+  await expect(reader.getByRole('button', { name: 'pause', exact: true })).toBeVisible();
+  await pace.fill('425');
+  await reader.getByRole('button', { name: 'play', exact: true }).click();
+  await expect(reader.getByRole('button', { name: 'pause', exact: true })).toBeVisible();
+  await expect(reader.locator('.reader-position')).toContainText('425 WPM');
+});
+
+test('Speed character limit accepts consecutive Enter commits in multiword mode', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  const reader = await openReader(page);
+  await enterRsvp(reader);
+  await chooseWordsAtOnce(reader, 2);
+  await reader.getByRole('button', { name: 'Open Speed settings', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Speed settings' });
+
+  const limit = settings.getByRole('spinbutton', { name: 'Frame character limit in characters' });
+  await expect(limit).not.toHaveAttribute('aria-disabled', 'true');
+  await limit.fill('30');
+  await limit.press('Enter');
+  await expect(limit).toHaveValue('30');
+  await limit.fill('40');
+  await limit.press('Enter');
+  await expect(limit).toHaveValue('40');
+  await limit.press('Tab');
+  await limit.focus();
+  await expect(limit).toHaveValue('40');
+});
