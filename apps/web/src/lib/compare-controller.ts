@@ -709,9 +709,9 @@ export function createCompareController({
       return keynessView;
     },
     /** Establish the cold-restore fence before the runtime publishes preferences. */
-    restoreView(workspace: WorkspaceV1): KeynessViewV1 {
+    restoreView(workspace: WorkspaceV1, liveDocuments: ReadonlySet<string>): KeynessViewV1 {
       pendingKeynessResetDoc = null;
-      restoringCompareDocs = workspace.corpus.order;
+      restoringCompareDocs = workspace.corpus.order.filter((doc) => liveDocuments.has(doc));
       const compare = workspace.views.compare;
       return {
         schema: 'texttrends/keyness-view/1',

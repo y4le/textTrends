@@ -7201,15 +7201,23 @@ describe('dueling keyness query intent (slice-4)', () => {
     });
   });
 
-  it('preserves restored comparison sides through partial cold snapshots', async () => {
+  it.each([false, true])('preserves restored comparison sides through partial cold snapshots (unavailable text: %s)', async (withUnavailable) => {
     const base = workspaceState();
     const docs = ['a', 'b'].map((doc) => ({ doc, library: `txt:${doc.repeat(64)}`, meta: { title: doc, language: 'en', tags: [] } }));
     const saved = { ...base, corpus: { kind: 'library' as const, order: ['a', 'b'], docs }, views: { ...base.views, compare: { ...base.views.compare, mode: 'documents' as const, documentA: 'a', documentB: 'b' } } };
     const data = await libraryProject(saved, new Map(docs.map((doc) => [doc.library, { id: doc.library, name: `${doc.doc}.txt`, format: 'txt' as const, size: 10, contentHash: doc.doc.repeat(64) }])));
+    const restored = withUnavailable ? {
+      ...saved,
+      corpus: {
+        ...saved.corpus,
+        order: [...saved.corpus.order, 'damaged'],
+        docs: [...saved.corpus.docs, { doc: 'damaged', library: `txt:${'d'.repeat(64)}`, meta: { title: 'Damaged source', language: 'en', tags: [] } }],
+      },
+    } : saved;
     const f = harness();
     try {
       f.port.emit(sessionState(null, { project: { data } }));
-      f.store.getState().restoreWorkspace(saved);
+      f.store.getState().restoreWorkspace(restored);
       f.port.emit(sessionState(snap('g1', 'partial', ['b']), { project: { data } }));
       expect(f.store.getState().keynessView).toMatchObject({ mode: 'documents', documentA: 'a', documentB: 'b' });
       f.port.emit(sessionState(snap('g1', 'complete', ['a', 'b']), { project: { data } }));

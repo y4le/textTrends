@@ -3127,7 +3127,7 @@ export function createAppRuntime(
             sort: workspace.views.frequency.sort,
             page: { offset: 0, limit: workspace.views.frequency.pageSize },
           },
-          keynessView: compare.restoreView(workspace),
+          keynessView: compare.restoreView(workspace, liveIds),
           removedGroups: [],
         });
         adoptNotebook(
