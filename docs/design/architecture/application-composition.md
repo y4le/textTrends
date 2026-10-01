@@ -32,6 +32,10 @@ after restore. Source replacement is synchronous so persistence sees the final
 corpus and notebook together. Disposal cancels pending saves and fences late
 settlement. Saved unavailable sources survive editing/autosave until repaired
 or explicitly removed; healthy library records can open around damaged ones.
+An unreadable workspace record survives source deletion and clearing. Before
+autosave or backup restore replaces it, the library preserves its raw value and parse reason in
+the same transaction; a failed preservation write aborts replacement. Debug
+diagnostics report the number of retained damaged workspaces.
 
 Library IndexedDB v2 separates metadata listing from source bodies. Upgrade is
 atomic and preserves original records on failure. Actual source use still

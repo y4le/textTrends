@@ -53,7 +53,7 @@ export interface DebugDiagnostics {
   };
   readonly lanes: Readonly<Record<string, LaneStatus | Readonly<Record<LaneStatus, number>>>>;
   readonly storage: {
-    readonly localLibrary: { readonly files: number; readonly bytes: number };
+    readonly localLibrary: { readonly files: number; readonly bytes: number; readonly quarantinedWorkspaces: number };
     readonly estimate: {
       readonly usage: number | null;
       readonly quota: number | null;
@@ -94,7 +94,7 @@ export async function collectDebugDiagnostics(
   const documents = session?.project.data.docs ?? [];
   const extractionDiagnostics = Object.values(session?.extractionDiagnostics ?? {});
   const languages = [...new Set(documents.map((doc) => doc.meta.language))].sort();
-  const [library, estimate, persisted, segmenters] = await Promise.all([
+  const [library, estimate, persisted, segmenters, quarantinedWorkspaces] = await Promise.all([
     localLibrary.list(),
     navigator.storage?.estimate?.().catch((): StorageEstimate => ({}))
       ?? Promise.resolve<StorageEstimate>({}),
@@ -108,6 +108,7 @@ export async function collectDebugDiagnostics(
         probeHash: value.probeHash,
       };
     })),
+    localLibrary.quarantinedWorkspaceCount(),
   ]);
   return {
     schema: 'texttrends/debug-diagnostics/1',
@@ -174,6 +175,7 @@ export async function collectDebugDiagnostics(
       localLibrary: {
         files: library.length,
         bytes: library.reduce((sum, item) => sum + item.size, 0),
+        quarantinedWorkspaces,
       },
       estimate: {
         usage: typeof estimate.usage === 'number' ? estimate.usage : null,

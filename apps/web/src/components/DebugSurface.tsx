@@ -296,6 +296,7 @@ export function DebugSurface({ onClose }: { readonly onClose: () => void }) {
           {diagnostics && storage && (
             <dl className="debug-facts">
               <div><dt>Local library</dt><dd>{storage.localLibrary.files} files · {formatBytes(storage.localLibrary.bytes)}</dd></div>
+              <div><dt>Retained damaged workspaces</dt><dd>{storage.localLibrary.quarantinedWorkspaces}</dd></div>
               <div><dt>Origin storage</dt><dd>{formatBytes(storage.estimate.usage)} / {formatBytes(storage.estimate.quota)} · {storage.estimate.persisted === null ? 'persistence unknown' : storage.estimate.persisted ? 'persistent' : 'best effort'}</dd></div>
               <div><dt>Databases</dt><dd>{storage.databases.map((database) => `${database.name} v${database.version}${database.disposable ? ' (disposable)' : ''}`).join(' · ')}</dd></div>
               <div><dt>Viewport</dt><dd>{diagnostics.presentation.width} · {diagnostics.presentation.viewport.width}×{diagnostics.presentation.viewport.height} @ {diagnostics.presentation.viewport.devicePixelRatio}×</dd></div>

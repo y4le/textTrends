@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { zipSync, strToU8 } from 'fflate';
+import { openDB } from 'idb';
 import { hashSourceBytes, INGEST_CAPS_V0 } from '@texttrends/core';
 import { BrowserLocalLibrary } from '../src/lib/local-library.ts';
 import { emptyLibraryWorkspace } from '../src/lib/workspace-state.ts';
@@ -59,6 +60,25 @@ describe('workspace backup', () => {
   it('round-trips an empty workspace', async () => {
     const manifest: BackupManifest = { schema: BACKUP_SCHEMA, createdAt: 0, workspace: emptyLibraryWorkspace(), settings: captureBackupPreferences({ local: null, session: null }), sources: [] };
     expect((await readBackup(await writeBackup(manifest, async () => { throw new Error('no source'); }))).manifest).toEqual(manifest);
+  });
+
+  it('preserves a damaged current record before a backup replaces the workspace', async () => {
+    const source = await fixture();
+    const name = `backup-target-${crypto.randomUUID()}`;
+    const target = new BrowserLocalLibrary(name);
+    await target.loadWorkspace();
+    const database = await openDB(name);
+    const damaged = { schema: 'future-workspace', notebook: 'recoverable intent' };
+    await database.put('workspace', damaged, 'current');
+    await target.restoreBackup({ manifest: source.manifest, bodies: source.bodies });
+    expect(await target.loadWorkspace()).toEqual({ kind: 'ready', workspace: source.manifest.workspace });
+    expect(await target.quarantinedWorkspaceCount()).toBe(1);
+    expect(await database.getAll('workspace')).toContainEqual({
+      value: damaged, savedAt: expect.any(Number), reason: expect.any(String),
+    });
+    database.close();
+    await target.close();
+    await source.library.close();
   });
 
   it('round-trips a binary EPUB containing ZIP signatures across read chunks', async () => {

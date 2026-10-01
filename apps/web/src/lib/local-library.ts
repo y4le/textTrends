@@ -26,6 +26,7 @@ const LOCAL_FILE_SCHEMA = 'texttrends/library-file/1' as const;
 const CURRENT_WORKSPACE = 'current' as const;
 const WORKSPACE_EPOCH = 'restore-epoch';
 const PENDING_SETTINGS = 'pending-backup-settings';
+const DAMAGED_WORKSPACE_PREFIX = 'damaged-workspace:';
 const SOURCE_HASH = /^[0-9a-f]{64}$/u;
 
 export interface LocalLibraryItem {
@@ -353,7 +354,6 @@ export class BrowserLocalLibrary {
           workspace = parseWorkspace(storedWorkspace);
         } catch {
           workspace = null;
-          await workspaceStore.delete(CURRENT_WORKSPACE);
         }
         if (workspace !== null) {
           removedDocuments = workspace.corpus.docs
@@ -399,7 +399,6 @@ export class BrowserLocalLibrary {
           workspace = parseWorkspace(storedWorkspace);
         } catch {
           workspace = null;
-          await workspaceStore.delete(CURRENT_WORKSPACE);
         }
         if (workspace !== null) {
           removedDocuments = [...workspace.corpus.order];
@@ -441,9 +440,38 @@ export class BrowserLocalLibrary {
     void tx.done.catch(() => {});
     try {
       await this.checkEpoch(tx.store);
+      await this.preserveUnreadableCurrent(tx.store);
       await tx.store.put(admitted, CURRENT_WORKSPACE);
       await tx.done;
     } catch (error) { abortQuietly(tx); throw error; }
+  }
+
+  private async preserveUnreadableCurrent(store: {
+    get(key: string): Promise<unknown>;
+    put(value: unknown, key: string): Promise<unknown>;
+  }): Promise<void> {
+    const previous = await store.get(CURRENT_WORKSPACE);
+    if (previous === undefined) return;
+    try {
+      parseWorkspace(previous);
+    } catch (error) {
+      // Both autosave and restore must preserve recovery data atomically.
+      // A failed quarantine write aborts the replacement transaction.
+      await store.put({
+        value: previous,
+        savedAt: Date.now(),
+        reason: error instanceof Error ? error.message : String(error),
+      }, `${DAMAGED_WORKSPACE_PREFIX}${crypto.randomUUID()}`);
+    }
+  }
+
+  async quarantinedWorkspaceCount(): Promise<number> {
+    const tx = (await this.open()).transaction('workspace', 'readonly');
+    void tx.done.catch(() => {});
+    await this.checkEpoch(tx.store);
+    const count = await tx.store.count(IDBKeyRange.bound(DAMAGED_WORKSPACE_PREFIX, `${DAMAGED_WORKSPACE_PREFIX}\uffff`));
+    await tx.done;
+    return count;
   }
 
   /** Accept the fully validated archive plan. Only IDB requests occur inside
@@ -459,6 +487,7 @@ export class BrowserLocalLibrary {
     void tx.done.catch(() => {});
     try {
       await this.checkEpoch(tx.objectStore('workspace'));
+      await this.preserveUnreadableCurrent(tx.objectStore('workspace'));
       for (const item of manifest.sources) {
         const bytes = backup.bodies.get(item.id);
         if (bytes === undefined || bytes.byteLength !== item.size) throw new Error(`The source for “${item.name}” is missing.`);

@@ -212,7 +212,7 @@ async function bootstrap(): Promise<void> {
         bootstrapNotice = [bootstrapNotice, `${unavailable} active text${unavailable === 1 ? '' : 's'} could not be opened because the saved source is damaged. Their workspace references remain saved; repair or remove them in Inputs.`].filter(Boolean).join(' ');
       }
     } else if (stored.kind === 'corrupt') {
-      bootstrapNotice = `The saved workspace was incompatible or damaged and could not be restored: ${stored.reason}`;
+      bootstrapNotice = `The saved workspace was incompatible or damaged and could not be restored: ${stored.reason}. Its original record is retained for recovery when a new workspace is saved.`;
       restoredWorkspace = workspace;
       afterAttach = () => {
         void localLibrary.saveWorkspace(workspace).catch((error: unknown) => runtime.reportWorkspaceFailure(error));

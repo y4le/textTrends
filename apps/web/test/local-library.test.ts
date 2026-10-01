@@ -1,5 +1,6 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
+import { openDB } from 'idb';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EMPTY_NOTEBOOK, hashSourceBytes, type WorkspaceV1 } from '@texttrends/core';
 import {
@@ -367,7 +368,7 @@ describe('BrowserLocalLibrary', () => {
     await library.close();
   });
 
-  it('deletes a source and resets an obsolete built-in workspace record', async () => {
+  it('deletes a source without discarding an obsolete workspace record', async () => {
     const name = `local-library-${crypto.randomUUID()}`;
     const library = new BrowserLocalLibrary(name);
     const saved = (await library.add([file('novel.txt', 'recoverable bytes')]))[0]!.item;
@@ -392,8 +393,54 @@ describe('BrowserLocalLibrary', () => {
     const reopened = new BrowserLocalLibrary(name);
     expect(await reopened.delete(saved.id)).toEqual({ removedDocuments: [] });
     expect(await reopened.list()).toEqual([]);
-    expect(await reopened.loadWorkspace()).toEqual({ kind: 'absent' });
+    expect(await reopened.loadWorkspace()).toMatchObject({ kind: 'corrupt' });
     await reopened.close();
+  });
+
+  it.each(['delete', 'clear'] as const)('preserves damaged workspace intent through %s and later autosaves', async (action) => {
+    const name = `local-library-${crypto.randomUUID()}`;
+    const library = new BrowserLocalLibrary(name);
+    const saved = (await library.add([file('novel.txt', 'saved source')]))[0]!.item;
+    const database = await openDB(name, LOCAL_LIBRARY_DB_VERSION);
+    const damaged = { ...workspace(saved.id), schema: 'future-workspace', recovery: 'authored intent' };
+    await database.put('workspace', damaged, 'current');
+    if (action === 'delete') await library.delete(saved.id);
+    else await library.clear();
+    expect(await database.get('workspace', 'current')).toEqual(damaged);
+
+    const empty = { ...workspace(saved.id), corpus: { kind: 'library' as const, order: [], docs: [] } };
+    await library.saveWorkspace(empty);
+    await library.saveWorkspace(empty);
+    expect(await library.loadWorkspace()).toEqual({ kind: 'ready', workspace: empty });
+    expect(await library.quarantinedWorkspaceCount()).toBe(1);
+    const records = await database.getAll('workspace');
+    expect(records).toContainEqual({ value: damaged, savedAt: expect.any(Number), reason: expect.any(String) });
+    database.close();
+    await library.close();
+  });
+
+  it('does not replace damaged work when preserving its original record fails', async () => {
+    const name = `local-library-${crypto.randomUUID()}`;
+    const library = new BrowserLocalLibrary(name);
+    await library.loadWorkspace();
+    const database = await openDB(name, LOCAL_LIBRARY_DB_VERSION);
+    const damaged = { schema: 'future', notebook: 'recoverable' };
+    await database.put('workspace', damaged, 'current');
+    const original = IDBObjectStore.prototype.put;
+    const spy = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value, key) {
+      if (typeof key === 'string' && key.startsWith('damaged-workspace:')) {
+        throw new DOMException('quota reached', 'QuotaExceededError');
+      }
+      return original.call(this, value, key);
+    });
+    try {
+      await expect(library.saveWorkspace(workspace(`txt:${'a'.repeat(64)}`))).rejects.toThrow('quota reached');
+      expect(await database.get('workspace', 'current')).toEqual(damaged);
+    } finally {
+      spy.mockRestore();
+      database.close();
+      await library.close();
+    }
   });
 
   it('rejects unsupported files before reading or storing any selection', async () => {
