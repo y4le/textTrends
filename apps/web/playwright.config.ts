@@ -56,6 +56,7 @@ export default defineConfig({
     },
     {
       name: 'chromium-benchmark',
+      use: { trace: 'off' },
       testMatch: benchmarkTestMatch,
       dependencies: ['chromium-functional', 'webkit-compact'],
       workers: 1,

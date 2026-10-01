@@ -1,74 +1,9 @@
-import { expect, test, type Page } from '@playwright/test';
-import {
-  awaitAllReady,
-  awaitReadyCount,
-  clearDemoInputs,
-  gotoPlace,
-  submitAndAwaitFreshResults,
-  trace,
-} from './helpers.ts';
+import { expect, test } from '@playwright/test';
+import { trace } from './helpers.ts';
+import { awaitFreshWindow, prepareContinuousMatches, scrollMatchesFrames } from './continuous-matches-fixture.ts';
 
-async function awaitFreshWindow(page: Page, mark: number): Promise<void> {
-  await expect.poll(async () => {
-    const snapshot = await trace(page);
-    const queries = snapshot.events.filter((event) =>
-      event.seq > mark
-      && event.direction === 'to-worker'
-      && event.t === 'query'
-      && event.op === 'matches-window');
-    const jobs = new Set(queries.map((event) => event.job));
-    return snapshot.events.some((event) =>
-      event.seq > mark
-      && event.direction === 'from-worker'
-      && event.t === 'result'
-      && jobs.has(event.job));
-  }, { timeout: 30_000 }).toBe(true);
-}
-
-test('continuous Matches virtualizes rows and synchronizes scrolling with the shared cursor', async ({ page, context }, testInfo) => {
-  await context.addInitScript(() => {
-    const tasks: { start: number; duration: number }[] = [];
-    (window as unknown as { __ttMatchesLongTasks: typeof tasks }).__ttMatchesLongTasks = tasks;
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        tasks.push({ start: entry.startTime, duration: entry.duration });
-      }
-    }).observe({ type: 'longtask', buffered: true });
-  });
-  await page.goto('./');
-  await awaitAllReady(page, { loadDemo: true });
-  await gotoPlace(page, 'inputs');
-  const words = Array.from(
-    { length: 1_200 },
-    (_, index) => `holmes watson moriarty marker${index}`,
-  ).join(' ');
-  await clearDemoInputs(page);
-  await page.getByLabel('Add files').setInputFiles({
-    name: 'many-mentions.txt',
-    mimeType: 'text/plain',
-    buffer: Buffer.from(words, 'utf-8'),
-  });
-  await awaitReadyCount(page, 1);
-  await gotoPlace(page, 'trends');
-  await submitAndAwaitFreshResults(page, 'holmes, watson, moriarty');
-  await gotoPlace(page, 'matches');
-
-  const terms = page.getByRole('complementary', { name: 'Terms' });
-  await expect(terms).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Match terms' })).toHaveCount(0);
-  for (const term of ['holmes', 'watson']) {
-    const toggleMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-    await terms.getByRole('button', { name: `Shown in analysis: ${term}` }).click();
-    await awaitFreshWindow(page, toggleMark);
-  }
-
-  const grid = page.getByRole('grid', { name: 'Matches' });
-  await expect(grid).toBeVisible({ timeout: 30_000 });
-  await expect(grid).toHaveAttribute('aria-rowcount', '1201');
-  const occurrenceRows = grid.locator('.kwic-virtual-row[aria-rowindex]');
-  await expect.poll(() => occurrenceRows.count()).toBeGreaterThan(0);
-  expect(await occurrenceRows.count()).toBeLessThan(120);
-
+test('continuous Matches virtualizes rows and synchronizes scrolling with the shared cursor', async ({ page }) => {
+  const grid = await prepareContinuousMatches(page);
   const anchoredGeometry = async () => page.locator('.kwic-grid-shell').evaluate((shell) => {
     const mark = shell.querySelector<HTMLElement>('.kwic-now-mark')!.getBoundingClientRect();
     const port = shell.querySelector<HTMLElement>('.kwic-virtual-grid')!.getBoundingClientRect();
@@ -142,36 +77,8 @@ test('continuous Matches virtualizes rows and synchronizes scrolling with the sh
   await awaitFreshWindow(page, returnMark);
 
   const residentMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  const scrollWindowStart = await page.evaluate(() => performance.now());
-  const unfilledFrames = await grid.evaluate(async (node) => {
-    const port = node as HTMLElement;
-    const gaps: { frame: number; from: number; to: number }[] = [];
-    for (let frame = 0; frame < 48; frame++) {
-      port.scrollTop += 32;
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      const portRect = port.getBoundingClientRect();
-      const headerRect = port.querySelector<HTMLElement>('.kwic-grid-header')!.getBoundingClientRect();
-      const top = Math.max(portRect.top, headerRect.bottom);
-      const bottom = portRect.bottom;
-      const rowRects = [...port.querySelectorAll<HTMLElement>('.kwic-virtual-row')]
-        .map((row) => row.getBoundingClientRect())
-        .filter((rect) => rect.bottom > top && rect.top < bottom)
-        .sort((left, right) => left.top - right.top);
-      let coveredThrough = top;
-      for (const rect of rowRects) {
-        if (rect.top > coveredThrough + 1) {
-          gaps.push({ frame, from: coveredThrough - portRect.top, to: rect.top - portRect.top });
-        }
-        coveredThrough = Math.max(coveredThrough, rect.bottom);
-      }
-      if (coveredThrough < bottom - 1) {
-        gaps.push({ frame, from: coveredThrough - portRect.top, to: bottom - portRect.top });
-      }
-    }
-    return gaps;
-  });
+  const unfilledFrames = await scrollMatchesFrames(grid);
   await page.waitForTimeout(250);
-  const scrollWindowEnd = await page.evaluate(() => performance.now());
   const prefetchQueries = (await trace(page)).events.filter((event) =>
     event.seq > residentMark
     && event.direction === 'to-worker'
@@ -180,20 +87,6 @@ test('continuous Matches virtualizes rows and synchronizes scrolling with the sh
   expect(prefetchQueries.length).toBeGreaterThan(0);
   expect(prefetchQueries.length).toBeLessThan(6);
   expect(unfilledFrames).toEqual([]);
-  const longTasks = await page.evaluate(
-    () => (window as unknown as {
-      __ttMatchesLongTasks: { start: number; duration: number }[];
-    }).__ttMatchesLongTasks,
-  );
-  await testInfo.attach('continuous-matches-long-tasks.json', {
-    body: JSON.stringify({ window: { scrollWindowStart, scrollWindowEnd }, longTasks }, null, 2),
-    contentType: 'application/json',
-  });
-  expect(longTasks.filter((task) =>
-    task.duration >= 100
-    && task.start >= scrollWindowStart
-    && task.start <= scrollWindowEnd)).toEqual([]);
-
   await grid.focus();
   await grid.press('End');
   await expect(grid).toHaveAttribute('aria-activedescendant', 'matches-row-1199');
