@@ -174,6 +174,8 @@ interface PreparedDocument {
   readonly ready: ReadyDocument;
   readonly shard: DocumentIndexV1;
   readonly shardKey: DocumentIndexCacheKey;
+  readonly textCached: boolean;
+  readonly shardCached: boolean;
 }
 
 /** The verified inputs prepareFromText builds the remaining artifacts from.
@@ -182,6 +184,7 @@ interface PreparedDocument {
 interface PrepareInput {
   readonly verified: VerifiedText;
   readonly shard?: DocumentIndexV1;
+  readonly textCached?: boolean;
 }
 
 type WarmProbe =
@@ -562,7 +565,7 @@ export class WorkerEngineV4 {
     return {
       kind: 'prepare',
       cheap: shard !== undefined,
-      input: shard === undefined ? { verified } : { verified, shard },
+      input: shard === undefined ? { verified, textCached: true } : { verified, shard, textCached: true },
     };
   }
 
@@ -645,6 +648,8 @@ export class WorkerEngineV4 {
       ready,
       shard,
       shardKey,
+      textCached: input.textCached === true,
+      shardCached: input.shard !== undefined,
     };
   }
 
@@ -911,10 +916,9 @@ export class WorkerEngineV4 {
   /** Best-effort disposable cache writes AFTER a document has passed the commit
    *  gate — a cancelled half-pipeline must never look like a completed build. */
   private writeArtifacts(gen: GenerationStateV4, prepared: PreparedDocument): void {
-    const writes: Promise<unknown>[] = [
-      this.store.putText(prepared.ready.shard.text, prepared.text),
-      this.store.putShard(prepared.shardKey, prepared.shard),
-    ];
+    const writes: Promise<unknown>[] = [];
+    if (!prepared.textCached) writes.push(this.store.putText(prepared.ready.shard.text, prepared.text));
+    if (!prepared.shardCached) writes.push(this.store.putShard(prepared.shardKey, prepared.shard));
     // Only cold ingestion earns a source proof. Never mint a source binding
     // from a caller's text assertion or from another warm cache record.
     const source = gen.work.get(prepared.doc)?.accepted?.source;

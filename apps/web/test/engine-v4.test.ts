@@ -317,6 +317,36 @@ describe('warm reopen (deep admission across text and index)', () => {
     expect(h.last('snapshot-published').readyDocs).toEqual(['a']);
   });
 
+  it('does not rewrite verified warm artifacts or mint source proof from trusted text assertions', async () => {
+    const h = harness();
+    const text = 'the wolf ran far';
+    const spec = await docSpec('a', text);
+    await coldPass(h, spec, text);
+    const binding = { source: spec.source.expectedHash!, recipe: spec.extraction.recipeHash };
+    await h.store.deleteExtraction(binding);
+    h.store.writes = { text: 0, shard: 0 };
+    const extractionWrite = vi.spyOn(h.store, 'putExtraction');
+    await begin(h, [spec], 'warm');
+    await h.flush();
+    expect(h.last('generation-ready').readyDocs).toEqual(['a']);
+    expect(h.store.writes).toEqual({ text: 0, shard: 0 });
+    expect(extractionWrite).not.toHaveBeenCalled();
+    expect(await h.store.getExtraction(binding)).toEqual({ kind: 'miss' });
+  });
+
+  it('writes only a rebuilt missing shard when warm text is verified', async () => {
+    const h = harness();
+    const text = 'the wolf ran far';
+    const spec = await docSpec('a', text);
+    await coldPass(h, spec, text);
+    h.store.hide.shard = true;
+    h.store.writes = { text: 0, shard: 0 };
+    await begin(h, [spec], 'rebuild');
+    await h.flush();
+    expect(h.last('generation-ready').readyDocs).toEqual(['a']);
+    expect(h.store.writes).toEqual({ text: 0, shard: 1 });
+  });
+
   it('an exact warm reopen performs no decode, extract, segment, or index work', async () => {
     const h = harness();
     const text = '# Ch\n\nthe wolf ran far';
@@ -400,8 +430,8 @@ describe('supersession and the commit gate', () => {
     expect(hookFired).toBe(true); // the supersession actually interleaved
     expect([...h.last('generation-ready').readyDocs].sort()).toEqual(['a', 'b']);
     // 'a' was written once — by the live ingest, not again by the batch that
-    // dropped it. Both committed documents account for two text writes total.
-    expect(h.store.writes.text).toBe(2);
+    // dropped it. Warm-admitted 'b' needs no rewrite.
+    expect(h.store.writes.text).toBe(1);
   });
 
   it('generation-ready.missingDocs excludes a document accepted in-flight by a concurrent ingest', async () => {
