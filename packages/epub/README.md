@@ -10,8 +10,16 @@ import { extractEpub } from '@texttrends/epub';
 const book = extractEpub(bytes, { partitions: ['bodymatter'] });
 ```
 
+The v2 text policy uses declared front/body/back partitions when present.
+When no spine document declares body matter, a body-matter selection includes
+linear unclassified documents while excluding declared front/back matter. XHTML named entities decode before serialization;
+table cells and disclosure headings retain word boundaries. Hidden elements,
+iframe content, and navigation markers are excluded. Preformatted line breaks
+survive while ordinary source wrapping collapses to spaces.
+
 `maxExtractedBytes` bounds decompressed OPF and XHTML data. Invalid archives
-throw `EpubError` with `INVALID_EPUB`; size-limit failures use `CAP_EXCEEDED`.
+and XML error/fatal diagnostics (including unknown entities)
+throw `EpubError` with `INVALID_EPUB`; parser warnings remain accepted; size-limit failures use `CAP_EXCEEDED`.
 
 This is a private workspace package. Build it from the repository root with
 `pnpm build:packages` after `pnpm install`. Import only its declared root export.

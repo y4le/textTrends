@@ -48,12 +48,18 @@ Supported inputs are TXT, Markdown, HTML/XHTML, and EPUB.
 - TXT and Markdown preserve the decoded source as indexed text. Markdown is a
   literal text format; markup is not interpreted as document metadata.
 - HTML is parsed inertly with the pinned HTML5 parser and serialized to plain
-  reading text. Scripts and styles do not enter the result.
+  reading text. Scripts, styles, hidden elements, and iframes are excluded.
+  Table cells retain word boundaries; preformatted line breaks survive.
 - EPUB follows the pinned reading-order and partition policy, extracts the
   selected XHTML bodies, and joins their text into one document. The source
   descriptor may report how many container documents were read, but this is
   extraction provenance rather than an analyzable hierarchy. Chapter admission
   follows declared manifest paths, with one shared OPF/XHTML extraction budget.
+  Without declared body matter, its selection includes linear unclassified spine
+  content, excluding declared front/back matter.
+  XHTML named entities decode through the XHTML parser; malformed markup is a
+  recoverable document failure (`PARSE_FAILED`); error/fatal parser diagnostics
+  reject the document while warnings remain accepted. HTML and EPUB serializers use v2 recipe identities.
 
 Extraction produces one `texttrends/extraction/1` artifact containing source,
 recipe, text, descriptor, length, and decode evidence. The canonical text is a

@@ -47,9 +47,9 @@ interface DecoderPolicyV0 {
  * selects the included reading order.
  */
 export interface EpubExtractorPolicyV0 {
-  readonly id: 'standard-ebooks-epub-v1';
+  readonly id: 'standard-ebooks-epub-v2';
   readonly partitions: readonly EbookPartition[];
-  readonly serializer: 'xhtml-block-collapse-v1';
+  readonly serializer: 'xhtml-block-collapse-v2';
 }
 
 /**
@@ -61,10 +61,10 @@ export interface EpubExtractorPolicyV0 {
  * output-changing upgrade forces a new hash.
  */
 export interface HtmlExtractorPolicyV0 {
-  readonly id: 'html5-inert-v1';
+  readonly id: 'html5-inert-v2';
   readonly decoder: DecoderPolicyV0;
   readonly parser: 'parse5-v7';
-  readonly serializer: 'html-block-collapse-v1';
+  readonly serializer: 'html-block-collapse-v2';
 }
 
 /**
@@ -227,7 +227,7 @@ function snapshotExtractionRecipe(recipe: unknown): ExtractionRecipeProvisional 
     const e = recipe.extractor;
     if (!isStrictPlainRecord(e)) throw new RangeError('extractor policy must be an object');
     requireExactKeys(e, ['id', 'partitions', 'serializer'], 'epub extractor');
-    if (e.id !== 'standard-ebooks-epub-v1' || e.serializer !== 'xhtml-block-collapse-v1') {
+    if (e.id !== 'standard-ebooks-epub-v2' || e.serializer !== 'xhtml-block-collapse-v2') {
       throw new RangeError('unsupported epub extractor policy');
     }
     if (!Array.isArray(e.partitions)) {
@@ -245,9 +245,9 @@ function snapshotExtractionRecipe(recipe: unknown): ExtractionRecipeProvisional 
       schema: 'texttrends/extraction-recipe/0-provisional',
       format: 'epub',
       extractor: {
-        id: 'standard-ebooks-epub-v1',
+        id: 'standard-ebooks-epub-v2',
         partitions: partitions as EbookPartition[],
-        serializer: 'xhtml-block-collapse-v1',
+        serializer: 'xhtml-block-collapse-v2',
       },
     };
   } else {
@@ -257,8 +257,8 @@ function snapshotExtractionRecipe(recipe: unknown): ExtractionRecipeProvisional 
     if (!isStrictPlainRecord(e)) throw new RangeError('extractor policy must be an object');
     requireExactKeys(e, ['id', 'decoder', 'parser', 'serializer'], 'html extractor');
     if (
-      e.id !== 'html5-inert-v1' || e.parser !== 'parse5-v7' ||
-      e.serializer !== 'html-block-collapse-v1'
+      e.id !== 'html5-inert-v2' || e.parser !== 'parse5-v7' ||
+      e.serializer !== 'html-block-collapse-v2'
     ) {
       throw new RangeError('unsupported html extractor policy');
     }
@@ -266,10 +266,10 @@ function snapshotExtractionRecipe(recipe: unknown): ExtractionRecipeProvisional 
       schema: 'texttrends/extraction-recipe/0-provisional',
       format: 'html',
       extractor: {
-        id: 'html5-inert-v1',
+        id: 'html5-inert-v2',
         decoder: snapshotDecoderPolicy(e.decoder),
         parser: 'parse5-v7',
-        serializer: 'html-block-collapse-v1',
+        serializer: 'html-block-collapse-v2',
       },
     };
   }
@@ -444,10 +444,10 @@ export function defaultExtractionRecipes(): Promise<DefaultExtractionRecipes> {
         schema: 'texttrends/extraction-recipe/0-provisional',
         format: 'html',
         extractor: {
-          id: 'html5-inert-v1',
+          id: 'html5-inert-v2',
           decoder,
           parser: 'parse5-v7',
-          serializer: 'html-block-collapse-v1',
+          serializer: 'html-block-collapse-v2',
         },
       })) as ExtractionRecipeFor<'html'>,
     });
@@ -475,11 +475,11 @@ export function epubExtractionRecipe(
     schema: 'texttrends/extraction-recipe/0-provisional',
     format: 'epub',
     extractor: {
-      id: 'standard-ebooks-epub-v1',
+      id: 'standard-ebooks-epub-v2',
       // Canonical (unique, reading order) so equivalent selections share one
       // recipe identity.
       partitions: canonicalPartitions(partitions),
-      serializer: 'xhtml-block-collapse-v1',
+      serializer: 'xhtml-block-collapse-v2',
     },
   });
   // The epub arm has no byte decoder, hence no async table proof — the

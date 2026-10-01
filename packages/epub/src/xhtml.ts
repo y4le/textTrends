@@ -8,12 +8,12 @@ export interface ExtractedXhtml {
   readonly text: string;
 }
 
-const SKIPPED_ELEMENTS = new Set(['script', 'style', 'nav']);
+const SKIPPED_ELEMENTS = new Set(['script', 'style', 'nav', 'iframe', 'template', 'noscript']);
 const BLOCK_ELEMENTS = new Set([
   'address', 'article', 'aside', 'blockquote', 'caption', 'dd', 'div', 'dl', 'dt',
   'figcaption', 'figure', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header',
   'hr', 'li', 'main', 'ol', 'p', 'pre', 'section', 'table', 'tbody', 'tfoot',
-  'thead', 'tr', 'ul',
+  'thead', 'tr', 'ul', 'td', 'th', 'summary', 'details',
 ]);
 const SKIPPED_SEMANTICS = new Set(['backlink', 'noteref', 'pagebreak']);
 
@@ -26,14 +26,16 @@ function partitionFrom(types: readonly string[]): EbookPartition | null {
 
 function shouldSkip(element: Element): boolean {
   if (SKIPPED_ELEMENTS.has(element.localName)) return true;
+  if (element.hasAttribute('hidden')) return true;
   if (element.getAttribute('aria-hidden') === 'true') return true;
   if (element.getAttribute('role') === 'doc-noteref') return true;
   return semanticTokens(element).some((token) => SKIPPED_SEMANTICS.has(token));
 }
 
-function walkText(node: Node, output: string[]): void {
+function walkText(node: Node, output: string[], inPre = false): void {
   if (node.nodeType === 3) {
-    output.push((node.nodeValue ?? '').replace(/[\t\r\n\f\v ]+/gu, ' '));
+    const value = (node.nodeValue ?? '').replace(/\r\n?/gu, '\n');
+    output.push(value.replace(inPre ? /[\t\f\v ]+/gu : /[\t\n\f\v ]+/gu, ' '));
     return;
   }
   if (node.nodeType !== 1) return;
@@ -53,7 +55,7 @@ function walkText(node: Node, output: string[]): void {
   if (isBlock) output.push('\n\n');
   for (let index = 0; index < element.childNodes.length; index++) {
     const child = element.childNodes.item(index);
-    if (child !== null) walkText(child, output);
+    if (child !== null) walkText(child, output, inPre || element.localName === 'pre');
   }
   if (isBlock) output.push('\n\n');
 }
@@ -82,7 +84,7 @@ function headingText(body: Element): string | null {
 }
 
 export function extractXhtml(source: string, label = 'XHTML document'): ExtractedXhtml {
-  const document = parseXml(source, label);
+  const document = parseXml(source, label, true);
   const body = firstDescendant(document, 'body');
   if (body === null) {
     return {

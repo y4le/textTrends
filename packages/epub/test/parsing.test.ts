@@ -3,6 +3,24 @@ import { extractXhtml, parsePackage } from '../src/epub-reader.js';
 import { chapterXhtml, packageXml } from './fixtures.js';
 
 describe('OPF and XHTML parsing', () => {
+  it('decodes XHTML entities and preserves visible structural boundaries', () => {
+    const extracted = extractXhtml(`<html xmlns="http://www.w3.org/1999/xhtml"><body>
+      <p>one&nbsp;two &mdash; don&rsquo;t</p><table><tr><td>left</td><th>right</th></tr></table>
+      <details><summary>heading</summary>body</details><p hidden="">hidden</p><iframe>frame</iframe>
+      <pre>first
+<span>second</span>
+third</pre></body></html>`);
+    expect(extracted.text).toBe('one\u00a0two — don’t\n\nleft\n\nright\n\nheading\n\nbody\n\nfirst\nsecond\nthird');
+  });
+
+  it('accepts legal replacement characters despite XML parser warnings', () => {
+    expect(extractXhtml('<html><body><p>literal \ufffd character</p></body></html>').text).toBe('literal \ufffd character');
+  });
+
+  it.each(['<html><body><p></body></html>', '<html><body>&unknown;</body></html>'])('maps parser failures to domain errors: %s', (source) => {
+    expect(() => extractXhtml(source)).toThrowError(expect.objectContaining({ code: 'INVALID_EPUB' }));
+  });
+
   it('extracts canonical metadata, collections, and spine order', () => {
     const parsed = parsePackage(packageXml);
     expect(parsed.metadata).toMatchObject({

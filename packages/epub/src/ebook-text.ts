@@ -37,10 +37,12 @@ export function selectEbookSections(
   const sections: EbookSection[] = [];
   const chunks: string[] = [];
   let length = 0;
+  const extractedDocuments = documents.map((document) => extractXhtml(document.source, document.href));
+  const lacksBodyMatter = !extractedDocuments.some((section) => section.partition === 'bodymatter');
   for (let order = 0; order < documents.length; order++) {
     const document = documents[order]!;
-    const extracted = extractXhtml(document.source, document.href);
-    const included = selected.has(extracted.partition);
+    const extracted = extractedDocuments[order]!;
+    const included = selected.has(extracted.partition) || (lacksBodyMatter && selected.has('bodymatter') && extracted.partition === 'unknown' && document.linear);
     let range = null;
     if (included) {
       if (chunks.length > 0) {

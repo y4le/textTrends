@@ -51,9 +51,9 @@ async function rawRecipe(format: 'txt' | 'md' | 'epub' | 'html'): Promise<Record
         schema: 'texttrends/extraction-recipe/0-provisional',
         format: 'epub',
         extractor: {
-          id: 'standard-ebooks-epub-v1',
+          id: 'standard-ebooks-epub-v2',
           partitions: ['frontmatter', 'bodymatter'],
-          serializer: 'xhtml-block-collapse-v1',
+          serializer: 'xhtml-block-collapse-v2',
         },
       };
     case 'html':
@@ -61,10 +61,10 @@ async function rawRecipe(format: 'txt' | 'md' | 'epub' | 'html'): Promise<Record
         schema: 'texttrends/extraction-recipe/0-provisional',
         format: 'html',
         extractor: {
-          id: 'html5-inert-v1',
+          id: 'html5-inert-v2',
           decoder: decoder(),
           parser: 'parse5-v7',
-          serializer: 'html-block-collapse-v1',
+          serializer: 'html-block-collapse-v2',
         },
       };
   }

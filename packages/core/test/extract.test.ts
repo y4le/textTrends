@@ -228,7 +228,7 @@ describe('epub extraction recipe + source-reconstruction guard', () => {
     const nonCanonical = {
       schema: 'texttrends/extraction-recipe/0-provisional',
       format: 'epub',
-      extractor: { id: 'standard-ebooks-epub-v1', partitions: ['bodymatter', 'bodymatter'], serializer: 'xhtml-block-collapse-v1' },
+      extractor: { id: 'standard-ebooks-epub-v2', partitions: ['bodymatter', 'bodymatter'], serializer: 'xhtml-block-collapse-v2' },
     };
     await expect(validateExtractionRecipe(nonCanonical)).rejects.toThrow(/canonical/);
   });

@@ -13,6 +13,11 @@ const capped = (maxTextUtf16PerDoc: number): ExtractionLimits => ({ ...LIMITS, m
 const recipes = await defaultExtractionRecipes();
 
 describe('extractSource — the one extraction runtime', () => {
+  it('keeps table cells and preformatted lines separate and excludes hidden containers', async () => {
+    const { text } = await extractSource(utf8('<table><tr><td>left</td><th>right</th></tr></table><details><summary>heading</summary>body</details><p hidden>hidden</p><iframe>frame</iframe><pre>first\n<span>second</span>\nthird</pre>'), recipes.html, LIMITS);
+    expect(text).toBe('left\n\nright\n\nheading\n\nbody\n\nfirst\nsecond\nthird');
+  });
+
   it('runs the literal path (decode → extract) and returns the canonical artifact', async () => {
     const phases: string[] = [];
     const { artifact, text } = await extractSource(utf8('Hello world.'), recipes.txt, LIMITS, {

@@ -30,12 +30,12 @@ import { ExtractionFailure } from './failure.ts';
 
 type HtmlRecipe = Extract<ExtractionRecipeProvisional, { format: 'html' }>;
 
-const SKIPPED = new Set(['script', 'style', 'nav', 'head', 'template', 'noscript']);
+const SKIPPED = new Set(['script', 'style', 'nav', 'head', 'template', 'noscript', 'iframe']);
 const BLOCK = new Set([
   'address', 'article', 'aside', 'blockquote', 'caption', 'dd', 'div', 'dl', 'dt',
   'figcaption', 'figure', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header',
   'hr', 'li', 'main', 'ol', 'p', 'pre', 'section', 'table', 'tbody', 'tfoot',
-  'thead', 'tr', 'ul',
+  'thead', 'tr', 'ul', 'td', 'th', 'summary', 'details',
 ]);
 const HEADINGS: Record<string, number> = { h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6 };
 
@@ -97,18 +97,19 @@ function flushSegment(em: Emitter): void {
 
 /** Walk a parse5 tree, splitting into heading-delimited segments and flushing
  *  the previous segment (cap-checked) whenever a top-level heading opens. */
-function walk(node: P5Node, em: Emitter, inHeading: { level: number } | null): void {
+function walk(node: P5Node, em: Emitter, inHeading: { level: number } | null, inPre = false): void {
   const name = node.nodeName;
   if (node.nodeName === '#text') {
-    em.cur.chunks.push((node.value ?? '').replace(/[\t\r\n\f\v ]+/gu, ' '));
+    const value = (node.value ?? '').replace(/\r\n?/gu, '\n');
+    em.cur.chunks.push(value.replace(inPre ? /[\t\f\v ]+/gu : /[\t\n\f\v ]+/gu, ' '));
     return;
   }
   if (node.tagName === undefined) {
-    for (const c of node.childNodes ?? []) walk(c, em, inHeading);
+    for (const c of node.childNodes ?? []) walk(c, em, inHeading, inPre || node.tagName === 'pre');
     return;
   }
   const tag = name.toLowerCase();
-  if (SKIPPED.has(tag) || attr(node, 'aria-hidden') === 'true') return;
+  if (SKIPPED.has(tag) || attr(node, 'hidden') !== undefined || attr(node, 'aria-hidden') === 'true') return;
   if (tag === 'br') { em.cur.chunks.push('\n'); return; }
   if (tag === 'img') {
     const alt = attr(node, 'alt')?.trim();
@@ -116,21 +117,21 @@ function walk(node: P5Node, em: Emitter, inHeading: { level: number } | null): v
     return;
   }
 
-  const level = HEADINGS[tag];
+  const level = Object.hasOwn(HEADINGS, tag) ? HEADINGS[tag] : undefined;
   if (level !== undefined && inHeading === null) {
     // A top-level heading closes the previous segment and opens a new one.
     flushSegment(em);
     const cur: Segment = { chunks: [] };
     em.cur = cur;
     cur.chunks.push('\n\n');
-    for (const c of node.childNodes ?? []) walk(c, em, { level });
+    for (const c of node.childNodes ?? []) walk(c, em, { level }, inPre);
     cur.chunks.push('\n\n');
     return;
   }
 
   const isBlock = BLOCK.has(tag);
   if (isBlock) em.cur.chunks.push('\n\n');
-  for (const c of node.childNodes ?? []) walk(c, em, inHeading);
+  for (const c of node.childNodes ?? []) walk(c, em, inHeading, inPre || node.tagName === 'pre');
   if (isBlock) em.cur.chunks.push('\n\n');
 }
 
