@@ -217,7 +217,7 @@ export function App() {
   }, [activeTextCount, place, project, replacePlace, routeStatus]);
 
   const {
-    shortcutSequence, clearShortcutSequence, dispatchSequence,
+    shortcutSequence, clearShortcutSequence, dispatchSequence, dispatchPendingSequence,
     keyboardNavigationStatus, setKeyboardNavigationStatus,
   } = useWorkbenchShortcuts(readerOpen);
   const onUtilityOpen = useCallback(() => {
@@ -598,8 +598,19 @@ export function App() {
         true,
       );
     };
+    const onPendingSequence = (event: globalThis.KeyboardEvent) => {
+      if (!readerOpen && utilityPane === null && rootShortcutAllowed(event)) {
+        // Complete an existing prefix before the focused surface interprets
+        // that same second key as a standalone local command.
+        dispatchPendingSequence(event, 'workbench', runWorkbenchShortcut);
+      }
+    };
+    document.addEventListener('keydown', onPendingSequence, true);
     document.addEventListener('keydown', onDocumentKeyDown);
-    return () => document.removeEventListener('keydown', onDocumentKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onPendingSequence, true);
+      document.removeEventListener('keydown', onDocumentKeyDown);
+    };
   }, [interaction.kind, presentation.reducedMotion, readerOpen, readerScale, readerNavigation, readerPage, utilityPane]);
 
   useEffect(() => {

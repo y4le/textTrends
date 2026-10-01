@@ -272,3 +272,21 @@ test('result tables retain their intended keyboard behavior', async ({ page }) =
   await chord(compareRows.first(), 'g', 't');
   await expect(page.getByRole('region', { name: 'Trends', exact: true })).toBeFocused();
 });
+
+
+test('gv from the focused Trends scrubber completes navigation before its local view toggle', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
+  const scrubber = page.getByRole('slider', { name: 'Reading position scrubber' });
+  const pressedView = page.getByRole('group', { name: 'Layout — Trend view' }).getByRole('button', { pressed: true });
+  await expect(pressedView).toHaveCount(1);
+  const originalView = await pressedView.getAttribute('aria-label');
+  expect(originalView).toBeTruthy();
+  await scrubber.focus();
+  await chord(scrubber, 'g', 'v');
+  const vocabulary = page.getByRole('region', { name: 'Vocabulary', exact: true });
+  await expect(vocabulary).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Scrollable Vocabulary frequency list' })).toBeFocused();
+  await gotoPlace(page, 'trends');
+  await expect(page.getByRole('button', { name: originalView!, exact: true })).toHaveAttribute('aria-pressed', 'true');
+});

@@ -49,6 +49,15 @@ export function useWorkbenchShortcuts(readerOpen: boolean) {
       }
     }, Math.max(0, advanced.state.expiresAt - performance.now()));
   };
+  const dispatchPendingSequence = (
+    event: globalThis.KeyboardEvent,
+    context: ShortcutHelpContext,
+    onMatched: (id: ShortcutId) => boolean,
+  ) => {
+    if (shortcutSequence.current === null) return;
+    const advanced = advanceShortcutSequence(shortcutSequence.current, event, context, performance.now());
+    if (advanced.kind === 'matched') dispatchSequence(event, context, onMatched);
+  };
   useEffect(() => () => {
     if (shortcutSequenceTimer.current !== null) clearTimeout(shortcutSequenceTimer.current);
   }, []);
@@ -58,5 +67,5 @@ export function useWorkbenchShortcuts(readerOpen: boolean) {
     setKeyboardNavigationStatus('');
   }, [clearShortcutSequence, readerOpen]);
 
-  return { shortcutSequence, clearShortcutSequence, dispatchSequence, keyboardNavigationStatus, setKeyboardNavigationStatus };
+  return { shortcutSequence, clearShortcutSequence, dispatchSequence, dispatchPendingSequence, keyboardNavigationStatus, setKeyboardNavigationStatus };
 }
