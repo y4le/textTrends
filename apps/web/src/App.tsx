@@ -5,25 +5,25 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
 import { useWorkbenchShortcuts } from './components/app/useWorkbenchShortcuts.ts';
+import { useFindFocusReturn } from './components/app/useFindFocusReturn.ts';
 import { useUtilityPanes } from './components/app/useUtilityPanes.ts';
 import { ActivePlace, PlaceLoading } from './places/ActivePlace.tsx';
-import { shutdownAppForReload, useApp } from './lib/store-instance.ts';
+import { useApp } from './lib/store-instance.ts';
 import { StatusBar } from './components/StatusBar.tsx';
 import { HeaderActions } from './components/HeaderActions.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { WorkspaceSaveStatus } from './components/WorkspaceSaveStatus.tsx';
-import { ResumeStatus } from './components/ResumeStatus.tsx';
+import { WorkbenchNotices } from './components/app/WorkbenchNotices.tsx';
 import { WorkbenchTabs } from './components/WorkbenchTabs.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
 import { globalSettingsEntry } from './lib/settings-entry.ts';
 import { SettingsEntryProvider } from './components/SettingsEntryContext.tsx';
-import { occurrenceNavigationText } from './lib/occurrence-view.ts';
+import { ReaderShell } from './components/app/ReaderShell.tsx';
 import {
   chordShortcutAllowed,
   interactionShortcutAllowed,
@@ -35,11 +35,10 @@ import {
 import { HelpPane } from './components/HelpPane.tsx';
 import { termFocusControlId } from './lib/query-surface.ts';
 import { WorkbenchDock } from './components/WorkbenchDock.tsx';
-import { FIND_INPUT_ID, findScope } from './lib/interaction.ts';
+import { FIND_INPUT_ID } from './lib/interaction.ts';
 import { RSVP_WPM_STEP } from '@texttrends/rsvp';
 import { RSVP_WPM_INPUT_ID } from './lib/rsvp-ui.ts';
 import { usePresentation } from './components/PresentationProvider.tsx';
-import { guideAnchorProps } from './lib/guide/anchors.ts';
 import {
   GuideInvitation,
   useGuide,
@@ -47,10 +46,6 @@ import {
   type GuideReadinessRemedy,
 } from './components/guide/GuideProvider.tsx';
 
-const ReaderDrawer = retryableLazy(() =>
-  import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
-  'Reader',
-);
 const SettingsPane = retryableLazy(() =>
   import('./components/SettingsPane.tsx').then(({ SettingsPane: pane }) => ({ default: pane })),
   'Settings',
@@ -133,25 +128,14 @@ function NoInputsPlace({ onOpenInputs }: { readonly onOpenInputs: () => void }) 
 
 export function App() {
   const [appHeaderEl, setAppHeaderEl] = useState<HTMLElement | null>(null);
+  const [reloadError, setReloadError] = useState<string | null>(null);
   const presentation = usePresentation();
   const guide = useGuide();
-  const retryAnalysis = useApp((s) => s.retryAnalysis);
-  const loadError = useApp((s) => s.loadError);
-  const loadErrorFatal = useApp((s) => s.loadErrorFatal);
-  const [reloadError, setReloadError] = useState<string | null>(null);
-  const notebookError = useApp((s) => s.notebookError);
-  const clearNotebookError = useApp((s) => s.clearNotebookError);
-  const commandError = useApp((s) => s.commandError);
-  const clearCommandError = useApp((s) => s.clearCommandError);
-  const appNotice = useApp((s) => s.appNotice);
-  const clearAppNotice = useApp((s) => s.clearAppNotice);
   const trendSettingsNotice = useApp((s) => s.trendSettingsNotice);
   const readerPlace = useApp((s) => s.readerPlace);
   const readerPage = useApp((s) => s.readerPage);
   const readerScale = useApp((s) => s.readerScale);
   const readerNavigation = useApp((s) => s.readerNavigation);
-  const readerVisibleRange = useApp((s) => s.readerVisibleRange);
-  const occurrenceNavigation = useApp((s) => s.occurrenceNavigation);
   const interaction = useApp((s) => s.interaction);
   const enterFind = useApp((s) => s.enterFind);
   const stepFind = useApp((s) => s.stepFind);
@@ -165,7 +149,6 @@ export function App() {
   const stepOccurrence = useApp((s) => s.stepOccurrence);
   const project = useApp((s) => s.projectSession?.project ?? null);
   const pendingInputCount = useApp((s) => s.projectSession?.imports.length ?? 0);
-  const bootstrap = useApp((s) => s.bootstrap);
   const place = useApp((s) => s.place);
   const setPlace = useApp((s) => s.setPlace);
   const replacePlace = useApp((s) => s.replacePlace);
@@ -180,10 +163,7 @@ export function App() {
   const [readerStatus, setReaderStatus] = useState<{ place: ReaderPlace | null; message: string }>({ place: null, message: '' });
   const readerKeyboardStatus = sameReaderPlace(readerStatus.place, readerPlace) ? readerStatus.message : '';
   const setReaderKeyboardStatus = (message: string) => setReaderStatus({ place: useApp.getState().readerPlace, message });
-  const findReturnFocus = useRef<HTMLElement | null>(null);
-  const restoreFindFocus = useRef(false);
-  const previousFindScope = useRef(findScope(interaction) !== null);
-  const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation);
+  const { findReturnFocus, restoreFindFocus } = useFindFocusReturn({ interaction, place, readerOpen });
 
   useLayoutEffect(() => {
     if (appHeaderEl === null) return undefined;
@@ -504,19 +484,6 @@ export function App() {
     return false;
   };
 
-  useEffect(() => {
-    if (!readerOpen) return undefined;
-    const frame = requestAnimationFrame(() => {
-      if (document.activeElement === document.body || document.activeElement === null) {
-        const destination = readerScale === 'atlas'
-          ? document.getElementById('reader-atlas-plane')
-          : document.getElementById('reader-region');
-        destination?.focus({ preventScroll: true });
-      }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [interaction.kind, readerOpen, readerScale]);
-
   const handleReaderKeyDown = (event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent) => {
     if (handleInteractionShortcut(event)) return;
     if (interaction.kind === 'rsvp') {
@@ -613,38 +580,6 @@ export function App() {
     };
   }, [interaction.kind, presentation.reducedMotion, readerOpen, readerScale, readerNavigation, readerPage, utilityPane]);
 
-  useEffect(() => {
-    const current = findScope(interaction) !== null;
-    const previous = previousFindScope.current;
-    previousFindScope.current = current;
-    if (!previous || current) return;
-    const shouldRestore = restoreFindFocus.current;
-    restoreFindFocus.current = false;
-    const target = findReturnFocus.current;
-    findReturnFocus.current = null;
-    const orphaned = document.activeElement === null || document.activeElement === document.body;
-    if (!shouldRestore && !orphaned) return;
-    requestAnimationFrame(() => {
-      const connectedTarget = target?.isConnected
-        ? target
-        : target?.id
-          ? document.getElementById(target.id)
-          : null;
-      if (connectedTarget) {
-        connectedTarget.focus({ preventScroll: true });
-        return;
-      }
-      document.getElementById(readerOpen ? 'reader-region' : `place-${place}-heading`)
-        ?.focus({ preventScroll: true });
-    });
-  }, [interaction.kind, place, readerOpen]);
-
-  useEffect(() => {
-    if (!readerOpen) return undefined;
-    document.documentElement.classList.add('reader-open');
-    return () => document.documentElement.classList.remove('reader-open');
-  }, [readerOpen]);
-
   const moveReaderPage = (direction: 1 | -1) => {
     const cursor = direction === 1
       ? readerNavigation?.next
@@ -734,97 +669,17 @@ export function App() {
       : null;
 
   if (readerPlace) {
-    const readerTitle = project?.data.docs.find((document) => document.doc === readerPlace.doc)?.meta.title
-      ?? readerPlace.doc;
-    const readerDockPresent = readerScale === 'atlas';
-    return (
-      <>
+    return <>
       <WorkspaceSaveStatus />
-      <main
-        id="reader-region"
-        className="reader-region"
-        data-reader-footer={readerDockPresent ? 'true' : 'false'}
-        data-shortcut-context={interaction.kind === 'rsvp' ? 'rsvp' : 'reader'}
-        data-reader-fit-size={readerVisibleRange?.geometry.split(':', 1)[0]}
-        aria-labelledby="reader-title"
-        tabIndex={-1}
-        onKeyDown={handleReaderKeyDown}
-      >
-        <span
-          className="visually-hidden"
-          role="status"
-          aria-label="Reader keyboard status"
-          aria-live="polite"
-        >
-          {[readerKeyboardStatus, occurrenceStatus].filter(Boolean).join(' · ')}
-        </span>
-        <Suspense
-          fallback={(
-            <>
-              <h2 id="reader-title" className="visually-hidden">Reader: {readerTitle}</h2>
-              <p className="reader-position visually-hidden" role="status">loading reader…</p>
-              <div
-                {...guideAnchorProps('reader-prose')}
-                className="reader-prose-pane"
-                aria-hidden="true"
-              />
-              <nav className="reader-control-bar" aria-label="Reader controls">
-                <span className="reader-progress-rail reader-control-progress" aria-hidden="true" />
-                <button
-                  type="button"
-                  className="reader-control-exit"
-                  aria-label="Return to workbench"
-                  onClick={closeReader}
-                >
-                  <span aria-hidden="true">←</span>{' '}<span>back</span>
-                </button>
-                <button type="button" className="reader-control-page" disabled aria-label="Previous page">
-                  <span aria-hidden="true">‹</span>
-                </button>
-                <button
-                  type="button"
-                  className="reader-control-position"
-                  aria-label={`Open Reader controls for ${readerTitle}`}
-                  disabled
-                >
-                  <strong>{readerTitle}</strong>
-                  <span>loading position…</span>
-                </button>
-                <button type="button" className="reader-control-page" disabled aria-label="Next page">
-                  <span aria-hidden="true">›</span>
-                </button>
-                <button type="button" className="reader-control-speed" disabled aria-label="Speed reading unavailable">
-                  <span aria-hidden="true">▶</span>
-                </button>
-              </nav>
-            </>
-          )}
-        >
-          <ReaderDrawer
-            onLoadFailureReturn={closeReader}
-            onLoadFailureReturnLabel="Return to workbench"
-            onAnnounce={setReaderKeyboardStatus}
-            onCloseFind={closeFind}
-            onOpenFind={() => openFind()}
-            onOpenControls={openReaderControls}
-            onOpenSpeedSettings={openSpeedSettings}
-            onOpenSettings={(returnFocus) => openSettings('reader', returnFocus)}
-            onOpenHelp={() => openHelp(
-              interaction.kind === 'rsvp' ? 'rsvp' : 'reader',
-            )}
-          />
-        </Suspense>
-        {readerDockPresent && (
-          <WorkbenchDock
-            mode="reader"
-            globalShortcuts={false}
-            onCloseFind={closeFind}
-          />
-        )}
-      </main>
+      <ReaderShell
+        readerPlace={readerPlace} readerKeyboardStatus={readerKeyboardStatus}
+        onKeyDown={handleReaderKeyDown} closeReader={closeReader}
+        setReaderKeyboardStatus={setReaderKeyboardStatus} closeFind={closeFind}
+        openFind={() => openFind()} openReaderControls={openReaderControls}
+        openSpeedSettings={openSpeedSettings} openSettings={openSettings} openHelp={openHelp}
+      />
       {utilityPaneSurface}
-      </>
-    );
+    </>;
   }
 
   return (
@@ -887,93 +742,7 @@ export function App() {
           onDismiss={guide.guidedTourInvitation.dismiss}
         />
       )}
-      <ResumeStatus />
-      <p
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)', margin: appNotice ? undefined : 0 }}
-      >
-        {appNotice && (
-          <>
-            {appNotice}{' '}
-            <button
-              type="button"
-              onClick={clearAppNotice}
-              style={{ font: 'inherit', color: 'inherit', background: 'none', border: '1px solid var(--rule-strong)', cursor: 'pointer', padding: '0 0.5ch' }}
-            >
-              dismiss
-            </button>
-          </>
-        )}
-      </p>
-      {commandError && (
-        <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
-          {commandError}{' '}
-          <button
-            type="button"
-            onClick={clearCommandError}
-            style={{ font: 'inherit', color: 'inherit', background: 'none', border: '1px solid var(--rule-strong)', cursor: 'pointer', padding: '0 0.5ch' }}
-          >
-            dismiss
-          </button>
-        </p>
-      )}
-      {notebookError && (
-        <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
-          {notebookError}{' '}
-          <button
-            type="button"
-            onClick={clearNotebookError}
-            style={{
-              font: 'inherit',
-              color: 'inherit',
-              background: 'none',
-              border: '1px solid var(--rule-strong)',
-              cursor: 'pointer',
-              padding: '0 0.5ch',
-            }}
-          >
-            dismiss
-          </button>
-        </p>
-      )}
-      <div role="status" aria-live="polite">
-        {bootstrap.phase === 'error' && (
-          <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
-            failed to prepare the app: {bootstrap.message} — reload the page to retry
-          </p>
-        )}
-        {loadError && (
-          <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
-            {loadError}{' '}
-            <button
-              type="button"
-              onClick={() => {
-                if (!loadErrorFatal) {
-                  retryAnalysis();
-                  return;
-                }
-                setReloadError(null);
-                void shutdownAppForReload({ preserveWorkspace: true })
-                  .then(() => window.location.reload())
-                  .catch((error: unknown) => setReloadError(`Could not save before reload: ${error instanceof Error ? error.message : String(error)}. Your edits remain open.`));
-              }}
-              style={{
-                font: 'inherit',
-                color: 'inherit',
-                background: 'none',
-                border: '1px solid var(--rule-strong)',
-                cursor: 'pointer',
-                padding: '0 0.5ch',
-              }}
-            >
-              {loadErrorFatal ? 'reload' : 'retry'}
-            </button>
-          </p>
-        )}
-        {reloadError && <p role="alert">{reloadError}</p>}
-      </div>
+      <WorkbenchNotices reloadError={reloadError} setReloadError={setReloadError} />
       <div className="workbench">
         <div className="place-region">
           {routeStatus === 'pending'
