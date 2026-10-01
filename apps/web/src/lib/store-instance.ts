@@ -201,7 +201,7 @@ async function bootstrap(): Promise<void> {
       restoredWorkspace = reconciled.workspace;
       if (reconciled.removedDocuments.length > 0) {
         afterAttach = () => {
-          void localLibrary.saveWorkspace(reconciled.workspace).catch((error: unknown) => runtime.reportWorkspaceFailure(error));
+          runtime.useApp.getState().retryWorkspaceSave();
         };
         const count = reconciled.removedDocuments.length;
         bootstrapNotice = `${count} active text${count === 1 ? '' : 's'} no longer existed in the catalog and ${count === 1 ? 'was' : 'were'} removed.`;
@@ -215,12 +215,12 @@ async function bootstrap(): Promise<void> {
       bootstrapNotice = `The saved workspace was incompatible or damaged and could not be restored: ${stored.reason}. Its original record is retained for recovery when a new workspace is saved.`;
       restoredWorkspace = workspace;
       afterAttach = () => {
-        void localLibrary.saveWorkspace(workspace).catch((error: unknown) => runtime.reportWorkspaceFailure(error));
+        runtime.useApp.getState().retryWorkspaceSave();
       };
     } else {
       restoredWorkspace = workspace;
       afterAttach = () => {
-        void localLibrary.saveWorkspace(workspace).catch((error: unknown) => runtime.reportWorkspaceFailure(error));
+        runtime.useApp.getState().retryWorkspaceSave();
       };
     }
     const initial = await libraryProject(
