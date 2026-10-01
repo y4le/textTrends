@@ -884,3 +884,32 @@ describe('reading position history intent', () => {
     }
   });
 });
+
+
+describe('browser History API exhaustion', () => {
+  it('publishes place and Reader layers and closes locally after a throttled push', () => {
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    const f = harness(undefined, { history });
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    history.push = () => { throw new DOMException('rate limit', 'SecurityError'); };
+    f.store.getState().setPlace('matches');
+    expect(f.store.getState().place).toBe('matches');
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'kwic', anchor: 'position' });
+    expect(f.store.getState().readerPlace?.doc).toBe('a');
+    f.store.getState().closeReader();
+    expect(f.store.getState().readerPlace).toBeNull();
+    expect(history.backs).toBe(0);
+    f.runtime.dispose();
+  });
+
+  it('survives a throttled initialization replace without hiding unrelated failures', () => {
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    history.replace = () => { throw new DOMException('rate limit', 'SecurityError'); };
+    const f = harness(undefined, { history });
+    f.store.getState().replacePlace('matches');
+    expect(f.store.getState().place).toBe('matches');
+    f.runtime.dispose();
+    history.replace = () => { throw new Error('broken port'); };
+    expect(() => harness(undefined, { history })).toThrow('broken port');
+  });
+});

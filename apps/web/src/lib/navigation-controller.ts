@@ -81,6 +81,7 @@ export function createNavigationController(historyPort: HistoryPort | null, newL
   let disposed = false;
   let unsubscribeHistory = () => {};
   let historyTraversalPending = false;
+  let historyUnavailable = false;
   let pendingBackFocusTo: string | null = null;
   const get = () => store.getState();
   const set = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => store.setState(partial);
@@ -110,11 +111,20 @@ export function createNavigationController(historyPort: HistoryPort | null, newL
     ? { place: null }
     : routeFromUrl(historyPort.url);
 
+  const writeBrowserHistory = (mode: 'push' | 'replace', state: unknown, url: string): void => {
+    if (historyPort === null || historyUnavailable) return;
+    try {
+      historyPort[mode](state, url);
+    } catch (error) {
+      if (error === null || typeof error !== 'object' || !('name' in error) || error.name !== 'SecurityError') throw error;
+      // Safari can exhaust its History API rate budget. Continue with local
+      // layers for this session, including Back, since the failed entry does
+      // not exist in the browser stack. Reload restores the browser boundary.
+      historyUnavailable = true;
+    }
+  };
   if (historyPort !== null) {
-    historyPort.replace(
-      historyStateFor([]),
-      urlWithRoute(historyPort.url, bootRoute),
-    );
+    writeBrowserHistory('replace', historyStateFor([]), urlWithRoute(historyPort.url, bootRoute));
   }
 
     const readerForLayers = (
@@ -144,7 +154,7 @@ export function createNavigationController(historyPort: HistoryPort | null, newL
         const routePlace = options.resolveRoute === true || get().routeStatus === 'resolved'
           ? place
           : null;
-        historyPort[mode](
+        writeBrowserHistory(mode,
           historyStateFor(layers),
           urlWithRoute(historyPort.url, { place: routePlace }),
         );
@@ -189,7 +199,7 @@ export function createNavigationController(historyPort: HistoryPort | null, newL
         || count < 1
         || count > layers.length
       ) return false;
-      if (historyPort === null) {
+      if (historyPort === null || historyUnavailable) {
         const closing = layers.at(-count)!;
         writeNavigation('replace', get().place, layers.slice(0, -count));
         restoreFocusTo(returnFocusTo ?? closing.returnFocusTo);
