@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { EpubError, extractEpub } from '@texttrends/epub';
+import { EpubError } from '@texttrends/epub';
 import { StandardEbooksClient, StandardEbooksError } from '../src/index.js';
 import {
   chapterXhtml,
@@ -14,6 +14,15 @@ function textResponse(body: string, status = 200): Response {
 }
 
 describe('ebook downloads', () => {
+  it('rejects unsafe repository spine paths before fetching them', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => textResponse(
+      packageXml.replace('text/chapter-1.xhtml', 'https://outside.test/chapter.xhtml'),
+    ));
+    const client = new StandardEbooksClient({ fetch: fetchMock, githubRawBase: 'https://raw.test' });
+    await expect(client.downloadEbookText('test-author_test-book_test-translator', { source: 'repository' }))
+      .rejects.toMatchObject({ code: 'INVALID_RESPONSE', message: expect.stringContaining('href') });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it('uses the official EPUB and joins body matter by default', async () => {
     const epub = fixtureEpub();
     const fetchMock = vi.fn<typeof fetch>(async (input) => {
@@ -56,32 +65,7 @@ describe('ebook downloads', () => {
     expect(book.sections[2]!.range).toBeNull();
   });
 
-  it('downloadEpubArchive builds an EPUB-shaped ingestion archive from GitHub-raw source (no standardebooks.org)', async () => {
-    // Serve ONLY raw.githubusercontent-style URLs (the CORS-accessible origin);
-    // any standardebooks.org request would throw, proving the archive is built
-    // entirely from GitHub source.
-    const fetchMock = vi.fn<typeof fetch>(async (input) => {
-      const url = String(input);
-      if (!url.includes('raw.test')) throw new Error(`non-GitHub fetch not allowed: ${url}`);
-      if (url.endsWith('content.opf')) return textResponse(packageXml);
-      if (url.endsWith('titlepage.xhtml')) return textResponse(titlepageXhtml);
-      if (url.endsWith('chapter-1.xhtml')) return textResponse(chapterXhtml);
-      if (url.endsWith('endnotes.xhtml')) return textResponse(endnotesXhtml);
-      throw new Error(`Unexpected URL: ${url}`);
-    });
-    const client = new StandardEbooksClient({ fetch: fetchMock, githubRawBase: 'https://raw.test' });
 
-    const archive = await client.downloadEpubArchive('test-author_test-book_test-translator');
-    expect(archive.metadata.title).toBe('Test Book');
-    // The archive parses + extracts through this library's ingest path exactly
-    // as the fetched source would (it is an ingestion archive, not a
-    // general-purpose EPUB — OPF + spine XHTML only).
-    const extracted = extractEpub(archive.bytes);
-    expect(extracted.text).toBe('Chapter I\n\nFirst emphasized line.\nSecond line.');
-    expect(extracted.sections.map((s) => s.partition)).toEqual(['frontmatter', 'bodymatter', 'backmatter']);
-    // No standardebooks.org origin was ever contacted.
-    for (const call of fetchMock.mock.calls) expect(String(call[0])).toContain('raw.test');
-  });
 
   it('can include every partition', async () => {
     const epub = fixtureEpub();

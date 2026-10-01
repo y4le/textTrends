@@ -9,9 +9,8 @@ import {
   type EpubDocument,
   type ParsedPackage,
 } from '@texttrends/epub';
-import { downloadEbookArchive } from './archive.js';
+import { acquireEbookSources } from './source-download.js';
 import { catalogPages, listCatalog } from './catalog.js';
-import { mapConcurrent } from './concurrency.js';
 import { describeError, isAbortError, StandardEbooksError } from './errors.js';
 import { fetchChecked, readResponseBytes } from './http.js';
 import { validateRepositoryName } from './repository-name.js';
@@ -28,12 +27,12 @@ import type {
 } from './types.js';
 
 const DEFAULT_MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024;
-const DEFAULT_REPOSITORY_CONCURRENCY = 6;
 const RAW_DOCUMENT_LIMIT = 8 * 1024 * 1024;
 
 interface SourcePackage {
   readonly url: string;
   readonly byteLength: number;
+  readonly bytes: Uint8Array;
   readonly parsed: ParsedPackage;
 }
 
@@ -140,7 +139,7 @@ export class StandardEbooksClient {
     const response = await fetchChecked(this.#fetch, url, { method: 'GET', signal: signal ?? null });
     const bytes = await readResponseBytes(response, RAW_DOCUMENT_LIMIT, 'Source OPF', { signal });
     const xml = decodeUtf8(bytes, 'Source OPF');
-    return { url, byteLength: bytes.byteLength, parsed: parsePackage(xml, 'Source OPF') };
+    return { url, bytes, byteLength: bytes.byteLength, parsed: parsePackage(xml, 'Source OPF') };
   }
 
   async #release(
@@ -190,64 +189,24 @@ export class StandardEbooksClient {
     sourcePackage: SourcePackage,
     options: DownloadEbookOptions,
   ): Promise<LoadedBook> {
-    const concurrency = positiveInteger(
-      options.repositoryConcurrency,
-      DEFAULT_REPOSITORY_CONCURRENCY,
-      'repositoryConcurrency',
-    );
-    const maximumExtracted = positiveInteger(
-      options.maxExtractedTextBytes,
-      DEFAULT_MAX_EXTRACTED_BYTES,
-      'maxExtractedTextBytes',
-    );
-    if (sourcePackage.byteLength > maximumExtracted) {
-      throw new EpubError(
-        'CAP_EXCEEDED',
-        `Repository OPF is ${sourcePackage.byteLength} bytes; the limit is ${maximumExtracted} bytes`,
-      );
-    }
-    const fetched = await mapConcurrent(
-      sourcePackage.parsed.spine,
-      concurrency,
-      async (spineItem): Promise<{ readonly document: EpubDocument; readonly byteLength: number }> => {
-        const url = new URL(spineItem.item.href, sourcePackage.url).href;
-        const response = await fetchChecked(this.#fetch, url, {
-          method: 'GET',
-          signal: options.signal ?? null,
-        });
-        const bytes = await readResponseBytes(response, RAW_DOCUMENT_LIMIT, spineItem.item.href, {
-          signal: options.signal,
-        });
-        return {
-          byteLength: bytes.byteLength,
-          document: {
-            idref: spineItem.idref,
-            href: spineItem.item.href,
-            linear: spineItem.linear,
-            source: decodeUtf8(bytes, spineItem.item.href),
-          },
-        };
-      },
-    );
-    const extractedBytes = fetched.reduce(
-      (total, item) => total + item.byteLength,
-      sourcePackage.byteLength,
-    );
-    if (extractedBytes > maximumExtracted) {
-      throw new EpubError(
-        'CAP_EXCEEDED',
-        `Repository OPF/XHTML is ${extractedBytes} bytes; the limit is ${maximumExtracted} bytes`,
-      );
-    }
-    const documents = fetched.map((item) => item.document);
+    const acquired = await acquireEbookSources(repository.name, {
+      fetch: this.#fetch,
+      githubOrganization: this.#organization,
+      githubRawBase: this.#rawBase,
+      ref: repository.defaultBranch,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.repositoryConcurrency === undefined ? {} : { repositoryConcurrency: options.repositoryConcurrency }),
+      ...(options.maxExtractedTextBytes === undefined ? {} : { maxExtractedTextBytes: options.maxExtractedTextBytes }),
+    }, sourcePackage);
     return {
-      package: sourcePackage.parsed,
-      documents,
+      package: acquired.parsed,
+      documents: acquired.parsed.spine.map((item, index) => ({
+        idref: item.idref, href: item.item.href, linear: item.linear,
+        source: decodeUtf8(acquired.spineBytes[index]!, item.item.href),
+      })),
       source: {
-        kind: 'repository',
-        url: repository.repositoryUrl,
-        repository: repository.fullName,
-        ref: repository.defaultBranch,
+        kind: 'repository', url: repository.repositoryUrl,
+        repository: repository.fullName, ref: repository.defaultBranch,
       },
     };
   }
@@ -311,47 +270,4 @@ export class StandardEbooksClient {
     };
   }
 
-  /**
-   * Download an ebook's SOURCE from GitHub (the OPF + every spine XHTML, all
-   * from raw.githubusercontent.com — a CORS-accessible origin, UNLIKE the
-   * standardebooks.org release download) and package the fetched bytes into a
-   * deterministic EPUB-shaped ingestion archive (OPF + spine XHTML only — no
-   * CSS, images, or fonts). The result is not a general-purpose EPUB; its
-   * contract is that this library's ingest path (`parseEpub`/`extractEpub`)
-   * parses it and extracts text identically to the fetched source, with no
-   * server-side proxy and no CORS barrier. Delegates to
-   * {@link downloadEbookArchive} — the single archive implementation.
-   */
-  async downloadEpubArchive(
-    repositoryOrName: EbookRepository | string,
-    options: { readonly signal?: AbortSignal; readonly repositoryConcurrency?: number; readonly maxExtractedTextBytes?: number } = {},
-  ): Promise<{ readonly bytes: Uint8Array; readonly repository: EbookRepository; readonly metadata: EbookText['metadata'] }> {
-    const repository =
-      typeof repositoryOrName === 'string'
-        ? placeholderRepository(validateRepositoryName(repositoryOrName), this.#organization)
-        : repositoryOrName;
-    validateRepositoryName(repository.name);
-    const archive = await downloadEbookArchive(repository.name, {
-      fetch: this.#fetch,
-      githubOrganization: this.#organization,
-      githubRawBase: this.#rawBase,
-      ref: repository.defaultBranch,
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
-      ...(options.repositoryConcurrency === undefined
-        ? {}
-        : { repositoryConcurrency: options.repositoryConcurrency }),
-      ...(options.maxExtractedTextBytes === undefined
-        ? {}
-        : { maxExtractedTextBytes: options.maxExtractedTextBytes }),
-    });
-    return {
-      bytes: archive.bytes,
-      repository: {
-        ...repository,
-        title: archive.metadata.title,
-        author: archive.metadata.authors.join(' and '),
-      },
-      metadata: archive.metadata,
-    };
-  }
 }

@@ -2,7 +2,7 @@ import { strToU8, unzipSync, Zip } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import { downloadEbookArchive } from '../src/archive.js';
 import { extractEpub } from '@texttrends/epub';
-import { StandardEbooksClient, StandardEbooksError } from '../src/index.js';
+import { StandardEbooksError } from '../src/index.js';
 import { yieldToEventLoop } from '../src/task-yield.js';
 import {
   chapterXhtml,
@@ -534,18 +534,5 @@ describe('downloadEbookArchive', () => {
     }
   });
 
-  it('produces bytes and metadata equivalent to the legacy client method', async () => {
-    const viaFunction = await downloadEbookArchive(REPOSITORY, {
-      fetch: rawFetch(standardFiles()),
-      githubRawBase: 'https://raw.test',
-    });
-    const client = new StandardEbooksClient({
-      fetch: rawFetch(standardFiles()),
-      githubRawBase: 'https://raw.test',
-    });
-    const viaClient = await client.downloadEpubArchive(REPOSITORY);
-    expect(viaClient.bytes).toEqual(viaFunction.bytes);
-    expect(viaClient.metadata).toEqual(viaFunction.metadata);
-    expect(viaClient.repository.title).toBe(viaFunction.metadata.title);
-  });
+
 });
