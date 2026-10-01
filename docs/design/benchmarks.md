@@ -7,6 +7,11 @@ claim that formal 10M/50M-token tiers pass. Run commands from the repo root;
 Historical six-volume Sherlock samples predate the current nine-volume corpus
 and cannot be reproduced byte-for-byte with today's fixture.
 
+The [October 1 review measurements](measurements/review-scale-2026-10-01.md)
+cover publication bursts, canonical serialization, retained shard buffers,
+public EPUB admission, and isolated browser checks. They remain local evidence;
+browser-tier validation stays on the roadmap.
+
 ## Hidden query scheduling
 
 The [hidden-query measurement](hidden-query-measurement.md) records query traffic

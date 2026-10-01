@@ -64,6 +64,11 @@ subscribe to cursor motion and supplies stable chart children. `TrendCharts`
 owns series/text rendering; `TrendRowResizeHandle` owns the sizing gesture.
 Shared geometry and pointer types remain pure library modules.
 
+`TrendTitleControls` owns title-control markup and capture; `TrendRangeHandles`
+owns endpoint-control markup and capture. The stage retains the shared
+selection transaction and mutable gesture refs so competing gestures and
+pending-analysis resets still reach both owners.
+
 `WorkbenchFooter` composes the strip; `footer/FooterInteractive` owns input and
 navigation. `QuerySurface` composes Terms; `terms/TermControls` owns buttons and
 actions. These boundaries preserve props, lifetimes, and pure gesture helpers.
@@ -88,6 +93,11 @@ playing and pacing remain inputs; `RsvpReader` owns settings, announcements,
 focus, keyboard/pointer handling, and markup. Pure timing rules stay in
 `packages/rsvp`. The hook is mounted for one keyed Speed session and clears its
 timer both when paused and when unmounted.
+
+`reader/useReaderProseFit` owns source probes, fitted-range search, DOM/font
+measurement, resize observers, refit fencing, and publication of the visible
+range. `ReaderProseDrawer` retains prose pointer intent and command meaning.
+The extraction preserves layout-effect and initial opening measurement order.
 
 The Reader controller is constructed inside Zustand initialization after query
 and matching capabilities exist, without reading state during construction.
@@ -152,3 +162,9 @@ and restoration, and the existing Find/Speed-reader handoffs.
 announcements. App keeps command meaning, route/reader composition and its
 document listener, so these extractions follow resource lifetimes without
 creating a second application controller.
+
+`app/ReaderShell` owns Reader loading/failure fallback, its mount-scoped scroll
+lock, and orphaned-focus repair. `app/useFindFocusReturn` owns Find focus capture
+and restoration. `app/WorkbenchNotices` renders bootstrap, analysis, notebook,
+command, persistence, and recovery feedback; reload-save error state retains
+App lifetime so it survives Reader transitions and late promise rejection.

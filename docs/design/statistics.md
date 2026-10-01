@@ -15,7 +15,8 @@ ordering require the responsible method version to change.
 | --- | --- |
 | Trend, Company, Destinations, frequency, inventory, keyness | Bounded worker operations and browser surfaces |
 | G², log ratio and interval, JSD, DP/DPnorm, MATTR | Pure kernels used by analysis operations |
-| MTLD, logDice, PMI, t-score, ARI, Coleman–Liau | Pure exported kernels; not separate worker operations or visible score panels |
+| ARI | Pure kernel shown in Compare profiles when token, sentence, and character counts admit it |
+| MTLD, logDice, PMI, t-score, Coleman–Liau | Pure kernels; not separate worker operations or visible score panels |
 | Syllable readability, Delta/Cosine Delta, Poisson bursts | Unimplemented |
 
 ## Vocabulary

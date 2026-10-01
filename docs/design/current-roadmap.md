@@ -8,7 +8,10 @@ implemented.
 Portable [workspace backup and restore](workspace-backup.md) includes original
 library sources, active workspace intent, and display/reading settings.
 The [design index](README.md) owns their current contracts; this page contains
-only remaining work and explicit deferrals (reconciled September 8, 2026).
+only remaining work and explicit deferrals (reconciled October 1, 2026).
+The September review's dated [measurements](measurements/review-scale-2026-10-01.md)
+record verification and its limits; the owning contracts below remain the
+specifications.
 
 ## Publication and validation
 
@@ -59,6 +62,10 @@ Treat small normalization/locality cleanup and recurring UI primitives as
 in-path work when a feature touches their owners. Do not preserve old helper
 names as an unverified task list. Keep tests on behavior and boundaries rather
 than incidental component names or exact CSS strings.
+
+The September review's remaining medium/low claims still require validation
+against their live owners before becoming work. The completed correctness and
+scale sequence does not establish that every finding in that review is closed.
 
 ## Deferred designs
 

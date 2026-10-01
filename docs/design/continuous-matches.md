@@ -83,11 +83,12 @@ results disable mapping and leave the cursor unchanged. Empty documents own no
 token position. A one-token corpus may map distinct scroll positions to the
 same token.
 
-Rows retain fixed pitch around the viewport's midpoint even when the physical
-scroll range is compressed. A bounded overlay renders visible/overscan rows;
+Rows retain fixed pitch around a reading anchor at the smaller of half the
+usable port height and four row heights, even when the physical scroll range
+is compressed. A bounded overlay renders visible/overscan rows;
 resize and font settlement preserve the logical anchor, not raw `scrollTop`.
 Sparse samples supply a monotone approximation outside the resident window;
-exact correction stays anchored at the midpoint and cannot oscillate.
+exact correction stays at that reading anchor and cannot oscillate.
 
 Duplicate ranks share a token. Between distinct positions, rank/token mapping
 interpolates without rewriting the external cursor. Generic external movement
@@ -99,18 +100,26 @@ compared with the self-published rank/cursor to prevent feedback loops.
 ## Layout and accessibility
 
 The usable scrollport excludes header, controls, dock, navigation, safe areas,
-and visual keyboard. Its pointer-transparent midpoint line is hidden from
+and visual keyboard. Its pointer-transparent reading-anchor line is hidden from
 assistive technology. Non-interactive corpus-edge bands name the exact distance
 to first/last occurrence without adding rows or changing geometry; equivalent
 hidden descriptions are exposed once.
 
 Columns exactly partition the port; Matches has no horizontal scroll axis.
 Context tracks store a scale-independent left/right ratio. Node, book, and
-token tracks retain preferred character widths; automatic book/token labels
+token tracks retain preferred character widths; node auto sizing uses the active
+authored aliases rather than the current resident window, and affix matches
+reserve the bounded node ceiling. Automatic book/token labels
 adapt to the measured port. Narrow ports can shrink fixed tracks. Column
 resizing is session-unlocked, pointer-captured, and keyboard-operable; cancelled
 capture restores committed widths. Context clipping preserves the left tail
 and right beginning. Highlights reuse occurrence projection, never rematch text.
+
+Three independent separators adjust the left-context share, trailing node edge,
+and leading book edge. Fixed-column changes trade space with right context
+while preserving left-context pixels within character/ratio quantization. Their
+keyboard and pointer paths share the same reachable maximum; `aria-valuemax`
+is measured from available context space, and End reaches that value.
 
 The virtual grid contributes one Tab stop and an `aria-activedescendant` for
 the pinned active row, with logical row count/index metadata. Keyboard movement
@@ -123,11 +132,13 @@ table roving-focus helpers cannot own this recycling lifecycle.
 Core fixtures compare exact position/deep-rank windows with a full merge oracle,
 including 160-row duplicate runs, phrase membership, sparse boundaries, empty
 results, foreign identities, and both occurrence bounds. Geometry tests cover
-gap/duplicate inverses, endpoint sentinels, capping, resize, and feedback fences.
+gap/duplicate inverses, endpoint sentinels, capping, and resize transforms.
+DOM scroll feedback fences are verified in the browser suites.
 
 Browser checks cover footer/Matches synchronization, exact reveal targets,
 zero-query resident scroll and range changes, bounded DOM, active-descendant
-survival, no skipped endpoint rows, and a midpoint within one CSS pixel across
-supported viewports. Continuous scrolling retains the 100ms long-task gate.
+survival, no skipped endpoint rows, and a reading anchor within one CSS pixel across
+supported viewports. The isolated continuous-scroll benchmark retains the
+100ms long-task gate and disables tracing during timing samples.
 Performance claims must include deep-window cache misses and five-term
 selection thrash, not just warm lookup.

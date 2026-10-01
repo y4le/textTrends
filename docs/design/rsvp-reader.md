@@ -164,12 +164,17 @@ query, Reader walk, or navigation update. It stays valid during continuation
 and clears stale occurrence/reveal work. Late pre-entry results cannot replace
 the live Speed source. Pause and exit flush the live component token.
 
-With roughly three seconds of runway left, `rsvpSeek` requests forward source
-from the live token using the same budget as the resident slice. This retains
-its suffix and supports adoption without skipping while the current frame
-remains available. Exhaustion pauses honestly; a failed continuation never
-claims to advance. `exitRsvp` restores suspended interaction, then opens prose
-from the live token even if continuation is pending. Source and snapshot
+With roughly three seconds of runway left, continuation requests use an
+`around` slice near the resident source's end, retaining overlap while extending
+the available runway even for long source tokens. The live cursor selects the
+resident slice; an explicit seek clears request deduplication so revisiting an
+earlier slice can continue again. Replacement adoption runs when the cursor
+enters its covered extent. The progress rail releases a seek preview when the
+live cursor reaches the preview token or changes from the baseline captured
+for that seek. Exhaustion pauses
+honestly; a failed continuation never claims to advance. `exitRsvp` restores
+suspended interaction, then opens prose from the live token even if
+continuation is pending. Source and snapshot
 validation do not depend on a currently ready replacement page.
 
 ## Accessibility and verification

@@ -1,0 +1,151 @@
+{
+  "schema": "texttrends/review-scale/1",
+  "recordDate": "2026-10-01",
+  "baselineRevision": "4a1ebcb",
+  "candidateEngineRevision": "ce3ec8c",
+  "driver": "apps/web/bench/review-scale.mjs",
+  "host": {
+    "node": "v24.14.1",
+    "platform": "linux",
+    "arch": "arm64",
+    "logicalCpus": 20,
+    "totalMemoryBytes": 128519786496
+  },
+  "publication": {
+    "method": "One fresh process per revision; 256 concurrent cold byte ingests, shipped caps, real in-process engine, empty in-memory artifact store; setup and GC excluded. Elapsed comparison includes batching and serialization; first-compose interval also includes overlapping indexing. Four distinct source texts shared by 64 doc identities per source; vocabulary is generator-derived.",
+    "baseline": {
+      "docs": 256,
+      "tokensPerDoc": 33984,
+      "tokens": 8699904,
+      "vocabulary": 135936,
+      "sourceVariants": 4,
+      "publications": 256,
+      "ready": 256,
+      "snapshot": "d11fd1867422b0ab4a4fdec4b11b206f4701f5f81e7ccb940498225916176126",
+      "coldMs": 159578.37449,
+      "publicationTailMs": 155918.60787
+    },
+    "candidate": {
+      "docs": 256,
+      "tokensPerDoc": 33984,
+      "tokens": 8699904,
+      "vocabulary": 135936,
+      "sourceVariants": 4,
+      "publications": 2,
+      "ready": 256,
+      "snapshot": "d11fd1867422b0ab4a4fdec4b11b206f4701f5f81e7ccb940498225916176126",
+      "coldMs": 5766.062975,
+      "publicationTailMs": 2038.6005139999997
+    }
+  },
+  "canonical": {
+    "method": "Fresh process per revision, 92000 strings, five warmups and 21 serializer-only samples; identity comparison after timing.",
+    "baseline": {
+      "types": 92000,
+      "samples": 21,
+      "medianMs": 22.45137699999998,
+      "minMs": 18.453182999999967,
+      "maxMs": 29.46329400000002,
+      "utf16": 1644891
+    },
+    "candidate": {
+      "types": 92000,
+      "samples": 21,
+      "medianMs": 15.873384000000044,
+      "minMs": 13.908055000000047,
+      "maxMs": 22.403489000000008,
+      "utf16": 1644891
+    }
+  },
+  "residency": {
+    "method": "Same candidate code, 256-doc 8699904-token four-word repeated source, copy/adopt ready refs after binding; two event-loop turns plus GC; typed-buffer residency only, not peak RSS or total JS heap.",
+    "copy": {
+      "docs": 256,
+      "tokens": 8699904,
+      "adopt": false,
+      "indexedArrayBuffers": 122170045,
+      "residentArrayBuffers": 243622131,
+      "live": [
+        256,
+        256,
+        true
+      ]
+    },
+    "adopt": {
+      "docs": 256,
+      "tokens": 8699904,
+      "adopt": true,
+      "indexedArrayBuffers": 122162817,
+      "residentArrayBuffers": 122299251,
+      "live": [
+        256,
+        256,
+        true
+      ]
+    }
+  },
+  "epub": {
+    "source": "https://standardebooks.org/ebooks/herman-melville/moby-dick/downloads/herman-melville_moby-dick.epub?source=download",
+    "sha256": "5d9c3ddb9d4cda136605ebfd1415f22fa30fd312872346bd8dda6be4c4c47d82",
+    "method": "Fresh built parser and archive loaded before child GC baseline; 2ms Linux /proc VmRSS sampling from ready handshake to done plus final RSS. Sampled peaks can miss shorter spikes. No corpus writes.",
+    "sample": {
+      "phase": "done",
+      "baseline": 63676416,
+      "archiveBytes": 1165523,
+      "ms": 118.295244,
+      "textUtf16": 1177693,
+      "title": "Moby Dick",
+      "sections": 145,
+      "rss": 129544192,
+      "phasePeakRss": 129544192,
+      "phaseGrowth": 65867776,
+      "samples": 57
+    }
+  },
+  "verification": {
+    "unit": {
+      "passed": 1870,
+      "skipped": 1,
+      "suitesPassed": 163,
+      "suitesSkipped": 1
+    },
+    "scripts": {
+      "passed": 71
+    },
+    "typecheck": "passed all workspaces",
+    "isolatedBrowserTiming": {
+      "passed": 16,
+      "workers": 1,
+      "retries": 0,
+      "trace": "off",
+      "functionalOrReviewBrowserJobsActive": false
+    },
+    "publicFunctional": {
+      "sourceRevision": "c1a5dff",
+      "chromium": {
+        "passed": 255,
+        "skipped": 2
+      },
+      "webkit": {
+        "passed": 111,
+        "skipped": 16
+      },
+      "workersPerProject": 1,
+      "retries": 0,
+      "privateDemoCasesExcluded": 2,
+      "oldLayoutRefutationFailures": 6,
+      "newLayoutRepeatPasses": 10,
+      "formerlyFailingWebkitCompareRepeatPasses": 10
+    },
+    "productionBuild": {
+      "sourceRevision": "46957eaffeb9ef0f67265d05765eff3b1f67a25a",
+      "result": "passed",
+      "initialStaticChunks": 24,
+      "initialGzipBytes": 154467,
+      "initialBudgetBytes": 160000,
+      "entryGzipBytes": 83588,
+      "entryBudgetBytes": 90000
+    }
+  },
+  "driverSha256": "32f87bdac768b55c9b3165a7f65b5eda969806d53f5f5c3a8b0ed7b4ce505a72"
+}

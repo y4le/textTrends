@@ -40,6 +40,8 @@ paths. With texts present, options can collapse. Local library has a separate
 save-without-activation action. Removing an active text retains library bytes;
 deleting a source confirms its name and removes all active references to it.
 Clear all resets active texts and terms together while retaining the library.
+Ready next-step actions sit below the active order list, so publishing readiness
+cannot move a pressed remove or reorder control.
 
 OS files, saved-file activation, demos, catalog downloads, and deletion share
 one exclusive library-operation lease. Imports pause reordering and expose
