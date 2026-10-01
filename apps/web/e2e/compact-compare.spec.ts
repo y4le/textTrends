@@ -75,6 +75,12 @@ for (const viewport of [
     await prepareComparison(page);
     await applyOneDocumentMinimum(page);
 
+    await expect(page.getByText(/Small side [AB]/)).toHaveCount(2);
+    await expect(page.locator('.compare-axis-section')).toContainText('shared scale over the loaded ranks');
+    const sections = await page.locator('.compare-warnings, .compare-definition, .compare-axis-section')
+      .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top));
+    expect(sections).toHaveLength(3);
+    expect(sections).toEqual([...sections].sort((left, right) => left - right));
     const table = pyramid(page);
     await expect(table).toHaveAttribute('aria-colcount', '2');
     await expect(table.getByRole('columnheader')).toHaveCount(0);
