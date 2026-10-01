@@ -15,7 +15,7 @@ import type { TokenRangeSpan } from '../snapshot/selection.ts';
 import type { DocumentIndexV1 } from '../index/build.ts';
 
 /** The dual hard bounds for the generation-scoped executor LRU. */
-export const TERM_COUNT_CACHE_MAX_ENTRIES = 96;
+export const TERM_COUNT_CACHE_MAX_ENTRIES = 256;
 export const TERM_COUNT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 
 export interface DocTermCountsV1 {

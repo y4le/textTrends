@@ -24,8 +24,9 @@ import { trendRowDomain, type TrendView } from './trend-view.ts';
 
 const trackProjectionCache = new WeakMap<
   DispersionResultV1,
-  Map<string, readonly BarcodeTrackVM[]>
+  { docsKey: string; tracks: readonly BarcodeTrackVM[]; orderKey: string; ordered: readonly BarcodeTrackVM[] }
 >();
+const trackSnapIndexCache = new WeakMap<BarcodeTrackVM, readonly (BarcodeSnapIndex | null)[]>();
 const snapIndexCache = new WeakMap<
   readonly BarcodeTrackVM[],
   readonly (readonly (BarcodeSnapIndex | null)[])[]
@@ -43,17 +44,18 @@ export function projectedBarcodeTracks(
   seriesOrder: readonly string[],
 ): readonly BarcodeTrackVM[] {
   if (dispersion === null) return [];
-  let byIntent = trackProjectionCache.get(dispersion);
-  if (!byIntent) {
-    byIntent = new Map();
-    trackProjectionCache.set(dispersion, byIntent);
+  const docsKey = JSON.stringify(docs);
+  const orderKey = JSON.stringify(seriesOrder);
+  let resident = trackProjectionCache.get(dispersion);
+  if (!resident || resident.docsKey !== docsKey) {
+    const tracks = barcodeTracks(dispersion, docs);
+    resident = { docsKey, tracks, orderKey, ordered: orderTracks(tracks, seriesOrder) };
+    trackProjectionCache.set(dispersion, resident);
+  } else if (resident.orderKey !== orderKey) {
+    resident.orderKey = orderKey;
+    resident.ordered = orderTracks(resident.tracks, seriesOrder);
   }
-  const key = JSON.stringify([docs, seriesOrder]);
-  const resident = byIntent.get(key);
-  if (resident) return resident;
-  const projected = orderTracks(barcodeTracks(dispersion, docs), seriesOrder);
-  byIntent.set(key, projected);
-  return projected;
+  return resident.ordered;
 }
 
 /** Exact-track snap indexes are also shared; a 250k-occurrence track must not
@@ -63,7 +65,11 @@ export function projectedBarcodeSnapIndexes(
 ): readonly (readonly (BarcodeSnapIndex | null)[])[] {
   const resident = snapIndexCache.get(tracks);
   if (resident) return resident;
-  const projected = tracks.map((track) => buildBarcodeSnapIndexes(track));
+  const projected = tracks.map((track) => {
+    let indexes = trackSnapIndexCache.get(track);
+    if (!indexes) { indexes = buildBarcodeSnapIndexes(track); trackSnapIndexCache.set(track, indexes); }
+    return indexes;
+  });
   snapIndexCache.set(tracks, projected);
   return projected;
 }

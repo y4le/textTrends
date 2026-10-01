@@ -250,6 +250,10 @@ describe('trend stage projection and geometry', () => {
     const second = projectedBarcodeTracks(dispersion, ['a', 'b'], ['s']);
     expect(second).toBe(first);
     expect(projectedBarcodeSnapIndexes(second)).toBe(projectedBarcodeSnapIndexes(first));
+    const reversed = projectedBarcodeTracks(dispersion, ['a', 'b'], ['other', 's']);
+    expect(reversed).not.toBe(first);
+    expect(reversed[0]).toBe(first[0]);
+    expect(projectedBarcodeSnapIndexes(reversed)[0]).toBe(projectedBarcodeSnapIndexes(first)[0]);
     expect(projectedBarcodeTracks(dispersion, ['b', 'a'], ['s'])).not.toBe(first);
   });
 
