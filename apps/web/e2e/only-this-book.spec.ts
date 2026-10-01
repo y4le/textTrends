@@ -61,7 +61,7 @@ test('text detail preserves scope while select this text explicitly rescopes lin
   await expect(secondRow.getByRole('rowheader').getByRole('button')).toHaveText(declaredTitle);
   expect(await secondRow.locator('.catalog-term-total').allInnerTexts()).toEqual(termCountsBefore);
 
-  const requiredScopeOps = ['trend', 'dispersion', 'inventory', 'freq-list'];
+  const requiredScopeOps = ['trend', 'dispersion', 'inventory', 'freq-list', 'keyness'];
   await expect.poll(async () => {
     const operations = new Set(
       (await trace(page)).events

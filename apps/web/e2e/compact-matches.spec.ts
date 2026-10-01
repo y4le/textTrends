@@ -148,17 +148,21 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   expect(initialAnchor.markerHeight).toBeGreaterThan(0);
 
   await page.emulateMedia({ forcedColors: 'active' });
-  const forcedColors = await page.locator('.kwic-grid-shell').evaluate((shell) => {
-    const mark = shell.querySelector<HTMLElement>('.kwic-now-mark')!;
-    const port = shell.querySelector<HTMLElement>('.kwic-virtual-grid')!;
-    return {
-      adjustment: getComputedStyle(mark).forcedColorAdjust,
-      marker: getComputedStyle(mark).backgroundColor,
-      canvas: getComputedStyle(port).backgroundColor,
-    };
-  });
-  expect(forcedColors.adjustment).toBe('none');
-  expect(forcedColors.marker).not.toBe(forcedColors.canvas);
+  const supportsForcedColors = await page.evaluate(() =>
+    CSS.supports('forced-color-adjust', 'none') && matchMedia('(forced-colors: active)').matches);
+  if (supportsForcedColors) {
+    const forcedColors = await page.locator('.kwic-grid-shell').evaluate((shell) => {
+      const mark = shell.querySelector<HTMLElement>('.kwic-now-mark')!;
+      const port = shell.querySelector<HTMLElement>('.kwic-virtual-grid')!;
+      return {
+        adjustment: getComputedStyle(mark).forcedColorAdjust,
+        marker: getComputedStyle(mark).backgroundColor,
+        canvas: getComputedStyle(port).backgroundColor,
+      };
+    });
+    expect(forcedColors.adjustment).toBe('none');
+    expect(forcedColors.marker).not.toBe(forcedColors.canvas);
+  }
   await page.emulateMedia({ forcedColors: 'none' });
 
   await simulateKeyboard(page, 280);

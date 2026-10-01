@@ -53,7 +53,7 @@ async function awaitOps(
   }, { timeout: 30_000 }).toBe('answered');
 }
 
-test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ page }) => {
+test('Compare follows a linked passage and restores the authored text comparison', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
@@ -113,12 +113,17 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   for (let index = 0; index < 12; index++) await scrubber.press('ArrowRight');
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await scrubber.press('Enter');
-  await awaitOps(page, mark, ['inventory', 'freq-list']);
+  await awaitOps(page, mark, ['inventory', 'freq-list', 'keyness']);
   const brushQueries = (await trace(page)).events.filter(
     (event) => event.seq > mark && event.direction === 'to-worker' && event.t === 'query',
   );
-  expect(brushQueries.some((event) => event.op === 'keyness')).toBe(false);
+  expect(brushQueries.some((event) => event.op === 'keyness')).toBe(true);
   await gotoPlace(page, 'compare');
+  await expect(page.getByLabel('Left comparison input')).toHaveValue('__selection__');
+  await expect(page.getByLabel('Left comparison input')).toBeDisabled();
+  await page.getByRole('button', { name: 'Use all texts', exact: true }).click();
+  await expect(page.getByLabel('Left comparison input')).toBeEnabled();
+  await expect(page.getByLabel('Left comparison input')).not.toHaveValue('__selection__');
   await expect(pyramid.getByRole('button', { name: /^forest,/ })).toBeVisible();
 
   await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(1);

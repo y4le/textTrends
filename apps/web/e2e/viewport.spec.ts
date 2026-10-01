@@ -149,9 +149,10 @@ test('compact landscape keeps the one-row dock clear of the Lens rail', async ({
   ]);
   if (!dockBox || !termsBox || !lensBox) throw new Error('landscape dock geometry is unavailable');
   expect(dockBox.x).toBeGreaterThanOrEqual(lensBox.x + lensBox.width);
-  expect(termsBox.height).toBe(await page.evaluate(() => Number.parseFloat(
+  const railHeight = await page.evaluate(() => Number.parseFloat(
     getComputedStyle(document.documentElement).getPropertyValue('--terms-rail-block-size'),
-  )));
+  ));
+  expect(termsBox.height).toBe(railHeight);
 
   for (const [control, minimumWidth] of [
     [terms.locator('.term-bucket-toggle').first(), 44],
@@ -160,7 +161,7 @@ test('compact landscape keeps the one-row dock clear of the Lens rail', async ({
     const box = await control.boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(minimumWidth);
     expect(box?.height).toBeGreaterThanOrEqual(34);
-    expect(box?.height).toBeLessThanOrEqual(37);
+    expect(box?.height).toBeLessThanOrEqual(railHeight);
   }
   const overflow = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,

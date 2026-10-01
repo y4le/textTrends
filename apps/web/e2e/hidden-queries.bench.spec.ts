@@ -119,7 +119,8 @@ for (let repetition = 1; repetition <= 5; repetition++) {
     expect(importQueries.keyness!.issued).toBeGreaterThan(0);
     const importTabs = await tabClocks(page);
 
-    // Prime selection/rest mode without including that setup in the range window.
+    // A linked range derives selection/rest without changing authored Compare.
+    // Verify that setup outside the measured range window.
     await gotoPlace(page, 'trends');
     const slider = page.getByRole('slider', { name: 'Reading position scrubber' });
     await slider.focus();
@@ -128,7 +129,8 @@ for (let repetition = 1; repetition <= 5; repetition++) {
     await slider.press('ArrowRight');
     await slider.press('Enter');
     await gotoPlace(page, 'compare');
-    await page.getByLabel('Left comparison input').selectOption('__selection__');
+    await expect(page.getByLabel('Left comparison input')).toHaveValue('__selection__');
+    await expect(page.getByLabel('Left comparison input')).toBeDisabled();
     await gotoPlace(page, 'trends');
     await page.getByRole('button', { name: 'Clear range', exact: true }).click();
     await slider.focus();
