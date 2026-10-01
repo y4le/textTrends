@@ -513,6 +513,14 @@ test('a multiword Reader mark split by the cursor exposes one prose action', asy
   await expect(action).toHaveAccessibleName(/foo.*Find foo bar reference in Matches/);
   expect((await pieces.allTextContents()).join('')).toBe('foo bar');
   await action.focus();
+  const plain = reader.locator('[data-reader-offset]:not([data-reader-mark])').filter({ hasText: /gamma/ }).first();
+  const plainBox = (await plain.boundingBox())!;
+  const pointer = { pointerId: 87, pointerType: 'pen', isPrimary: true, button: 0,
+    clientX: plainBox.x + plainBox.width / 2, clientY: plainBox.y + plainBox.height / 2 };
+  await plain.dispatchEvent('pointerdown', pointer);
+  await plain.dispatchEvent('pointerup', pointer);
+  await expect(reader.locator('[data-reader-cursor="true"]')).toContainText('gamma');
+  await expect(action).toBeFocused();
   await action.press('Enter');
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-anchor', '0');
   await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();

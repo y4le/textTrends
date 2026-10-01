@@ -164,7 +164,7 @@ function ReaderProse({
         const clippedEnd = mark.clippedEnd && segment.end === mark.charsUtf16.end;
         return (
           <span
-            key={`${segment.start}:${segment.end}`}
+            key={firstPiece ? `mark:${mark.seriesId}:${mark.tokens.start}:${mark.tokens.end}` : `${segment.start}:${segment.end}`}
             role={firstPiece ? 'button' : undefined}
             tabIndex={firstPiece ? 0 : undefined}
             aria-label={firstPiece ? `${text} · Find ${labelOf.get(mark.seriesId) ?? mark.seriesId} reference in Matches` : undefined}
