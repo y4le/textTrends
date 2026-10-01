@@ -85,9 +85,9 @@ export function keynessSelections(
     : { a: { docs: rest }, b: { docs: [view.documentB] } };
 }
 
-/** In a range comparison, keep terms that occur on only one side reachable:
+/** In every comparison, keep terms that occur on only one side reachable:
  * their combined range cannot exceed that side's number of document parts.
- * Other comparison modes preserve the authored document-range filter. */
+ * Keep the authored filter, but clamp its effective value to side geometry. */
 export function effectiveKeynessMinDocFreq(
   view: KeynessViewV1,
   pair: { readonly a: WireSelectionV4; readonly b: WireSelectionV4 },
@@ -104,7 +104,6 @@ export function effectiveKeynessMinDocFreqForParts(
   partsA: number,
   partsB: number,
 ): number {
-  if (view.mode !== 'selection-rest') return view.minDocFreqTotal;
   const smallerSideParts = Math.min(partsA, partsB);
   return Math.min(view.minDocFreqTotal, Math.max(1, smallerSideParts));
 }

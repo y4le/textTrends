@@ -76,8 +76,8 @@ const frequency: FrequencyListResultV1 = {
 };
 
 const keyness: KeynessResultV1 = {
-  method: 'keyness-g2-2x2/1',
-  effect: 'log-ratio-halves/1',
+  method: 'keyness-g2-2x2/2',
+  effect: 'log-ratio-proportional/1',
   selectionA: 'sha256:a' as KeynessResultV1['selectionA'],
   selectionB: 'sha256:b' as KeynessResultV1['selectionB'],
   totalsA: { tokens: 100, documents: 1, positiveParts: 1 },

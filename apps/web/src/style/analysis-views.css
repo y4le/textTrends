@@ -1181,6 +1181,15 @@ html[data-trend-row-resizing='true'] * {
   border-color: var(--danger-text);
 }
 
+/* A dashed outer end means the interval continues beyond any finite axis. */
+.compare-pyramid-half[data-side='a'] .compare-pyramid-interval[data-unbounded] {
+  border-inline-start-style: dashed;
+}
+
+.compare-pyramid-half[data-side='b'] .compare-pyramid-interval[data-unbounded] {
+  border-inline-end-style: dashed;
+}
+
 .compare-profile {
   max-block-size: min(55dvh, 30rem);
   overflow: auto;

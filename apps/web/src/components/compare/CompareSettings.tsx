@@ -11,7 +11,7 @@ const SORTS: readonly {
   readonly label: string;
 }[] = [
   { by: 'logRatio', label: 'log₂ ratio' },
-  { by: 'logRatioLow', label: 'lower 95% bound' },
+  { by: 'logRatioLow', label: 'conservative 95% bound' },
   { by: 'g2', label: 'signed G²' },
   { by: 'countA', label: 'A count' },
   { by: 'countB', label: 'B count' },

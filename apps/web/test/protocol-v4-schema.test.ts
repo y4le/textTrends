@@ -498,8 +498,8 @@ describe('narrowQueryV4', () => {
 
   it('keyness/1 pins two selections, methods, filters, sort, side, and a bounded fetch chunk', () => {
     const request = (over: Record<string, unknown> = {}) => ({
-      method: 'keyness-g2-2x2/1',
-      effect: 'log-ratio-halves/1',
+      method: 'keyness-g2-2x2/2',
+      effect: 'log-ratio-proportional/1',
       a: { docs: ['a'] },
       b: { docs: ['b'] },
       filter: {
@@ -542,7 +542,7 @@ describe('narrowQueryV4', () => {
       classes: ['lexical'],
       stoplist: { id: 'other', version: 1, topN: 10 },
     } })).toBe(false);
-    expect(query({ method: 'keyness-g2-2x2/2' })).toBe(false);
+    expect(query({ method: 'keyness-g2-2x2/1' })).toBe(false);
     expect(query({ effect: 'log-ratio/2' })).toBe(false);
     expect(query({ a: { docs: new Array(1) } })).toBe(false);
     expect(query({ b: { docs: ['b'], ranges: 7 } })).toBe(false);

@@ -100,7 +100,7 @@ export const compareSortLabel = (sort: KeynessSortFieldV1): string => {
     case 'countA': return 'A count';
     case 'countB': return 'B count';
     case 'logRatio': return 'log₂ ratio';
-    case 'logRatioLow': return 'lower 95% bound';
+    case 'logRatioLow': return 'conservative 95% bound';
     case 'g2': return 'signed G²';
   }
 };
@@ -223,6 +223,12 @@ export function compareBarPercent(effect: number, maximum: number): number {
     return 0;
   }
   return Math.min(100, Math.max(0, Math.abs(effect) / maximum * 100));
+}
+
+export function compareIntervalBoundLabel(value: number, format: (value: number) => string): string {
+  if (value === Number.NEGATIVE_INFINITY) return 'unbounded below';
+  if (value === Number.POSITIVE_INFINITY) return 'unbounded above';
+  return format(value);
 }
 
 export function compareRowForTarget(

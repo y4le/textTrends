@@ -11,6 +11,7 @@ import {
 import type { KeynessRowV1 } from '@texttrends/core';
 import {
   compareBarPercent,
+  compareIntervalBoundLabel,
   compareResidentResult,
   compareRowControlId,
   type CompareRowTarget,
@@ -73,15 +74,15 @@ function SideHalf({
     ? 0
     : Math.min(Math.abs(row.logRatioLow), Math.abs(row.logRatioHigh));
   const low = compareBarPercent(nearBound, scale.maximum);
-  const high = compareBarPercent(farBound, scale.maximum);
+  const high = Number.isFinite(farBound) ? compareBarPercent(farBound, scale.maximum) : 100;
   const barStyle = {
     '--compare-bar-width': `${width}%`,
     '--compare-interval-start': `${low}%`,
     '--compare-interval-width': `${Math.max(0, high - low)}%`,
   } as CSSProperties;
   const intervalNote = showConfidenceIntervals
-    ? `, 95% interval ${decimal.format(row.logRatioLow)} to ${
-        decimal.format(row.logRatioHigh)
+    ? `, 95% interval ${compareIntervalBoundLabel(row.logRatioLow, decimal.format)} to ${
+        compareIntervalBoundLabel(row.logRatioHigh, decimal.format)
       } log₂${spansZero ? ', consistent with no difference' : ''}`
     : '';
   return (
@@ -105,6 +106,7 @@ function SideHalf({
             className="compare-pyramid-interval"
             style={barStyle}
             data-spans-zero={spansZero || undefined}
+            data-unbounded={!Number.isFinite(farBound) || undefined}
           />
         )}
       </span>

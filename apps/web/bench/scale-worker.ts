@@ -87,7 +87,7 @@ if (errors.length === 0 && snapshot !== null) {
     { op: 'trend', selection, group, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } },
     { op: 'dispersion', selection, tracks, request: { method: 'dispersion/1', exactMax: DISPERSION_EXACT_MAX, bucketBudget: DISPERSION_BUCKET_BUDGET } },
     { op: 'freq-list', selection, request: { method: 'freq-list/2', filter: { minCount: 1, minDocFreq: 1, classes: ['lexical', 'numeral'] }, sort: { by: 'count', dir: -1 }, page: { offset: 0, limit: 50 }, dispersion: true } },
-    { op: 'keyness', request: { method: 'keyness-g2-2x2/1', effect: 'log-ratio-halves/1', a: { docs: [readyDocs[0]!] }, b: { docs: readyDocs.slice(1) }, filter: { minCountTotal: 2, minDocFreqTotal: 1, classes: ['lexical', 'numeral'] }, sort: { by: 'g2', dir: -1 }, page: { offset: 0, limit: 50 }, side: 'a' } },
+    { op: 'keyness', request: { method: 'keyness-g2-2x2/2', effect: 'log-ratio-proportional/1', a: { docs: [readyDocs[0]!] }, b: { docs: readyDocs.slice(1) }, filter: { minCountTotal: 2, minDocFreqTotal: 1, classes: ['lexical', 'numeral'] }, sort: { by: 'g2', dir: -1 }, page: { offset: 0, limit: 50 }, side: 'a' } },
     { op: 'reader-page', tracks, request: { method: 'reader-page/1', doc: readyDocs[0]!, cursor: { kind: 'from', token: 0 }, maxTokens: 400 } },
   ];
   for (const query of queries) {

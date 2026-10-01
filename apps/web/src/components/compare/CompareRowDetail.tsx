@@ -2,6 +2,7 @@ import type { KeynessRowV1, KeynessSideTotalsV1 } from '@texttrends/core';
 import { effectiveKeynessMinDocFreqForParts } from '../../lib/keyness-view.ts';
 import type { KeynessViewV1 } from '../../lib/app-state.ts';
 import { formatRate } from '../../lib/rate-format.ts';
+import { compareIntervalBoundLabel } from '../../lib/compare-view.ts';
 import { InfoTooltip } from '../InfoTooltip.tsx';
 
 const number = new Intl.NumberFormat('en-US');
@@ -119,8 +120,8 @@ export function CompareRowDetail({
     {
       key: 'log-ratio-interval',
       label: '95% interval',
-      exact: `${signed.format(row.logRatioLow)} … ${signed.format(row.logRatioHigh)}`,
-      explanation: 'The range the log₂ ratio is consistent with, given how many occurrences it was built from. A wide interval means a small count produced the effect; an interval that spans 0 means the evidence does not settle which side favours this word. This is one word’s precision, not a filter to apply down the whole table — keeping only the words whose intervals miss 0 would be exactly the kind of picking that makes intervals misleading.',
+      exact: `${compareIntervalBoundLabel(row.logRatioLow, signed.format)} … ${compareIntervalBoundLabel(row.logRatioHigh, signed.format)}`,
+      explanation: 'The range the log₂ rate ratio is consistent with, given the occurrence counts. A missing count can leave one end unbounded; an interval that spans 0 means the evidence does not settle which side favours this word. This is one word’s precision, not a filter to apply down the whole table — keeping only the words whose intervals miss 0 would be exactly the kind of picking that makes intervals misleading.',
     },
     {
       key: 'g2',

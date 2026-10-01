@@ -131,8 +131,8 @@ export function createCompareController({
       {
         op: 'keyness',
         request: {
-          method: 'keyness-g2-2x2/1',
-          effect: 'log-ratio-halves/1',
+          method: 'keyness-g2-2x2/2',
+          effect: 'log-ratio-proportional/1',
           a: pair.a,
           b: pair.b,
           filter: {
@@ -310,8 +310,8 @@ export function createCompareController({
         {
           op: 'keyness',
           request: {
-            method: 'keyness-g2-2x2/1',
-            effect: 'log-ratio-halves/1',
+            method: 'keyness-g2-2x2/2',
+            effect: 'log-ratio-proportional/1',
             a: pair.a,
             b: pair.b,
             filter: {

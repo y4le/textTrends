@@ -381,8 +381,8 @@ export function narrowQueryV4(q: unknown): boolean {
           'page',
           'side',
         ]) ||
-        r.method !== 'keyness-g2-2x2/1' ||
-        r.effect !== 'log-ratio-halves/1' ||
+        r.method !== 'keyness-g2-2x2/2' ||
+        r.effect !== 'log-ratio-proportional/1' ||
         !narrowSelection(r.a) ||
         !narrowSelection(r.b)
       ) {

@@ -1,5 +1,5 @@
 /**
- * keyness-g2-2x2/1 — a bounded two-selection comparison.
+ * keyness-g2-2x2/2 — a bounded two-selection comparison.
  *
  * Both sides fold the Slice-3 sparse per-document count vectors once for totals
  * and term ranges, then (when at least two positive parts exist) make one more
@@ -62,8 +62,8 @@ export type KeynessSortFieldV1 =
 export type KeynessSideV1 = 'a' | 'b' | 'both';
 
 export interface KeynessTableRequestV1 {
-  readonly method: 'keyness-g2-2x2/1';
-  readonly effect: 'log-ratio-halves/1';
+  readonly method: 'keyness-g2-2x2/2';
+  readonly effect: 'log-ratio-proportional/1';
   readonly filter: {
     readonly minCountTotal: number;
     readonly minDocFreqTotal: number;
@@ -102,7 +102,7 @@ export interface KeynessRowV1 {
   readonly rateAper10k: number;
   readonly rateBper10k: number;
   readonly logRatio: number;
-  /** Two-sided 95% Wald bounds on `logRatio`, same log₂ units. */
+  /** Conditional Wilson 95% rate-ratio bounds in log₂ units; far bounds may be infinite. */
   readonly logRatioLow: number;
   readonly logRatioHigh: number;
   /** Signed in A's direction. */
@@ -130,8 +130,8 @@ export interface KeynessDivergenceV1 {
 }
 
 export interface KeynessResultV1 {
-  readonly method: 'keyness-g2-2x2/1';
-  readonly effect: 'log-ratio-halves/1';
+  readonly method: 'keyness-g2-2x2/2';
+  readonly effect: 'log-ratio-proportional/1';
   readonly selectionA: ResolvedSelection['hash'];
   readonly selectionB: ResolvedSelection['hash'];
   readonly totalsA: KeynessSideTotalsV1;
@@ -148,8 +148,8 @@ export type KeynessCheckpoint = () => Promise<void>;
 
 function validateRequest(request: KeynessTableRequestV1): void {
   if (
-    request.method !== 'keyness-g2-2x2/1' ||
-    request.effect !== 'log-ratio-halves/1'
+    request.method !== 'keyness-g2-2x2/2' ||
+    request.effect !== 'log-ratio-proportional/1'
   ) {
     throw new RangeError('unknown keyness method');
   }
@@ -380,7 +380,9 @@ function dispersionOf(term: SideTerm | undefined, positiveParts: number): number
 function primary(row: KeynessRowV1, by: KeynessSortFieldV1): number {
   switch (by) {
     case 'logRatio': return row.logRatio;
-    case 'logRatioLow': return row.logRatioLow;
+    // Keep the persisted sort token, but rank each direction by the bound
+    // toward zero: low for A, high for B.
+    case 'logRatioLow': return row.logRatio < 0 ? row.logRatioHigh : row.logRatioLow;
     case 'g2': return row.g2;
     case 'countA': return row.countA;
     case 'countB': return row.countB;
@@ -462,8 +464,8 @@ export async function keyness(
       const evidence = g2Keyness(countA, a.tokens, countB, b.tokens);
       if (
         request.side === 'both' ||
-        (request.side === 'a' && effect > 0) ||
-        (request.side === 'b' && effect < 0)
+        (request.side === 'a' && countA / a.tokens > countB / b.tokens) ||
+        (request.side === 'b' && countA / a.tokens < countB / b.tokens)
       ) {
         const cls = className((left ?? right)!.tokenClass);
         const stopRank = stoplistRanks?.ranks[typeId] ?? 0;
@@ -517,8 +519,8 @@ export async function keyness(
   await checkpoint();
 
   return {
-    method: 'keyness-g2-2x2/1',
-    effect: 'log-ratio-halves/1',
+    method: 'keyness-g2-2x2/2',
+    effect: 'log-ratio-proportional/1',
     selectionA: selectionA.hash,
     selectionB: selectionB.hash,
     totalsA: {

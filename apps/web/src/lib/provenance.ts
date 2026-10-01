@@ -298,9 +298,9 @@ function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
       : [`B ${resultB.stoplist.removedRows}`]),
   ];
   return {
-    method: resultA?.method ?? resultB?.method ?? 'keyness-g2-2x2/1',
+    method: resultA?.method ?? resultB?.method ?? 'keyness-g2-2x2/2',
     parameters: [
-      parameter('effect', resultA?.effect ?? resultB?.effect ?? 'log-ratio-halves/1'),
+      parameter('effect', resultA?.effect ?? resultB?.effect ?? 'log-ratio-proportional/1'),
       parameter('side A', list(documentTitles(input, sideA))),
       parameter('side B', list(documentTitles(input, sideB))),
       parameter('minimum combined count', String(view.minCountTotal)),

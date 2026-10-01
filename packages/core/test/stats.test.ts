@@ -17,8 +17,26 @@ describe('keyness', () => {
     expect(g2Keyness(10, 1000, 20, 2000)).toBeCloseTo(0, 9);
   });
 
-  it('logRatio applies 0.5 correction on all four cells (totals N+1)', () => {
-    expect(logRatio(10, 1000, 2, 2000)).toBeCloseTo(3.0697, 3);
+  it('logRatio allocates pseudo-counts proportionally to side size', () => {
+    expect(logRatio(10, 1000, 2, 2000)).toBeCloseTo(2.9542, 3);
+  });
+
+  it('preserves direction, symmetry and equal rates on unequal-size sides', () => {
+    const interval = logRatioInterval(0, 2000, 5, 500000);
+    expect(interval.centre).toBeCloseTo(-2.589763487, 8);
+    expect(interval.low).toBeLessThan(0);
+    expect(interval.high).toBeGreaterThan(0);
+    expect(logRatio(5, 500000, 0, 2000)).toBeCloseTo(-interval.centre, 12);
+    expect(logRatio(0, 2000, 0, 500000)).toBeCloseTo(0, 12);
+    expect(logRatio(2, 2000, 500, 500000)).toBeCloseTo(0, 12);
+    for (const a of [0, 1, 2, 3, 10, 2000]) {
+      for (const b of [0, 1, 5, 250, 500, 500000]) {
+        const direction = Math.sign(a / 2000 - b / 500000);
+        const effect = logRatio(a, 2000, b, 500000);
+        if (direction === 0) expect(effect).toBeCloseTo(0, 12);
+        else expect(Math.sign(effect)).toBe(direction);
+      }
+    }
   });
 
   it('logRatio handles zero counts via the correction', () => {
@@ -171,13 +189,14 @@ describe('diversity', () => {
 });
 
 describe('log-ratio confidence interval', () => {
-  it('brackets the point estimate symmetrically in log₂ units', () => {
+  it('reports conditional Wilson bounds separately from the regularized point', () => {
     const interval = logRatioInterval(10, 1000, 2, 2000);
     const centre = logRatio(10, 1000, 2, 2000);
-    expect(interval.low).toBeCloseTo(1.0828, 3);
-    expect(interval.high).toBeCloseTo(5.0565, 3);
+    expect(interval.low).toBeCloseTo(1.3010, 3);
+    expect(interval.high).toBeCloseTo(6.6012, 3);
     expect(interval.centre).toBeCloseTo(centre, 12);
-    expect(centre - interval.low).toBeCloseTo(interval.high - centre, 12);
+    expect(interval.low).toBeLessThan(centre);
+    expect(interval.high).toBeGreaterThan(centre);
     expect(interval.z).toBeCloseTo(LOG_RATIO_Z_95, 12);
   });
 
@@ -188,8 +207,8 @@ describe('log-ratio confidence interval', () => {
     const thick = logRatioInterval(3000, 100_000, 200, 100_000);
     expect(thin.low).toBeLessThan(0);
     expect(thin.high).toBeGreaterThan(0);
-    expect(thick.low).toBeCloseTo(3.6977, 3);
-    expect(thick.high).toBeCloseTo(4.1094, 3);
+    expect(thick.low).toBeCloseTo(3.7006, 3);
+    expect(thick.high).toBeCloseTo(4.1132, 3);
     expect(thick.high - thick.low).toBeLessThan(thin.high - thin.low);
   });
 
@@ -199,13 +218,36 @@ describe('log-ratio confidence interval', () => {
     expect(() => logRatioInterval(1, 10, 1, 10, Number.NaN)).toThrow(RangeError);
   });
 
-  it('scales the half-width with a caller-supplied positive quantile', () => {
+  it('widens bounds with a larger positive quantile', () => {
     const standard = logRatioInterval(10, 1_000, 2, 2_000);
     const doubled = logRatioInterval(10, 1_000, 2, 2_000, 2 * LOG_RATIO_Z_95);
-    expect(doubled.high - doubled.centre).toBeCloseTo(
-      2 * (standard.high - standard.centre),
-      12,
-    );
+    expect(doubled.low).toBeLessThan(standard.low);
+    expect(doubled.high).toBeGreaterThan(standard.high);
+  });
+
+  it('distinguishes weak and strong evidence on unequal zero-hit sides', () => {
+    const weak = logRatioInterval(0, 2000, 500, 500000);
+    const strong = logRatioInterval(0, 2000, 5000, 500000);
+    expect(weak.low).toBe(Number.NEGATIVE_INFINITY);
+    expect(weak.high).toBeCloseTo(0.9416542885, 8);
+    expect(strong.high).toBeCloseTo(-2.3802738064, 8);
+    const swapped = logRatioInterval(5000, 500000, 0, 2000);
+    expect(swapped.low).toBeCloseTo(-strong.high, 12);
+    expect(swapped.high).toBe(Number.POSITIVE_INFINITY);
+    expect(logRatioInterval(0, 2000, 0, 500000)).toMatchObject({
+      low: Number.NEGATIVE_INFINITY, centre: 0, high: Number.POSITIVE_INFINITY,
+    });
+  });
+
+  it('keeps one-event evidence conservative and mirrors small-count bounds', () => {
+    const weak = logRatioInterval(1, 2000, 40, 500000);
+    expect(weak.low).toBeCloseTo(-2.6945802579, 8);
+    expect(weak.high).toBeGreaterThan(0);
+    const one = logRatioInterval(1, 2000, 4, 500000);
+    expect(one.low).toBeCloseTo(0.3474762346, 8);
+    const mirrored = logRatioInterval(4, 500000, 1, 2000);
+    expect(mirrored.high).toBeCloseTo(-one.low, 12);
+    expect(logRatioInterval(2, 2000, 3, 500000).low).toBeCloseTo(3.6698185085, 8);
   });
 });
 

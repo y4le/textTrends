@@ -349,6 +349,9 @@ test('Compare hides interval whiskers by default and can reveal them without req
   forest = wordButton(page, 'forest');
   await expect(forest.locator('.compare-pyramid-interval')).toBeVisible();
   await expect(forest).toHaveAttribute('aria-label', /95% interval/);
+  const sea = wordButton(page, 'sea');
+  await expect(sea).toHaveAttribute('aria-label', /unbounded below/);
+  await expect(sea.locator('.compare-pyramid-interval')).toHaveAttribute('data-unbounded', 'true');
 
   await forest.click();
   const detail = page.getByRole('region', { name: /Compare detail: forest/ });

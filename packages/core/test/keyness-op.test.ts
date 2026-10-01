@@ -22,8 +22,8 @@ import {
 
 const GEN = 'keyness' as BuildGeneration;
 const REQUEST: KeynessTableRequestV1 = {
-  method: 'keyness-g2-2x2/1',
-  effect: 'log-ratio-halves/1',
+  method: 'keyness-g2-2x2/2',
+  effect: 'log-ratio-proportional/1',
   filter: {
     minCountTotal: 1,
     minDocFreqTotal: 1,
@@ -80,7 +80,49 @@ function inputsFor(
   });
 }
 
-describe('keyness-g2-2x2/1', () => {
+describe('keyness-g2-2x2/2', () => {
+  it('does not rank one-event terms above better-supported conservative evidence', async () => {
+    const world = await fixture([
+      ['a', ['rare', ...Array<string>(5).fill('supported'), ...Array<string>(14).fill('filler')].join(' ')],
+      ['b', [...Array<string>(4).fill('rare'), ...Array<string>(95).fill('supported'), ...Array<string>(4901).fill('filler')].join(' ')],
+    ]);
+    const a = await resolveSelection(world.snapshot, { docs: ['a' as ProjectDocId] });
+    const b = await resolveSelection(world.snapshot, { docs: ['b' as ProjectDocId] });
+    const result = await keyness(world.snapshot, a, b, inputsFor(world, a), inputsFor(world, b),
+      { ...REQUEST, side: 'a', sort: { by: 'logRatioLow', dir: -1 } }, async () => {});
+    expect(result.rows.map((row) => row.key)).toEqual(['supported', 'rare']);
+  });
+  it('ranks an unequal-size B-exclusive term by finite evidence toward zero', async () => {
+    const world = await fixture([
+      ['a', ['shared', ...Array<string>(19).fill('filler')].join(' ')],
+      ['b', [...Array<string>(1000).fill('exclusive'), ...Array<string>(1000).fill('shared'), ...Array<string>(3000).fill('filler')].join(' ')],
+    ]);
+    const a = await resolveSelection(world.snapshot, { docs: ['a' as ProjectDocId] });
+    const b = await resolveSelection(world.snapshot, { docs: ['b' as ProjectDocId] });
+    const result = await keyness(world.snapshot, a, b, inputsFor(world, a), inputsFor(world, b),
+      { ...REQUEST, side: 'b', sort: { by: 'logRatioLow', dir: 1 } }, async () => {});
+    expect(result.rows.map((row) => row.key)).toEqual(['exclusive', 'shared']);
+    expect(result.rows[0]!.logRatioLow).toBe(Number.NEGATIVE_INFINITY);
+    expect(result.rows[0]!.logRatioHigh).toBeLessThan(0);
+  });
+  it('never projects a rest-only term onto the zero-hit small focus side', async () => {
+    const world = await fixture([
+      ['a', Array<string>(20).fill('filler').join(' ')],
+      ['b', ['zephyr', 'zephyr', ...Array<string>(2498).fill('filler')].join(' ')],
+      ['c', ['zephyr', 'zephyr', 'zephyr', ...Array<string>(2497).fill('filler')].join(' ')],
+    ]);
+    const a = await resolveSelection(world.snapshot, { docs: ['a' as ProjectDocId] });
+    const b = await resolveSelection(world.snapshot, { docs: ['b' as ProjectDocId, 'c' as ProjectDocId] });
+    const run = (side: 'a' | 'b') => keyness(world.snapshot, a, b,
+      inputsFor(world, a), inputsFor(world, b), {
+        ...REQUEST, side, filter: { ...REQUEST.filter, minCountTotal: 5, minDocFreqTotal: 2 },
+      }, async () => {});
+    expect((await run('a')).rows.map((row) => row.key)).not.toContain('zephyr');
+    const zephyr = (await run('b')).rows.find((row) => row.key === 'zephyr')!;
+    expect(zephyr).toMatchObject({ countA: 0, countB: 5 });
+    expect(zephyr.logRatio).toBeLessThan(0);
+    expect(zephyr.g2).toBeLessThan(0);
+  });
   it('computes counts, rates, effect, evidence, ranges, and side projections', async () => {
     const world = await fixture([
       ['a', 'apple apple apple apple common common common common common common'],
@@ -361,12 +403,14 @@ describe('keyness-g2-2x2/1', () => {
     expect(positive).toBeLessThan(negative);
   });
 
-  it('can rank by the lower 95% log-ratio bound', async () => {
+  it.each(['a', 'b'] as const)('ranks side %s by its conservative 95% bound', async (side) => {
     const tokens = (...runs: readonly (readonly [string, number])[]) =>
       runs.flatMap(([token, count]) => Array<string>(count).fill(token)).join(' ');
+    const favored = tokens(['rare', 10], ['supported', 300], ['common', 690]);
+    const other = tokens(['supported', 20], ['common', 980]);
     const world = await fixture([
-      ['a', tokens(['rare', 10], ['supported', 300], ['common', 690])],
-      ['b', tokens(['supported', 20], ['common', 980])],
+      ['a', side === 'a' ? favored : other],
+      ['b', side === 'b' ? favored : other],
     ]);
     const a = await resolveSelection(world.snapshot, { docs: ['a' as ProjectDocId] });
     const b = await resolveSelection(world.snapshot, { docs: ['b' as ProjectDocId] });
@@ -376,7 +420,7 @@ describe('keyness-g2-2x2/1', () => {
       b,
       inputsFor(world, a),
       inputsFor(world, b),
-      { ...REQUEST, side: 'a', sort: { by, dir: -1 } },
+      { ...REQUEST, side, sort: { by, dir: side === 'a' ? -1 : 1 } },
       async () => {},
     );
 
@@ -386,8 +430,11 @@ describe('keyness-g2-2x2/1', () => {
       .toEqual(['rare', 'supported']);
     expect(byLowerBound.rows.map((candidate) => candidate.key))
       .toEqual(['supported', 'rare']);
-    expect(byLowerBound.rows[0]!.logRatioLow)
-      .toBeGreaterThan(byLowerBound.rows[1]!.logRatioLow);
+    if (side === 'a') {
+      expect(byLowerBound.rows[0]!.logRatioLow).toBeGreaterThan(byLowerBound.rows[1]!.logRatioLow);
+    } else {
+      expect(byLowerBound.rows[0]!.logRatioHigh).toBeLessThan(byLowerBound.rows[1]!.logRatioHigh);
+    }
   });
 
   it('applies each combined minimum before ranking and paging', async () => {
@@ -471,7 +518,7 @@ describe('keyness-g2-2x2/1', () => {
   });
 });
 
-describe('keyness-g2-2x2/1 divergence and dispersion', () => {
+describe('keyness-g2-2x2/2 divergence and dispersion', () => {
   it('measures whole-distribution divergence independently of filter and paging', async () => {
     const world = await fixture([
       ['a', 'alpha alpha alpha alpha'],
@@ -635,10 +682,6 @@ describe('keyness-g2-2x2/1 divergence and dispersion', () => {
     for (const row of result.rows) {
       expect(row.logRatioLow).toBeLessThan(row.logRatio);
       expect(row.logRatioHigh).toBeGreaterThan(row.logRatio);
-      expect(row.logRatio - row.logRatioLow).toBeCloseTo(
-        row.logRatioHigh - row.logRatio,
-        12,
-      );
     }
   });
 

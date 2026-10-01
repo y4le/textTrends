@@ -1,5 +1,5 @@
 /**
- * Keyness statistics — method ids `keyness-g2-2x2/1` and `log-ratio-halves/1`.
+ * Keyness statistics — method ids `keyness-g2-2x2/2` and `log-ratio-proportional/1`.
  * Spec: docs/design/statistics.md. The full 2×2 likelihood-ratio G² (Dunning 1993),
  * not the two-cell Rayson–Garside shorthand, which understates the statistic.
  */
@@ -51,16 +51,22 @@ export function g2Keyness(a: number, n1: number, b: number, n2: number): number 
 }
 
 /**
- * Log₂ ratio effect size with 0.5 continuity correction on all four cells,
- * so each corpus's adjusted total is N+1.
+ * Log₂ ratio with one pseudo-count allocated proportionally to side sizes
+ * in each term/non-term row. Both sides receive the same pseudo-rate, so
+ * smoothing cannot reverse the observed direction on unequal-size inputs.
  */
 export function logRatio(a: number, n1: number, b: number, n2: number): number {
   validateTable(a, n1, b, n2);
-  return Math.log2((a + 0.5) / (n1 + 1) / ((b + 0.5) / (n2 + 1)));
+  const qa = n1 / (n1 + n2);
+  const qb = n2 / (n1 + n2);
+  return Math.log2((a + qa) / (n1 + 2 * qa) / ((b + qb) / (n2 + 2 * qb)));
 }
 
 /** Two-sided 95% normal quantile. */
 export const LOG_RATIO_Z_95 = 1.959963984540054;
+
+/** chi-square(2k) 0.025 quantiles, k=1..3, for the BCD small-count correction. */
+const CHI_SQUARE_LOW_95 = [0, 0.05063561596857975, 0.4844185570879299, 1.2373442457912027] as const;
 
 export interface LogRatioIntervalV1 {
   readonly low: number;
@@ -71,24 +77,15 @@ export interface LogRatioIntervalV1 {
 }
 
 /**
- * Wald confidence interval around `logRatio`, in the same log₂ units.
- *
- * This is the piece the effect size alone cannot supply: a log₂ ratio of +4 is
- * the same number whether it came from 3 occurrences against 0 or from 3,000
- * against 200, and only the interval separates them. The variance is the
- * standard log-risk-ratio form carrying the SAME 0.5/1 continuity correction
- * `logRatio` applies, so the interval and point estimate describe one estimand:
- *
- *   Var(ln ratio) = 1/(a+0.5) − 1/(n1+1) + 1/(b+0.5) − 1/(n2+1)
- *
- * Each pair is non-negative because `a ≤ n1` forces `a + 0.5 < n1 + 1`, so the
- * variance cannot go negative on real inputs; it is clamped as a defensive
- * guard against any future change to that arithmetic.
- *
- * It is a per-term interval with no multiplicity correction. Reading the whole
- * ranked table and keeping only the terms whose intervals exclude zero would
- * be exactly the selection effect that correction exists for — so callers
- * present it as one term's precision, never as a table-wide filter.
+ * Conditional modified Wilson interval for the unsmoothed rate ratio.
+ * Under independent Poisson counts, a given a+b is binomial with odds equal
+ * to the rate ratio times n1/n2. Invert the binomial score test and transform
+ * its odds into log2 rate units. This interval is asymmetric and can be open
+ * ended on the absent side; it is separate from the regularized point estimate.
+ * At the default 95% quantile, apply Brown-Cai-DasGupta's modification for
+ * one to three events on either side. Other quantiles use plain Wilson bounds.
+ * It assumes independent events, without multiplicity or burstiness correction.
+ * Reference: docs/design/statistics.md.
  */
 export function logRatioInterval(
   a: number,
@@ -98,19 +95,27 @@ export function logRatioInterval(
   z: number = LOG_RATIO_Z_95,
 ): LogRatioIntervalV1 {
   validateTable(a, n1, b, n2);
-  if (!Number.isFinite(z) || z <= 0) {
+  if (!Number.isFinite(z) || z <= 0 || !Number.isFinite(z * z)) {
     throw new RangeError('z must be a positive finite number');
   }
-  const variance = Math.max(
-    0,
-    1 / (a + 0.5) - 1 / (n1 + 1) + 1 / (b + 0.5) - 1 / (n2 + 1),
-  );
-  const halfWidth = (z * Math.sqrt(variance)) / Math.LN2;
+  const events = a + b;
   const centre = logRatio(a, n1, b, n2);
+  if (events === 0) return { low: Number.NEGATIVE_INFINITY, centre, high: Number.POSITIVE_INFINITY, z };
+  const z2 = z * z;
+  const radius = z * Math.sqrt(a * b / events + z2 / 4);
+  const centreA = a + z2 / 2;
+  const centreB = b + z2 / 2;
+  const exposure = Math.log2(n2 / n1);
+  const smallA = z === LOG_RATIO_Z_95 && a >= 1 && a <= 3 ? CHI_SQUARE_LOW_95[a]! / 2 : null;
+  const smallB = z === LOG_RATIO_Z_95 && b >= 1 && b <= 3 ? CHI_SQUARE_LOW_95[b]! / 2 : null;
   return {
-    low: centre - halfWidth,
+    low: a === 0 ? Number.NEGATIVE_INFINITY : smallA !== null
+      ? Math.log2(smallA / (events - smallA)) + exposure
+      : Math.log2(Math.max(0, centreA - radius) / (centreB + radius)) + exposure,
     centre,
-    high: centre + halfWidth,
+    high: b === 0 ? Number.POSITIVE_INFINITY : smallB !== null
+      ? Math.log2((events - smallB) / smallB) + exposure
+      : Math.log2((centreA + radius) / Math.max(0, centreB - radius)) + exposure,
     z,
   };
 }

@@ -554,8 +554,8 @@ function fakeKeynessPage(
   return {
     op: 'keyness',
     keyness: {
-      method: 'keyness-g2-2x2/1',
-      effect: 'log-ratio-halves/1',
+      method: 'keyness-g2-2x2/2',
+      effect: 'log-ratio-proportional/1',
       selectionA: 'a' as never,
       selectionB: 'b' as never,
       totalsA: { tokens: 10, documents: 1, positiveParts: 1 },
@@ -6490,7 +6490,7 @@ describe('dueling keyness query intent (slice-4)', () => {
     expect(reconcileKeynessView(explicit, ['a', 'b'])).toBe(explicit);
   });
 
-  it('clamps document range only to the smaller side of a selection comparison', () => {
+  it('clamps effective document range to the smaller side in every comparison mode', () => {
     expect(effectiveKeynessMinDocFreq(
       { ...DEFAULT_KEYNESS_VIEW, mode: 'selection-rest' },
       { a: { docs: ['a'] }, b: { docs: ['a', 'b', 'c'] } },
@@ -6498,7 +6498,11 @@ describe('dueling keyness query intent (slice-4)', () => {
     expect(effectiveKeynessMinDocFreq(
       DEFAULT_KEYNESS_VIEW,
       { a: { docs: ['a'] }, b: { docs: ['b', 'c'] } },
-    )).toBe(DEFAULT_KEYNESS_VIEW.minDocFreqTotal);
+    )).toBe(1);
+    expect(effectiveKeynessMinDocFreq(
+      { ...DEFAULT_KEYNESS_VIEW, mode: 'documents', minDocFreqTotal: 4 },
+      { a: { docs: ['a'] }, b: { docs: ['b'] } },
+    )).toBe(1);
   });
 
   it('defaults to the first document against the rest with log-ratio projections', () => {

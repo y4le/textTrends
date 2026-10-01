@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   compareBarPercent,
+  compareIntervalBoundLabel,
   compareDivergence,
   compareRowControlId,
   compareRowForTarget,
@@ -64,8 +65,8 @@ const state = (
       : {
           status,
           result: {
-            method: 'keyness-g2-2x2/1',
-            effect: 'log-ratio-halves/1',
+            method: 'keyness-g2-2x2/2',
+            effect: 'log-ratio-proportional/1',
             selectionA: 'a' as never,
             selectionB: 'b' as never,
             totalsA: { tokens: 10, documents: 1, positiveParts: 1 },
@@ -171,7 +172,7 @@ describe('Compare view law', () => {
       .toMatch(/confidence intervals/);
     expect(compareSettingsError({ ...draft, sortBy: 'logRatioLow' }))
       .toBeNull();
-    expect(compareSortLabel('logRatioLow')).toBe('lower 95% bound');
+    expect(compareSortLabel('logRatioLow')).toBe('conservative 95% bound');
     expect(compareScale(null, null)).toEqual({ maximum: 1, provisional: false });
     expect(compareScale(state('a', 'ready'), state('b', 'pending')))
       .toEqual({ maximum: 3, provisional: true });
@@ -188,6 +189,9 @@ describe('Compare view law', () => {
     expect(compareBarPercent(3, 6)).toBe(50);
     expect(compareBarPercent(-9, 6)).toBe(100);
     expect(compareBarPercent(Number.NaN, 6)).toBe(0);
+    expect(compareIntervalBoundLabel(Number.NEGATIVE_INFINITY, String)).toBe('unbounded below');
+    expect(compareIntervalBoundLabel(Number.POSITIVE_INFINITY, String)).toBe('unbounded above');
+    expect(compareIntervalBoundLabel(1.25, String)).toBe('1.25');
   });
 
   it('resolves a row only from its own ready side', () => {

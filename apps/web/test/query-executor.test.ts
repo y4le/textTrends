@@ -1184,8 +1184,8 @@ describe('frequency through the executor and engine', () => {
 
 describe('keyness/1 through the executor and engine', () => {
   const request = {
-    method: 'keyness-g2-2x2/1' as const,
-    effect: 'log-ratio-halves/1' as const,
+    method: 'keyness-g2-2x2/2' as const,
+    effect: 'log-ratio-proportional/1' as const,
     filter: {
       minCountTotal: 1,
       minDocFreqTotal: 1,

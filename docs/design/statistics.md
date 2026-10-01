@@ -34,7 +34,7 @@ counts, rates, DP, log ratio, G², intervals, or JSD. The source's
 
 ## Keyness
 
-`keyness-g2-2x2/1` compares explicit disjoint selections. Let `a` and `b` be a
+`keyness-g2-2x2/2` compares explicit disjoint selections. Let `a` and `b` be a
 term's counts in sides of `N1` and `N2` tokens.
 
 ### G²
@@ -56,29 +56,59 @@ direction; the shorthand gives `12.7806`.
 
 ### Log ratio and interval
 
-Add 0.5 to all four cells, so each adjusted side total is `N+1`:
+`log-ratio-proportional/1` allocates one pseudo-count proportionally to side
+size in each term/non-term row. Both sides receive an equal pseudo-rate,
+preserving observed direction even for a small passage against a large rest:
 
 ```text
-LR = log2(((a+0.5)/(N1+1)) / ((b+0.5)/(N2+1)))
-V  = 1/(a+0.5) − 1/(N1+1) + 1/(b+0.5) − 1/(N2+1)
-CI = LR ± 1.959963984540054 × sqrt(V) / ln(2)
+qA = N1/(N1+N2), qB = N2/(N1+N2)
+LR = log2(((a+qA)/(N1+2qA)) / ((b+qB)/(N2+2qB)))
 ```
 
-Each variance pair is nonnegative for a valid table. Point and interval describe
-one corrected estimand. Default ranking uses effect size; the lower 95% bound,
-evidence, and counts are available sorts. Intervals appear in term detail;
-optional whiskers are hidden by default. There is no table-wide interval filter
-or implemented q-value correction.
+The finite point estimate adds equal pseudo-rates, preserving observed direction.
+Zero-count magnitudes depend on total exposure, so a large effect need not
+mean strong evidence. Default ranking uses effect size; the conservative 95%
+bound, evidence, and counts are available sorts. Optional interval whiskers
+are hidden by default. There is no table-wide interval filter or q-value correction.
 
-| `(a, N1, b, N2)` | LR | 95% interval |
+The interval is computed separately by conditioning independent Poisson
+counts on their sum: `a | a+b ~ Binomial(a+b, p)`. Modified Wilson score bounds for `p`
+are transformed with `log2(p/(1-p) × N2/N1)`. They are asymmetric and may be
+unbounded toward an absent side. With no occurrences, both bounds are
+unbounded. See [NIST's Wilson formula](https://www.itl.nist.gov/div898/handbook/prc/section2/prc241.htm)
+and [Price and Bonett's Poisson rate-ratio interval comparison](https://www.sciencedirect.com/science/article/pii/S0167947399001000).
+At the default 95% level, one to three events use the small-count modification
+in [Brown, Cai and DasGupta, §4.1.1](https://doi.org/10.1214/ss/1009213286):
+the binomial lower bound for count `k` is `χ²(2k, 0.025)/(2(a+b))`,
+with the upper bound obtained by exchanging sides. We apply counts 1–3 at
+every sample size, slightly more conservatively than BCD's small-sample rule.
+Other quantiles use plain
+Wilson bounds. This avoids overstating one-event evidence against a large rest.
+
+| `(a, N1, b, N2)` | LR | 95% conditional modified Wilson interval |
 | --- | ---: | --- |
-| `(10, 1000, 2, 2000)` | 3.0697 | (1.0828, 5.0565) |
-| `(3, 1000, 0, 1000)` | 2.807 | (−1.466, 7.080) |
-| `(3000, 100000, 200, 100000)` | 3.904 | (3.698, 4.109) |
+| `(10, 1000, 2, 2000)` | 2.9542 | (1.3010, 6.6012) |
+| `(3, 1000, 0, 1000)` | 2.8074 | (−1.9445, +∞) |
+| `(3000, 100000, 200, 100000)` | 3.9035 | (3.7006, 4.1132) |
+| `(0, 2000, 5, 500000)` | −2.5898 | (−∞, 7.5855) |
+| `(0, 2000, 5000, 500000)` | −12.2938 | (−∞, −2.3803) |
+| `(1, 2000, 40, 500000)` | 2.6141 | (−2.6946, 5.1709) |
 
-The interval is per-term, without multiplicity correction. Independent token
-draws are a model assumption; running-text burstiness can make it too narrow.
-Per-side DP exposes concentration but does not correct the interval.
+`keyness-g2-2x2/2` retains the full G² formula and changes projection/ranking:
+side membership follows observed rates; the persisted `logRatioLow` sort uses
+the low bound for A-favored terms and the high bound for B-favored terms.
+The UI calls this the conservative bound. Equal observed rates enter neither
+one-sided projection. Compare clamps the effective combined document-frequency
+minimum to the smaller side's positive document-part count in every mode,
+keeping focus-only terms reachable; the authored preference remains saved.
+In a one-text comparison this lowers the effective minimum to 1 on both
+projections, so a rest-only term in one text is eligible too.
+
+The interval assumes independent Poisson occurrences at fixed token exposures;
+it is a rate-model approximation, not an interval inverted from the full
+binomial 2×2 G² test. It is per-term, without multiplicity correction.
+Running-text burstiness can make it too narrow. Per-side DP exposes
+concentration but does not correct the interval.
 
 Keyness rows fold per-side DP over sparse per-document vectors. Below two
 positive-token parts, or when the term is absent on that side, row DP is null.
@@ -211,8 +241,8 @@ This is `(r−1)/(r+1)`, monotone in the raw rate ratio. One-sided zeroes reach
 rates remain valid even when counts exceed token denominators.
 
 A zero-hit 21-token range versus 8 hits in the remaining 1,923 tokens yields
-0 and 41.6 per 10,000, with `C=−1`. Compare's 0.5 correction would reverse that
-small-range direction, so it is not used here. The mark is solid only when
+0 and 41.6 per 10,000, with `C=−1`. This mark uses raw rates without smoothing;
+Compare uses its proportional correction and an approximate interval. The mark is solid only when
 `min(p × insideTokens, p × outsideTokens) ≥ 5`, where `p` is pooled count/token
 rate; otherwise it is a hairline. This fixture's minimum is 0.0864.
 
