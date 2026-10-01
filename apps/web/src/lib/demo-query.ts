@@ -11,7 +11,7 @@ import {
   BUILTIN_SHAKESPEARE_ID,
   BUILTIN_SHERLOCK_ID,
   type BuiltinCorpusId,
-} from './project.ts';
+} from './builtin-corpora.ts';
 
 export const DEMO_QUERY_PARAMETER = 'demo';
 

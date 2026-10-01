@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { randomBytes } from 'node:crypto';
-import { ENTRY_GZIP_BUDGET_BYTES, checkBundle } from './check-bundle-lib.mjs';
+import { ENTRY_GZIP_BUDGET_BYTES, INITIAL_GZIP_BUDGET_BYTES, checkBundle } from './check-bundle-lib.mjs';
 
 const CATALOG = JSON.stringify({
   schemaVersion: 1,
@@ -66,6 +66,24 @@ describe('bundle contract', () => {
     const d2 = syntheticDist();
     d2.put('assets/index-AAAA.js', d2.files.get('assets/index-AAAA.js').toString() + ';import("./frequency-pattern-PPPP.js");');
     assert.ok(run(d2.files).failures.some((failure) => failure.includes('only through the worker')));
+  });
+
+  it('rejects a lazy region reached through a transitive static dependency', () => {
+    const d = syntheticDist();
+    d.put('assets/preload-helper-PPPP.js', 'export { localLibrary } from "./local-library-LLLL.js";');
+    assert.ok(run(d.files).failures.some((failure) => failure.includes('local library region must stay lazy')));
+  });
+  it('budgets the static closure even when the entry itself fits', () => {
+    const d = syntheticDist();
+    d.put('assets/preload-helper-PPPP.js', randomBytes(INITIAL_GZIP_BUDGET_BYTES + 4096));
+    assert.ok(run(d.files).failures.some((failure) => failure.includes('initial static closure gzip')));
+  });
+  it('handles static cycles once and reports missing dependencies', () => {
+    const d = syntheticDist();
+    d.put('assets/preload-helper-PPPP.js', 'import "./index-AAAA.js";');
+    assert.deepEqual(run(d.files).failures, []);
+    d.put('assets/preload-helper-PPPP.js', 'import "./missing-MMMM.js";');
+    assert.ok(run(d.files).failures.some((failure) => failure.includes('static dependency is missing')));
   });
 
   it('an entry over the gzip budget fails', () => {

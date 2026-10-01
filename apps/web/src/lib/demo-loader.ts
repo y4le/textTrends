@@ -1,13 +1,12 @@
 import { INGEST_CAPS_V0 } from '@texttrends/core';
-import { fetchDemoCorpus } from './demo-corpora.ts';
+import type { fetchDemoCorpus } from './demo-corpora.ts';
 import { libraryOperation } from './library-operation.ts';
-import {
-  localLibrary,
-  localFileIdentity,
-  type LocalLibraryAddResult,
-  type LocalLibraryFile,
+import type {
+  LocalLibraryAddResult,
+  LocalLibraryFile,
 } from './local-library.ts';
-import { demoCorpusFixtures, type BuiltinCorpusId } from './project.ts';
+import type { BuiltinCorpusId } from './builtin-corpora.ts';
+import { localFileIdentity } from './source-identity.ts';
 import type { AppState } from './app-state.ts';
 
 export const LIBRARY_BUSY_NOTICE = 'Another input is being saved. Try again when it finishes.';
@@ -29,7 +28,7 @@ export interface DemoLoadResult {
 }
 
 interface DemoLibraryPort {
-  add(files: Parameters<typeof localLibrary.add>[0]): Promise<readonly LocalLibraryAddResult[]>;
+  add(files: Parameters<import('./local-library.ts').BrowserLocalLibrary['add']>[0]): Promise<readonly LocalLibraryAddResult[]>;
   file(id: string): Promise<LocalLibraryFile>;
 }
 
@@ -57,7 +56,8 @@ function activeLibraryIds(state: AppState): ReadonlySet<string> {
   ]);
 }
 
-function assertAdditiveDemoFits(id: BuiltinCorpusId, state: AppState): void {
+async function assertAdditiveDemoFits(id: BuiltinCorpusId, state: AppState): Promise<void> {
+  const { demoCorpusFixtures } = await import('./project.ts');
   const session = state.projectSession;
   const activeInputs = session === null ? 0 : session.project.data.docs.length + session.imports.length;
   const active = activeLibraryIds(state);
@@ -90,16 +90,16 @@ export async function loadDemoCorpus(
   dependencies: DemoLoaderDependencies,
   signal?: AbortSignal,
 ): Promise<DemoLoadResult> {
-  const library = dependencies.library ?? localLibrary;
   const operation = dependencies.operation ?? libraryOperation;
-  const fetchCorpus = dependencies.fetchCorpus ?? fetchDemoCorpus;
   const lease = operation.claim();
   if (lease === null) throw new Error(LIBRARY_BUSY_NOTICE);
 
   let clearedTexts = 0;
   let clearedTerms = 0;
   try {
-    if (mode === 'additive') assertAdditiveDemoFits(id, dependencies.getState());
+    if (mode === 'additive') await assertAdditiveDemoFits(id, dependencies.getState());
+    const library = dependencies.library ?? (await import('./local-library.ts')).localLibrary;
+    const fetchCorpus = dependencies.fetchCorpus ?? (await import('./demo-corpora.ts')).fetchDemoCorpus;
     const demo = await fetchCorpus(id, signal);
     if (!operation.owns(lease)) throw new Error('The demo load was superseded.');
 

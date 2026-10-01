@@ -97,7 +97,8 @@ import {
   type MatchesColumn,
   type MatchesColumnSettings,
 } from './matches-columns.ts';
-import { SessionCommandError, type AnalysisPhase, type SessionState } from './project-session.ts';
+import type { AnalysisPhase, SessionState } from './project-session.ts';
+import { SessionCommandError } from './session-errors.ts';
 import type { HistoryPort } from './history-port.ts';
 import { DEFAULT_TREND_VIEW } from './trend-view.ts';
 import type {

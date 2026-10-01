@@ -18,6 +18,9 @@ import { gzipSync } from 'node:zlib';
  *  9 over the emitted file — NOT Vite's console estimate). Post-Phase-G
  *  measurement: 83 599 bytes. */
 export const ENTRY_GZIP_BUDGET_BYTES = 90_000;
+/** Sum of separately gzipped chunks in the transitive static entry closure.
+ * Sep25 baseline was 185,766 bytes; this gate measures the actual initial scripts. */
+export const INITIAL_GZIP_BUDGET_BYTES = 160_000;
 
 /** Compile-time e2e facade names that must be dead-code-eliminated from the
  *  production bundle (M6 consult; formerly a shell grep in CI). */
@@ -46,6 +49,22 @@ function staticImports(text) {
   const out = new Set();
   for (const m of text.matchAll(/(?:from|import)\s*(["'])\.\/([^"']+\.js)\1/g)) out.add(m[2]);
   return out;
+}
+
+/** Static dependency closure, including shared chunks and re-exports. */
+function staticClosure(files, entry, failures) {
+  const seen = new Set();
+  const pending = [entry];
+  while (pending.length) {
+    const path = pending.pop();
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const bytes = files.get(path);
+    if (!bytes) { failures.push(`static dependency is missing: ${path}`); continue; }
+    const directory = path.slice(0, path.lastIndexOf('/') + 1);
+    for (const name of staticImports(bytes.toString('utf8'))) pending.push(directory + name);
+  }
+  return seen;
 }
 
 /** Whether `text` references chunk basename `name` AT ALL — static import,
@@ -119,6 +138,14 @@ export function checkBundle(files, catalogSource) {
     }
   }
 
+  const initial = entryPath ? staticClosure(files, entryPath, failures) : new Set();
+  const initialText = [...initial].map((path) => files.get(path)?.toString('utf8') ?? '').join('\n');
+  if (entryPath) {
+    const total = [...initial].reduce((sum, path) => sum + (files.has(path) ? gzipSize(files.get(path)) : 0), 0);
+    report.push(`initial static closure: ${initial.size} chunks, ${total} B gzip — budget ${INITIAL_GZIP_BUDGET_BYTES} B`);
+    if (total > INITIAL_GZIP_BUDGET_BYTES) failures.push(`initial static closure gzip ${total} B exceeds the ${INITIAL_GZIP_BUDGET_BYTES} B budget`);
+  }
+
   // ---- entry budget --------------------------------------------------------
   if (entryPath) {
     const bytes = files.get(entryPath);
@@ -135,11 +162,10 @@ export function checkBundle(files, catalogSource) {
     ]) {
       if (!path) continue;
       const name = path.replace('assets/', '');
-      const entryText = files.get(entryPath).toString('utf8');
-      const entryStatic = staticImports(entryText);
+      const entryStatic = new Set([...initial].map((path) => path.replace(/^assets\//, '')));
       if (entryStatic.has(name)) {
-        failures.push(`${entryPath}: statically imports ${name} — the ${role} region must stay lazy`);
-      } else if (!references(entryText, name)) {
+        failures.push(`${entryPath}: static closure includes ${name} — the ${role} region must stay lazy`);
+      } else if (!references(initialText, name)) {
         failures.push(`${entryPath}: no reference to ${name} — the lazy ${role} region edge is gone`);
       }
     }
@@ -150,14 +176,13 @@ export function checkBundle(files, catalogSource) {
   // A static place import would mount route code in the initial payload even
   // though App renders only one active place.
   if (entryPath) {
-    const entryText = files.get(entryPath).toString('utf8');
-    const entryStatic = staticImports(entryText);
+    const entryStatic = new Set([...initial].map((path) => path.replace(/^assets\//, '')));
     for (const [place, path] of placePaths) {
       if (!path) continue;
       const name = path.replace('assets/', '');
       if (entryStatic.has(name)) {
-        failures.push(`${entryPath}: statically imports ${name} — the ${place} place must stay lazy`);
-      } else if (!references(entryText, name)) {
+        failures.push(`${entryPath}: static closure includes ${name} — the ${place} place must stay lazy`);
+      } else if (!references(initialText, name)) {
         failures.push(`${entryPath}: no reference to ${name} — the lazy ${place} place edge is gone`);
       }
     }
@@ -188,11 +213,10 @@ export function checkBundle(files, catalogSource) {
   // ---- Standard Ebooks archive stays behind the Inputs place ------------
   const inputsPlacePath = placePaths.get('Inputs');
   if (entryPath && inputsPlacePath && archivePath) {
-    const entryText = files.get(entryPath).toString('utf8');
     const inputsPlaceText = files.get(inputsPlacePath).toString('utf8');
     const inputsPlaceStatic = staticImports(inputsPlaceText);
     const archiveName = archivePath.replace('assets/', '');
-    if (references(entryText, archiveName)) {
+    if (references(initialText, archiveName)) {
       failures.push(`${entryPath}: references ${archiveName} — the archive client must load only through the Inputs place`);
     }
     if (inputsPlaceStatic.has(archiveName)) {

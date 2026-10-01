@@ -91,11 +91,8 @@ export interface LocalLibraryDeleteResult {
   readonly removedDocuments: readonly string[];
 }
 
-/** Source bytes can legitimately be interpreted under different formats, so
- * dedupe exact content within a format rather than collapsing those recipes. */
-export function localFileIdentity(format: SourceFormat, contentHash: string): string {
-  return `${format}:${contentHash}`;
-}
+export { localFileIdentity } from './source-identity.ts';
+import { localFileIdentity } from './source-identity.ts';
 
 function abortQuietly(transaction: { abort(): void }): void {
   try {

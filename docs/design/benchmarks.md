@@ -258,3 +258,14 @@ work. Counts are conservative even inside comments/CDATA. The worker retains
 no per-section text copies. Deflate input chunks are 4 KiB, bounding a single
 callback's maximum expansion near 4 MiB; output past a declared size is rejected
 rather than silently truncated. Future limit increases need fresh calibration.
+
+### Initial script closure (2026-10-01)
+
+The production gate now sums gzip level 9 for every chunk in the entry's
+transitive static import closure. Shared chunks count once. The September 25
+commit (`c03496f`) measures **185,766 bytes** across 24 chunks; after removing
+eager demo/library edges the closure measures **152,769 bytes** across 24
+chunks. The entry alone measures 82,838 bytes. The independent ceilings are
+160,000 bytes for the closure and 90,000 bytes for the entry. Lazy region
+checks also traverse shared imports; an indirect local-library import now
+fails the gate. These measurements include no corpus publication changes.
