@@ -38,6 +38,7 @@ function fixture(t) {
     rmSync(directory, { recursive: true, force: true });
     assert.equal(signals.listenerCount('SIGINT'), 0);
     assert.equal(signals.listenerCount('SIGTERM'), 0);
+    assert.equal(signals.listenerCount('SIGHUP'), 0);
   });
   return {
     events, command, signals, waitFor,
@@ -83,7 +84,7 @@ test('missing build command fails without starting long-running children', async
   assert.deepEqual(f.events(), []);
 });
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   test(`${signal} stops both children after the initial build barrier`, async (t) => {
     const f = fixture(t);
     const running = f.run();
@@ -92,7 +93,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     assert.ok(events.indexOf('build:done') < events.indexOf('watch:started'));
     assert.ok(events.indexOf('build:done') < events.indexOf('server:started'));
     f.signals.emit(signal);
-    assert.equal(await running, signal === 'SIGINT' ? 130 : 143);
+    assert.equal(await running, signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 129);
     assert.ok(f.events().includes('watch:stopped'));
     assert.ok(f.events().includes('server:stopped'));
   });

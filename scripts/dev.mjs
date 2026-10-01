@@ -80,8 +80,10 @@ export async function runDevelopment({
 
   const onInterrupt = () => { void stop(130); };
   const onTerminate = () => { void stop(143); };
+  const onHangup = () => { void stop(129); };
   signals.on('SIGINT', onInterrupt);
   signals.on('SIGTERM', onTerminate);
+  signals.on('SIGHUP', onHangup);
 
   try {
     const build = start(commands.build);
@@ -108,6 +110,7 @@ export async function runDevelopment({
   } finally {
     signals.off('SIGINT', onInterrupt);
     signals.off('SIGTERM', onTerminate);
+    signals.off('SIGHUP', onHangup);
   }
 }
 
