@@ -3,6 +3,7 @@ import {
   barcodeBandExtent,
   barcodeBandHeight,
   dockSizing,
+  dockTargetForFooter,
   dockTakeoverRailBlockSize,
   dockTermTargetMinimumHeight,
   DOCK_TERM_TARGET_MIN_HEIGHT,
@@ -614,6 +615,28 @@ describe('eager footer metrics', () => {
             coarse ? 24 : width === 'compact' ? 18 : 20,
           );
           expect(smallest.footerGeometry.seriesHeight).toBe(coarse ? 24 : 12);
+        }
+      }
+    }
+  });
+
+  it('maps takeover footer resizing through a hidden resting-rail plateau', () => {
+    for (const density of ['compact', 'standard', 'comfortable'] as const) {
+      for (const resolve of [dockSizing, readerDockSizing]) {
+        const input = {
+          width: 'wide', coarse: false, density, trackCount: 3,
+          footerPresent: true, targetBlockSize: null,
+          viewportBlockSize: 900, availableBlockSize: 700,
+        } as const;
+        const resting = resolve(input);
+        const rail = dockTakeoverRailBlockSize(false);
+        for (const delta of [-16, -1, 1, 16, 64]) {
+          const target = dockTargetForFooter(input, resting.footerBlockSize + delta, resolve);
+          const result = resolve({ ...input, targetBlockSize: target });
+          const takeover = resolve({ ...input, takeoverLine: true,
+            targetBlockSize: target + rail - result.railBlockSize });
+          const floor = resolve({ ...input, targetBlockSize: resting.minBlockSize }).footerBlockSize;
+          expect(takeover.footerBlockSize).toBe(Math.max(floor, resting.footerBlockSize + delta));
         }
       }
     }

@@ -569,6 +569,29 @@ export function dockSizing(input: DockSizingInput): DockSizing {
   });
 }
 
+/** Convert a visible footer request to resting Terms intent. Its rail can
+ * spend a size delta before the footer changes, so adding that delta to the
+ * old resting target is insufficient while a fixed takeover rail is shown. */
+export function dockTargetForFooter(
+  input: DockSizingInput,
+  requestedFooter: number,
+  resolve: (input: DockSizingInput) => DockSizing = dockSizing,
+): number {
+  const bounds = resolve({ ...input, takeoverLine: false, targetBlockSize: null });
+  let low = Math.ceil(bounds.minBlockSize);
+  let high = Math.floor(bounds.maxBlockSize);
+  const footerAt = (target: number) => resolve({
+    ...input, takeoverLine: false, targetBlockSize: target,
+  }).footerBlockSize;
+  const targetFooter = Math.max(footerAt(low), Math.min(footerAt(high), requestedFooter));
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (footerAt(middle) < targetFooter) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
 /** Reader keeps the shared analytical footer but gives source text to the
  * page itself. Its automatic state starts with a deliberately compressed
  * Terms row plus the smallest authored graph/barcode. Downward resizing then

@@ -14,6 +14,7 @@ import {
   DOCK_RESIZE_HANDLE_INWARD_COARSE,
   DOCK_RESIZE_HANDLE_INWARD_FINE,
   dockSizing,
+  dockTargetForFooter,
   dockTakeoverRailBlockSize,
   readerDockSizing,
 } from '../lib/footer-metrics.ts';
@@ -281,7 +282,7 @@ export function WorkbenchDock({
             Math.min(current.maxBlockSize, current.blockSize + direction * step),
           );
     setTargetBlockSize(takeoverLine
-      ? restingSizing.blockSize + nextBlockSize - current.blockSize
+      ? dockTargetForFooter(sizingInput, nextBlockSize - current.railBlockSize, sizeDock)
       : nextBlockSize);
   };
 
@@ -373,7 +374,7 @@ export function WorkbenchDock({
               Math.min(current.maxBlockSize, Math.round(next)),
             );
             scheduleTarget(takeoverLine
-              ? restingSizing.blockSize + nextBlockSize - current.blockSize
+              ? dockTargetForFooter(sizingInput, nextBlockSize - current.railBlockSize, sizeDock)
               : nextBlockSize);
           }}
           onPointerUp={(event: ReactPointerEvent<HTMLDivElement>) => {

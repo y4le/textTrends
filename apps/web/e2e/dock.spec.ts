@@ -660,3 +660,23 @@ test('the squeezed coarse regular-width rail keeps wide actions', async ({
   expect(editBox?.height).toBeGreaterThanOrEqual(34);
   expect(editBox?.height).toBeLessThanOrEqual(37);
 });
+
+
+test('Find takeover resizing changes the visible footer on every keyboard step', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  const handle = page.getByRole('separator', { name: 'Resize reading footer' });
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
+  await page.getByRole('button', { name: 'Find', exact: true }).click();
+  await handle.focus();
+  const before = (await footer.boundingBox())!.height;
+  for (let step = 1; step <= 4; step++) {
+    await handle.press('ArrowUp');
+    await expect.poll(async () => (await footer.boundingBox())!.height).toBe(before + 16 * step);
+  }
+  await handle.press('Shift+ArrowDown');
+  await expect.poll(async () => (await footer.boundingBox())!.height).toBe(before + 63);
+  await page.getByRole('button', { name: 'Clear and close find' }).click();
+  await expect.poll(async () => (await footer.boundingBox())!.height).toBe(before + 63);
+});
