@@ -1,3 +1,4 @@
+import { BLOCK_ELEMENTS as BLOCK, cleanExtractedText as clean, normalizeMarkupText } from '@texttrends/epub/markup-text';
 /**
  * HTML container extraction — the worker-side adapter behind the `html` format.
  * Real-world HTML is rarely well-formed XML, so this uses a standards HTML5 tree
@@ -31,12 +32,6 @@ import { ExtractionFailure } from './failure.ts';
 type HtmlRecipe = Extract<ExtractionRecipeProvisional, { format: 'html' }>;
 
 const SKIPPED = new Set(['script', 'style', 'nav', 'head', 'template', 'noscript', 'iframe']);
-const BLOCK = new Set([
-  'address', 'article', 'aside', 'blockquote', 'caption', 'dd', 'div', 'dl', 'dt',
-  'figcaption', 'figure', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header',
-  'hr', 'li', 'main', 'ol', 'p', 'pre', 'section', 'table', 'tbody', 'tfoot',
-  'thead', 'tr', 'ul', 'td', 'th', 'summary', 'details',
-]);
 const HEADINGS: Record<string, number> = { h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6 };
 
 interface P5Node {
@@ -66,14 +61,6 @@ function attr(node: P5Node, name: string): string | undefined {
   return node.attrs?.find((a) => a.name === name)?.value;
 }
 
-function clean(value: string): string {
-  return value
-    .replace(/\r\n?/gu, '\n')
-    .replace(/[\t\f\v ]+/gu, ' ')
-    .replace(/ *\n */gu, '\n')
-    .replace(/\n{3,}/gu, '\n\n')
-    .trim();
-}
 
 /**
  * Close the current segment: clean it, account for the EXACT blank-line join
@@ -100,8 +87,7 @@ function flushSegment(em: Emitter): void {
 function walk(node: P5Node, em: Emitter, inHeading: { level: number } | null, inPre = false): void {
   const name = node.nodeName;
   if (node.nodeName === '#text') {
-    const value = (node.value ?? '').replace(/\r\n?/gu, '\n');
-    em.cur.chunks.push(value.replace(inPre ? /[\t\f\v ]+/gu : /[\t\n\f\v ]+/gu, ' '));
+    em.cur.chunks.push(normalizeMarkupText(node.value ?? '', inPre));
     return;
   }
   if (node.tagName === undefined) {

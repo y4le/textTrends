@@ -26,6 +26,7 @@
     "update:se-catalog": "pnpm build:packages && node scripts/update-se-catalog.mjs",
     "update:austen-corpus": "pnpm build:packages && node scripts/update-austen-corpus.mjs",
     "update:sherlock-corpus": "pnpm build:packages && node scripts/update-sherlock-corpus.mjs",
-    "update:demo-corpora": "pnpm build:packages && node scripts/update-demo-corpora.mjs"
+    "update:demo-corpora": "pnpm build:packages && node scripts/update-demo-corpora.mjs",
+    "test:source": "vitest run packages/extractors packages/standard-ebooks apps/web"
   }
 }

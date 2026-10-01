@@ -9,10 +9,12 @@
   },
   "exports": {
     ".": {
+      "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./archive": {
+      "source": "./src/archive.ts",
       "types": "./dist/archive.d.ts",
       "import": "./dist/archive.js"
     }

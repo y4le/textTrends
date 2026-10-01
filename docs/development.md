@@ -1,6 +1,8 @@
 # Develop and verify changes
 
-Use Node 22.12+ and pnpm 10.19.0 from the repository root. CI uses Node 24.
+Use Node 24 and pnpm 10.19.0 from the repository root, matching CI. Compiled
+packages support Node 22.12+, but direct `.ts` harness commands require native
+type stripping (Node 22.18+ or Node 24).
 
 ```sh
 pnpm install
@@ -8,12 +10,14 @@ pnpm dev
 ```
 
 The app runs under `/textTrends/`; open the URL printed by Vite. Workspace
-packages are local dependencies. Both `pnpm dev` and `pnpm dev:tailnet` build
-the compiled EPUB and Standard Ebooks packages before starting the web app,
-then watch both packages with one TypeScript build watcher. Package source edits
-update their compiled exports while Vite is running. Compiler errors appear in
-the terminal; fix them to resume successful rebuilds. Ctrl-C stops the server
-and package watcher together, and either process exiting stops its sibling.
+packages are local dependencies. Vite and Vitest resolve the workspace-only
+`source` export condition for EPUB and Standard Ebooks, so targeted tests and
+web builds use current TypeScript without needing a package rebuild. Native
+Node scripts and package consumers use the compiled default exports; run
+`pnpm build:packages` before those entry points. The dev launcher also builds
+and watches the compiled exports for those consumers; Ctrl-C stops its server
+and watcher together. No-emit typechecks use source; package emit builds use
+default exports and TypeScript project references.
 
 ## Repository map
 
@@ -43,7 +47,9 @@ pnpm build
 pnpm e2e
 ```
 
-`test` builds compiled packages, runs script tests, then Vitest. `build` runs
+`test:source` runs source-dependent suites without building compiled artifacts;
+CI runs it first on a clean checkout to guard source resolution. `test` builds
+compiled packages, runs script tests, then Vitest. `build` runs
 recursive typechecks, produces the normal web bundle, and enforces its byte
 budget and lazy-module boundaries. Use `pnpm typecheck` for a standalone type
 check or `pnpm check:bundle` against an existing normal production build.

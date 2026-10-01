@@ -9,8 +9,14 @@
   },
   "exports": {
     ".": {
+      "source": "./src/epub-reader.ts",
       "types": "./dist/epub-reader.d.ts",
       "import": "./dist/epub-reader.js"
+    },
+    "./markup-text": {
+      "source": "./src/markup-text.ts",
+      "types": "./dist/markup-text.d.ts",
+      "import": "./dist/markup-text.js"
     }
   },
   "files": [

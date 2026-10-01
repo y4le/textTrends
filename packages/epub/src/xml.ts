@@ -1,3 +1,4 @@
+import type { Document, Element } from '@xmldom/xmldom';
 import { DOMParser } from '@xmldom/xmldom';
 import { EPUB_PARSE_LIMITS, EPUB_XML_LIMITS } from './limits.js';
 import { EpubError } from './errors.js';

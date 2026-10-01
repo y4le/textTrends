@@ -17,6 +17,9 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "noUnusedLocals": true
+    "noUnusedLocals": true,
+    "customConditions": [
+      "source"
+    ]
   }
 }

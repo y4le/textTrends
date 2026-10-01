@@ -26,6 +26,8 @@ export default defineConfig(({ mode }) => {
   return {
     // GitHub Pages serves the app from /textTrends/.
     base: '/textTrends/',
+    resolve: { conditions: ['source', 'module', 'browser', 'development|production'] },
+    ssr: { resolve: { conditions: ['source', 'module', 'node', 'development|production'] } },
     plugins: [react(), ...(tailnetPath ? [restoreTailnetPath(tailnetPath)] : [])],
     ...(tailnetPath
       ? {
@@ -69,7 +71,7 @@ export default defineConfig(({ mode }) => {
       cssTarget: 'safari14',
       ...(mode === 'e2e'
         ? {
-            rollupOptions: {
+            rolldownOptions: {
               input: {
                 index: fileURLToPath(new URL('./index.html', import.meta.url)),
                 harness: fileURLToPath(new URL('./e2e-harness.html', import.meta.url)),

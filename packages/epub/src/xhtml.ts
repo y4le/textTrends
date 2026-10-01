@@ -1,3 +1,5 @@
+import type { Element, Node } from '@xmldom/xmldom';
+import { BLOCK_ELEMENTS, cleanExtractedText, normalizeMarkupText } from './markup-text.js';
 import type { EbookPartition } from './types.js';
 import { descendants, firstDescendant, normalizedText, parseXml, semanticTokens } from './xml.js';
 
@@ -9,12 +11,6 @@ export interface ExtractedXhtml {
 }
 
 const SKIPPED_ELEMENTS = new Set(['script', 'style', 'nav', 'iframe', 'template', 'noscript']);
-const BLOCK_ELEMENTS = new Set([
-  'address', 'article', 'aside', 'blockquote', 'caption', 'dd', 'div', 'dl', 'dt',
-  'figcaption', 'figure', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header',
-  'hr', 'li', 'main', 'ol', 'p', 'pre', 'section', 'table', 'tbody', 'tfoot',
-  'thead', 'tr', 'ul', 'td', 'th', 'summary', 'details',
-]);
 const SKIPPED_SEMANTICS = new Set(['backlink', 'noteref', 'pagebreak']);
 
 function partitionFrom(types: readonly string[]): EbookPartition | null {
@@ -25,7 +21,7 @@ function partitionFrom(types: readonly string[]): EbookPartition | null {
 }
 
 function shouldSkip(element: Element): boolean {
-  if (SKIPPED_ELEMENTS.has(element.localName)) return true;
+  if (SKIPPED_ELEMENTS.has(element.localName ?? '')) return true;
   if (element.hasAttribute('hidden')) return true;
   if (element.getAttribute('aria-hidden') === 'true') return true;
   if (element.getAttribute('role') === 'doc-noteref') return true;
@@ -38,8 +34,7 @@ function walkText(root: Node, output: string[]): void {
     const { node, inPre, exit } = stack.pop()!;
     if (exit) { output.push('\n\n'); continue; }
     if (node.nodeType === 3) {
-      const value = (node.nodeValue ?? '').replace(/\r\n?/gu, '\n');
-      output.push(value.replace(inPre ? /[\t\f\v ]+/gu : /[\t\n\f\v ]+/gu, ' '));
+      output.push(normalizeMarkupText(node.nodeValue ?? '', inPre));
       continue;
     }
     if (node.nodeType !== 1) continue;
@@ -55,7 +50,7 @@ function walkText(root: Node, output: string[]): void {
       continue;
     }
 
-    const isBlock = BLOCK_ELEMENTS.has(element.localName);
+    const isBlock = BLOCK_ELEMENTS.has(element.localName ?? '');
     if (isBlock) output.push('\n\n');
     if (isBlock) stack.push({ node, inPre, exit: true });
     for (let index = element.childNodes.length - 1; index >= 0; index--) {
@@ -65,14 +60,6 @@ function walkText(root: Node, output: string[]): void {
   }
 }
 
-function cleanExtractedText(value: string): string {
-  return value
-    .replace(/\r\n?/gu, '\n')
-    .replace(/[\t\f\v ]+/gu, ' ')
-    .replace(/ *\n */gu, '\n')
-    .replace(/\n{3,}/gu, '\n\n')
-    .trim();
-}
 
 function headingText(body: Element): string | null {
   const heading = descendants(body, 'h1')[0]

@@ -33,6 +33,9 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
 
+      - name: Workspace source tests before compiled artifacts exist
+        run: pnpm test:source
+
       - name: Typecheck
         run: pnpm typecheck
       - name: Unit tests

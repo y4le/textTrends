@@ -1,3 +1,4 @@
+import type { Document, Element } from '@xmldom/xmldom';
 import { EpubError } from './errors.js';
 import type { EbookCollection, EbookContributor, EbookMetadata } from './types.js';
 import { namespacedDescendants, normalizedText, parseXml } from './xml.js';

@@ -4,9 +4,18 @@
     "composite": true,
     "tsBuildInfoFile": "./dist/build.tsbuildinfo",
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "customConditions": []
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["test"],
-  "references": [{ "path": "../epub/tsconfig.build.json" }]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "test"
+  ],
+  "references": [
+    {
+      "path": "../epub/tsconfig.build.json"
+    }
+  ]
 }
