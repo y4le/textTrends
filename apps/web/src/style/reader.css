@@ -446,18 +446,20 @@
   white-space: nowrap;
 }
 
+.reader-read-layout[data-reader-layout='rails'][data-reader-find='true'] {
+  padding-block-end: var(--keyboard-inset);
+  grid-template-areas:
+    'reader-left reader-feedback reader-right'
+    'reader-left reader-prose reader-right'
+    'reader-left reader-pages reader-right';
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
 .reader-read-layout[data-reader-layout='rails'] .reader-find-takeover {
-  position: absolute;
-  z-index: 5;
-  inset-block-end: 0;
-  inset-inline:
-    calc(var(--reader-wide-rail-size) + var(--reader-wide-gap));
+  grid-area: reader-pages;
   inline-size: auto;
   max-inline-size: 75ch;
-  margin-inline: auto;
-  grid-area: auto;
-  box-shadow: 0 -2px 12px color-mix(in srgb, var(--fg) 12%, transparent);
-  transform: translateY(calc(-1 * var(--keyboard-inset)));
+  transform: none;
 }
 
 .reader-control-bar {

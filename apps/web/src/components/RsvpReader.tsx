@@ -374,7 +374,7 @@ export function RsvpReader({
         onPointerUp={handleStagePointerUp}
         onPointerCancel={() => { stagePointer.current = null; }}
       >
-        <div className="reader-rsvp-word" aria-hidden="true">
+        <div className="reader-rsvp-word" dir="auto" aria-hidden="true">
           {frame ? (
             <>
               <span

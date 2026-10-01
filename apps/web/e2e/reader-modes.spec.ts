@@ -356,7 +356,7 @@ test('Reader controls overlay fitted prose and return focus without issuing anal
   expect(workerQueriesAfter((await trace(page)).events, mark)).toEqual([]);
 });
 
-test('wide Reader Find overlays the fitted page without replacing its measured rails', async ({ page }) => {
+test('wide Reader Find reserves its own row while retaining measured rails', async ({ page }) => {
   const { reader } = await openReader(page);
   const layout = reader.locator('.reader-read-layout');
   const pane = reader.locator('.reader-prose-pane');
@@ -376,12 +376,28 @@ test('wide Reader Find overlays the fitted page without replacing its measured r
   await expect(reader.getByRole('slider', { name: /Position in/ }))
     .toHaveAttribute('data-orientation', 'horizontal');
   await expect(reader.locator('[data-atlas-entry]')).toHaveCount(0);
-  expect(await pane.boundingBox()).toEqual(paneBox);
-  await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
+  await expect(pane).not.toHaveAttribute('data-reader-fitting');
+  const smallerPane = await pane.boundingBox();
+  expect(smallerPane!.height).toBeLessThan(paneBox!.height);
   const [findBox, layoutBox] = await Promise.all([find.boundingBox(), layout.boundingBox()]);
   if (!findBox || !layoutBox) throw new Error('wide Find geometry unavailable');
+  expect(smallerPane!.y + smallerPane!.height).toBeLessThanOrEqual(findBox.y + 1);
+  const sourceBox = await reader.locator('[data-reader-page]').boundingBox();
+  expect(sourceBox!.y + sourceBox!.height).toBeLessThanOrEqual(smallerPane!.y + smallerPane!.height + 1);
   expect(findBox.x).toBeGreaterThanOrEqual(layoutBox.x);
   expect(findBox.x + findBox.width).toBeLessThanOrEqual(layoutBox.x + layoutBox.width + 0.5);
+
+  // Landscape tablet keyboards reduce the available prose row too.
+  await layout.evaluate((element) => (element as HTMLElement).style.setProperty('--keyboard-inset', '300px'));
+  await expect(pane).not.toHaveAttribute('data-reader-fitting');
+  await expect.poll(async () => {
+    const box = await find.boundingBox();
+    return box!.y + box!.height;
+  }).toBeLessThanOrEqual(page.viewportSize()!.height - 299);
+  const keyboardPane = await pane.boundingBox();
+  expect(keyboardPane!.height).toBeLessThan(smallerPane!.height);
+  await layout.evaluate((element) => (element as HTMLElement).style.removeProperty('--keyboard-inset'));
+  await expect(pane).not.toHaveAttribute('data-reader-fitting');
 
   await find.getByRole('button', { name: 'Clear and close find' }).click();
   await expect(find).toHaveCount(0);

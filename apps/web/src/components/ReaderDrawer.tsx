@@ -578,6 +578,7 @@ function ReaderProseDrawer({
       ref={layoutRef}
       className="reader-read-layout"
       data-reader-layout={wideRails ? 'rails' : 'bar'}
+      data-reader-find={findMode || undefined}
     >
       <span ref={wideFitProbeRef} className="reader-wide-fit-probe" aria-hidden="true" />
       <h2 id="reader-title" className="visually-hidden">Reader: {title}</h2>

@@ -50,7 +50,7 @@ describe('RSVP Reader presentation', () => {
     expect(html).toContain('data-rsvp-frame-token="10">S</span>');
     expect(html).toContain('data-rsvp-frame-token="10">p</span>');
     expect(html).toContain('data-rsvp-frame-token="10">eed,</span>');
-    expect(html).toContain('class="reader-rsvp-word" aria-hidden="true"');
+    expect(html).toContain('class="reader-rsvp-word" dir="auto" aria-hidden="true"');
     expect(html).not.toContain('role="note"');
     expect(html).toContain('aria-label="Return to Reader"');
     expect(html).toContain('aria-label="Previous passage"');

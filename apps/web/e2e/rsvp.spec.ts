@@ -924,3 +924,36 @@ test('Speed adopts bounded continuation sources, revisits them, and releases a p
   await expect(progress).not.toHaveAttribute('aria-valuenow', selected!);
   await expect(reader.getByRole('button', { name: 'pause', exact: true })).toBeVisible();
 });
+
+
+test('Speed preserves right-to-left order around its highlighted letter', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({ name: 'rtl-speed.txt', mimeType: 'text/plain', buffer: Buffer.from('שלום עולם. '.repeat(50)) });
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
+  const footer = page.getByRole('slider', { name: 'Corpus footer position' });
+  await footer.focus();
+  await footer.press('Home');
+  await footer.press('Enter');
+  const reader = page.getByRole('main', { name: /Reader: rtl-speed/ });
+  await expect(reader.locator('[data-reader-page]')).toBeVisible();
+  await enterRsvp(reader);
+  await reader.getByRole('button', { name: 'pause', exact: true }).click();
+  const word = reader.locator('.reader-rsvp-word');
+  await expect(word).toHaveCSS('direction', 'rtl');
+  const positions = await word.evaluate((root) => {
+    const center = (selector: string) => {
+      const range = document.createRange();
+      range.selectNodeContents(root.querySelector(selector)!);
+      const bounds = range.getBoundingClientRect();
+      return bounds.x + bounds.width / 2;
+    };
+    return { before: center('.reader-rsvp-before'), anchor: center('.reader-rsvp-anchor'), after: center('.reader-rsvp-after > span') };
+  });
+  expect(positions.before).toBeGreaterThan(positions.anchor);
+  expect(positions.anchor).toBeGreaterThan(positions.after);
+});

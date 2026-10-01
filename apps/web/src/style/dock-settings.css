@@ -784,6 +784,12 @@
   background: var(--bg);
 }
 
+/* Reader control layers already budget the keyboard inset outside the pane. */
+.reader-controls-pane .utility-pane-footer {
+  inset-block-end: 0;
+  padding-block-end: var(--space-3);
+}
+
 .form-layer.help-layer {
   display: flex;
   align-items: center;
