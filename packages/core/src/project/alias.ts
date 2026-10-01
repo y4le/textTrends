@@ -8,11 +8,12 @@ import { DEFAULT_INDEX_RECIPE, type IndexRecipeProvisional } from '../contract/r
 import { tokenKey } from '../index/build.ts';
 import { TERM_GROUP_LIMITS_V1, type GroupMember, type PhraseElement } from '../ops/occurrences.ts';
 import type { MatchMode } from '../resolve/fold.ts';
-import { isNumeralSegment } from '../segment/intl.ts';
+import { isNumeralSegment, sentenceCharStarts } from '../segment/intl.ts';
 
 export const ALIAS_COMPILER_V1 = {
-  id: 'texttrends/alias-compiler/1',
+  id: 'texttrends/alias-compiler/2',
   segmentation: 'intl-word-v1',
+  sentencePolicy: 'literal-boundaries-may-cross/1',
   locale: 'index-recipe-fixed-or-document-fallback',
   wildcard: 'one-asterisk-at-one-end-of-alias',
 } as const;
@@ -94,10 +95,14 @@ export function compileAlias(
 
   const segments = wordSegmenter(recipeLocale(recipe));
   const units: string[] = [];
+  const starts: number[] = [];
+  const ends: number[] = [];
   for (const segment of segments.segment(body)) {
     if (!segment.isWordLike) continue;
     if (recipe.numerals.policy === 'drop' && isNumeralSegment(segment.segment)) continue;
     units.push(tokenKey(segment.segment, recipe));
+    starts.push(segment.index);
+    ends.push(segment.index + segment.segment.length);
   }
   if (units.length === 0) {
     return { ok: false, code: 'no-word-units', message: 'type at least one letter or number' };
@@ -132,12 +137,14 @@ export function compileAlias(
   } else if (wildcard === 'suffix') {
     elements[0] = { kind: 'suffix', stem: units[0]! };
   }
+  const crossSentence = sentenceCharStarts(body, recipeLocale(recipe), starts, ends)
+    .some((boundary) => boundary > starts[0]! && boundary <= starts.at(-1)!);
   return {
     ok: true,
     alias,
     units,
     wildcard,
-    member: { id: memberId, kind: 'phrase', elements, match, crossSentence: false },
+    member: { id: memberId, kind: 'phrase', elements, match, crossSentence },
   };
 }
 

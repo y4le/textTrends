@@ -33,6 +33,21 @@ const POLICY_CORPUS = [
   'Ask Mr. ',
 ] as const;
 
+describe('source hard wraps and multilingual boundary parity', () => {
+  it.each([['th', 'พ.ศ.2500'], ['he', 'הרב א.ב. יהושע כתב.'], ['en', 'first\r\nline\r\n\r\nnext paragraph.'], ['en', 'first\nline\n\nnext paragraph.'], ['en', 'first\u2029next paragraph.']])('keeps core and RSVP aligned: %s %s', async (locale, text) => {
+    const shard = await createDocumentIndex(text!, await segment(text!, locale!), DEFAULT_INDEX_RECIPE);
+    const standalone = createRsvpSource(text!, { locale });
+    expect(standalone.sentenceBounds).toEqual(Array.from(shard.sentenceBounds));
+    expect(standalone.paragraphBounds).toEqual(Array.from(shard.paragraphBounds));
+  });
+  it('does not turn a hard wrap into a sentence or a single CRLF into a paragraph', async () => {
+    const text = 'first\r\nline continues.\r\n\r\nSecond paragraph.';
+    const shard = await createDocumentIndex(text, await segment(text, 'en'), DEFAULT_INDEX_RECIPE);
+    expect(Array.from(shard.sentenceBounds)).toEqual([0, 3, 5]);
+    expect(Array.from(shard.paragraphBounds)).toEqual([0, 3, 5]);
+  });
+});
+
 describe('sentence segmentation parity', () => {
   it('keeps the fingerprinted core and standalone RSVP title policies aligned', async () => {
     for (const text of POLICY_CORPUS) {

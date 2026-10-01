@@ -44,6 +44,31 @@ function isFalseTitleBoundary(text: string, start: number, locale: string): bool
   return following !== null && !SENTENCE_STARTERS.has(following[0].toLowerCase());
 }
 
+/** Offset-preserving sentence view: a source hard wrap is whitespace;
+ * blank lines and paragraph separators retain their structural meaning. */
+function sentenceTextView(text: string): string {
+  return text.replace(/(?:\r\n|\r(?!\n)|[\n\u0085\u2028])(?:[ \t]*(?:\r\n|\r(?!\n)|[\n\u0085\u2028]))*/gu, (run) => {
+    const breaks = run.match(/\r\n|\r(?!\n)|[\n\u0085\u2028]/gu)!;
+    return breaks.length === 1 ? run.replace(/[\r\n\u0085\u2028]/gu, ' ') : run;
+  });
+}
+
+/** Shared synchronous policy for the index and authored alias compilation. */
+function sentenceCharStarts(text: string, locale: string, starts: readonly number[], ends: readonly number[]): number[] {
+  const view = sentenceTextView(text);
+  const sentences = new Intl.Segmenter(locale, { granularity: 'sentence' });
+  const resolved = sentences.resolvedOptions().locale;
+  const bounds: number[] = [];
+  let token = 0;
+  for (const sentence of sentences.segment(view)) {
+    const start = sentence.index;
+    while (token < ends.length && ends[token]! <= start) token++;
+    if (token < starts.length && starts[token]! < start && start < ends[token]!) continue;
+    if (!isFalseTitleBoundary(view, start, resolved)) bounds.push(start);
+  }
+  return bounds;
+}
+
 function tokenBoundsAtCharStarts(
   charStarts: readonly number[],
   tokenStarts: readonly number[],
@@ -91,18 +116,14 @@ export function createRsvpSource(
     tokenEndsUtf16.push(segment.index + segment.segment.length);
   }
 
-  const sentenceSegmenter = new Intl.Segmenter(locale, { granularity: 'sentence' });
-  const sentenceLocale = sentenceSegmenter.resolvedOptions().locale;
-  const sentenceCharStarts = Array.from(sentenceSegmenter.segment(text))
-    .filter((segment) => !isFalseTitleBoundary(text, segment.index, sentenceLocale))
-    .map((segment) => segment.index);
+  const sentenceStarts = sentenceCharStarts(text, wordSegmenter.resolvedOptions().locale, tokenStartsUtf16, tokenEndsUtf16);
   const tokenCount = tokenStartsUtf16.length;
   return {
     text,
     tokens: { start: 0, end: tokenCount },
     tokenStartsUtf16,
     tokenEndsUtf16,
-    sentenceBounds: tokenBoundsAtCharStarts(sentenceCharStarts, tokenStartsUtf16),
+    sentenceBounds: tokenBoundsAtCharStarts(sentenceStarts, tokenStartsUtf16),
     paragraphBounds: tokenBoundsAtCharStarts(paragraphCharStarts(text), tokenStartsUtf16),
     docTokenCount: tokenCount,
   };

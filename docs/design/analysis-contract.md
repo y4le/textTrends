@@ -79,6 +79,19 @@ zero-based half-open coordinate within a document; user-facing positions are
 rendered one-based. Character positions are UTF-16 offsets into canonical
 extracted text.
 
+The v6 Intl adapter drops sentence starts inside word spans. Sentence policy
+`intl-sentence-v2` masks single source line breaks with equal-width spaces;
+blank-line runs and U+2029 retain paragraph meaning. `unicode-blank-line-v2`
+treats CRLF as one indivisible line terminator. Offsets still address the original
+text. A single newline after a Markdown heading or list item is treated as
+source wrapping too. Standalone RSVP mirrors these policies and is checked
+for parity.
+Authored alias compiler v2 permits a phrase to cross sentence boundaries that
+occur inside its own literal (for example, “St. Louis”); ordinary phrases stay
+within a sentence. For longer literals this phrase-wide permission also
+applies to other internal token positions, rather than encoding per-position
+boundary exceptions.
+
 The corpus snapshot adds a declared-sequence token base for each ready
 document. Analyses use either document-relative or declared-sequence
 coordinates explicitly; they never infer a coordinate from presentation.

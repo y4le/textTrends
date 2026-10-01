@@ -196,10 +196,10 @@ describe('boundary arrays carry terminal sentinels', () => {
     }
   });
 
-  it('does not suppress title boundaries across line terminators', async () => {
+  it('preserves paragraph boundaries while suppressing source hard-wrap title breaks', async () => {
     for (const separator of ['\n', '\r\n', '\n\n', '\u0085', '\u2028', '\u2029']) {
       const ix = await build(`Mr.${separator}Jones went home.`);
-      expect(Array.from(ix.sentenceBounds), JSON.stringify(separator)).toEqual([0, 1, 4]);
+      expect(Array.from(ix.sentenceBounds), JSON.stringify(separator)).toEqual(separator === '\n\n' || separator === '\u2029' ? [0, 1, 4] : [0, 4]);
     }
   });
 

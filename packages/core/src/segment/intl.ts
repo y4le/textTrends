@@ -22,7 +22,7 @@ export interface SegmenterFingerprint {
   /** Effective locale from Intl.Segmenter.resolvedOptions(), not caller spelling. */
   readonly locale: string;
   readonly wordPolicy: 'intl-word-v1';
-  readonly sentencePolicy: 'intl-sentence-v1';
+  readonly sentencePolicy: 'intl-sentence-v2';
   readonly classifierVersion: 'numeral-re-v1';
   readonly probeHash: string;
 }
@@ -50,10 +50,10 @@ export interface SegmentationBatch {
 export const SEGMENTER_PROBE =
   "Dr. Smith's co-operation\u2014remarkable, isn't it? 3.14 miles; \u201cwell,\u201d she said. " +
   '\u65e5\u672c\u8a9e\u306e\u5206\u304b\u3061\u66f8\u304d\u3002 cafe\u0301 nai\u0308ve re\u0301sume\u0301. e\u0301toile. ' +
-  'Mr. Jones went home. \ud83d\ude00 emoji!';
+  'Mr. Jones went home. \ud83d\ude00 emoji! พ.ศ.2500. הרב א.ב. יהושע. hard\nwrap.';
 
 const ADAPTER = 'intl-segmenter';
-const ADAPTER_VERSION = '5'; // bumped: suppress false English prefix-title boundaries
+const ADAPTER_VERSION = '6'; // coherent word/sentence boundaries and source hard wrapping
 /** Versioned numeral classifier - identity recorded in recipe and fingerprint. */
 const NUMERAL_RE = /^\p{N}+(?:[.,\u00b7]\p{N}+)*$/u;
 
@@ -116,6 +116,31 @@ function isFalseTitleBoundary(text: string, start: number, locale: string): bool
   return following !== null && !SENTENCE_STARTERS.has(following[0].toLowerCase());
 }
 
+/** Offset-preserving sentence view: a source hard wrap is whitespace;
+ * blank lines and paragraph separators retain their structural meaning. */
+export function sentenceTextView(text: string): string {
+  return text.replace(/(?:\r\n|\r(?!\n)|[\n\u0085\u2028])(?:[ \t]*(?:\r\n|\r(?!\n)|[\n\u0085\u2028]))*/gu, (run) => {
+    const breaks = run.match(/\r\n|\r(?!\n)|[\n\u0085\u2028]/gu)!;
+    return breaks.length === 1 ? run.replace(/[\r\n\u0085\u2028]/gu, ' ') : run;
+  });
+}
+
+/** Shared synchronous policy for the index and authored alias compilation. */
+export function sentenceCharStarts(text: string, locale: string, starts: readonly number[], ends: readonly number[]): number[] {
+  const view = sentenceTextView(text);
+  const sentences = new Intl.Segmenter(locale, { granularity: 'sentence' });
+  const resolved = sentences.resolvedOptions().locale;
+  const bounds: number[] = [];
+  let token = 0;
+  for (const sentence of sentences.segment(view)) {
+    const start = sentence.index;
+    while (token < ends.length && ends[token]! <= start) token++;
+    if (token < starts.length && starts[token]! < start && start < ends[token]!) continue;
+    if (!isFalseTitleBoundary(view, start, resolved)) bounds.push(start);
+  }
+  return bounds;
+}
+
 function segmentRaw(text: string, locale: string): RawSegmentation {
   const words = new Intl.Segmenter(locale, { granularity: 'word' });
   const resolvedLocale = words.resolvedOptions().locale;
@@ -129,12 +154,7 @@ function segmentRaw(text: string, locale: string): RawSegmentation {
       classes.push(isNumeralSegment(seg.segment) ? TOKEN_CLASS.numeral : TOKEN_CLASS.lexical);
     }
   }
-  const sentences = new Intl.Segmenter(locale, { granularity: 'sentence' });
-  const resolvedSentenceLocale = sentences.resolvedOptions().locale;
-  const sentenceStarts: number[] = [];
-  for (const seg of sentences.segment(text)) {
-    if (!isFalseTitleBoundary(text, seg.index, resolvedSentenceLocale)) sentenceStarts.push(seg.index);
-  }
+  const sentenceStarts = sentenceCharStarts(text, locale, starts, ends);
   return { starts, ends, classes, sentenceStarts, resolvedLocale };
 }
 
@@ -157,7 +177,7 @@ export function fingerprint(locale: string): Promise<SegmenterFingerprint> {
       adapterVersion: ADAPTER_VERSION,
       locale: raw.resolvedLocale,
       wordPolicy: 'intl-word-v1' as const,
-      sentencePolicy: 'intl-sentence-v1' as const,
+      sentencePolicy: 'intl-sentence-v2' as const,
       classifierVersion: 'numeral-re-v1' as const,
       probeHash: await sha256Hex(packed),
     };

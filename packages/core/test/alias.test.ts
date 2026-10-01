@@ -13,6 +13,13 @@ function compiled(raw: string) {
 }
 
 describe('compileAlias', () => {
+  it.each(['St. Louis', 'U.S. Army', '5 p.m. Tuesday'])('permits sentence breaks present in the authored literal: %s', (alias) => {
+    expect(compiled(alias).member).toMatchObject({ kind: 'phrase', crossSentence: true });
+  });
+  it('keeps ordinary phrases confined to one sentence', () => {
+    expect(compiled('New York').member).toMatchObject({ kind: 'phrase', crossSentence: false });
+  });
+
   it('compiles tokens and one-ended wildcard tokens', () => {
     expect(compiled('NYC').member).toEqual({
       id: 'a0', kind: 'token', surface: 'NYC', match: FOLDED,

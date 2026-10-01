@@ -108,10 +108,10 @@ describe('plain-text RSVP source', () => {
     }
   });
 
-  it('does not suppress title boundaries across line terminators', () => {
+  it('preserves paragraph boundaries while suppressing source hard-wrap title breaks', () => {
     for (const separator of ['\n', '\r\n', '\n\n', '\u0085', '\u2028', '\u2029']) {
       const source = createRsvpSource(`Mr.${separator}Jones went home.`, { locale: 'en-US' });
-      expect(source.sentenceBounds, JSON.stringify(separator)).toEqual([0, 1, 4]);
+      expect(source.sentenceBounds, JSON.stringify(separator)).toEqual(separator === '\n\n' || separator === '\u2029' ? [0, 1, 4] : [0, 4]);
       if (separator === '\n\n') expect(source.paragraphBounds).toEqual([0, 1, 4]);
     }
   });

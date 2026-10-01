@@ -78,15 +78,14 @@ export function tokenKey(raw: string, recipe: IndexRecipeProvisional): string {
 }
 
 /**
- * Paragraph starts per `unicode-blank-line-v1`: a paragraph break is two or
+ * Paragraph starts per `unicode-blank-line-v2`: a paragraph break is two or
  * more consecutive Unicode line breaks (CR, CRLF, LF, NEL U+0085, LS U+2028,
  * PS U+2029) separated only by spaces/tabs.
  */
 export function paragraphCharStarts(text: string): number[] {
   const starts: number[] = [0];
-  // A blank-line run: line break, then (optional spaces/tabs + line break)+.
-  // Line break = CRLF | CR | LF | NEL U+0085 | LS U+2028 | PS U+2029.
-  const re = /(?:\r\n|[\n\r\u0085\u2028\u2029])(?:[ \t]*(?:\r\n|[\n\r\u0085\u2028\u2029]))+/g;
+  // CRLF is indivisible; U+2029 alone marks a paragraph.
+  const re = /(?:\u2029|(?:\r\n|\r(?!\n)|[\n\u0085\u2028])(?:[ \t]*(?:\r\n|\r(?!\n)|[\n\u0085\u2028]))+)/gu;
   for (let m = re.exec(text); m !== null; m = re.exec(text)) {
     const next = m.index + m[0].length;
     if (next < text.length) starts.push(next);
@@ -312,7 +311,7 @@ export function validateShardStructure(shard: DocumentIndexV1): void {
     }
   }
   if (segRec['wordPolicy'] !== 'intl-word-v1') throw new RangeError("segmenter.wordPolicy must be 'intl-word-v1'");
-  if (segRec['sentencePolicy'] !== 'intl-sentence-v1') throw new RangeError("segmenter.sentencePolicy must be 'intl-sentence-v1'");
+  if (segRec['sentencePolicy'] !== 'intl-sentence-v2') throw new RangeError("segmenter.sentencePolicy must be 'intl-sentence-v2'");
   if (segRec['classifierVersion'] !== 'numeral-re-v1') throw new RangeError("segmenter.classifierVersion must be 'numeral-re-v1'");
   hex64(segRec['probeHash'], 'segmenter.probeHash');
   const u32 = (v: unknown, name: string): Uint32Array => {

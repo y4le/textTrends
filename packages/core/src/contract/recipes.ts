@@ -27,13 +27,13 @@ export interface IndexRecipeProvisional {
     readonly policy: 'intl-word-v1';
     readonly emittedClasses: 'word-like-v1';
   };
-  readonly sentenceSegmentation: { readonly policy: 'intl-sentence-v1' };
+  readonly sentenceSegmentation: { readonly policy: 'intl-sentence-v2' };
   /**
-   * 'unicode-blank-line-v1': paragraphs split at a blank line — two or more
+   * 'unicode-blank-line-v2': paragraphs split at a blank line — two or more
    * consecutive Unicode line breaks (CR, CRLF, LF, NEL, LS, PS) with only
    * spaces/tabs between them.
    */
-  readonly paragraphSegmentation: { readonly policy: 'unicode-blank-line-v1' };
+  readonly paragraphSegmentation: { readonly policy: 'unicode-blank-line-v2' };
   readonly apostrophes: { readonly policy: 'keep' | 'normalize' };
   /**
    * 'segmenter-default': no post-processing — Intl.Segmenter already splits
@@ -54,8 +54,8 @@ export const DEFAULT_INDEX_RECIPE: IndexRecipeProvisional = {
   unicode: { form: 'NFC', application: 'per-emitted-token-after-segmentation' },
   locale: { mode: 'document-metadata', fallback: 'en' },
   wordSegmentation: { policy: 'intl-word-v1', emittedClasses: 'word-like-v1' },
-  sentenceSegmentation: { policy: 'intl-sentence-v1' },
-  paragraphSegmentation: { policy: 'unicode-blank-line-v1' },
+  sentenceSegmentation: { policy: 'intl-sentence-v2' },
+  paragraphSegmentation: { policy: 'unicode-blank-line-v2' },
   apostrophes: { policy: 'normalize' },
   hyphens: { policy: 'segmenter-default' },
   numerals: { policy: 'keep', classifierVersion: 'numeral-re-v1' },
@@ -84,8 +84,8 @@ export function isIndexRecipeProvisional(v: unknown): v is IndexRecipeProvisiona
     exactRecord(u, ['form', 'application']) && (u.form === 'NFC' || u.form === 'NFKC') && u.application === 'per-emitted-token-after-segmentation' &&
     localeOk &&
     exactRecord(w, ['policy', 'emittedClasses']) && w.policy === 'intl-word-v1' && w.emittedClasses === 'word-like-v1' &&
-    exactRecord(s, ['policy']) && s.policy === 'intl-sentence-v1' &&
-    exactRecord(p, ['policy']) && p.policy === 'unicode-blank-line-v1' &&
+    exactRecord(s, ['policy']) && s.policy === 'intl-sentence-v2' &&
+    exactRecord(p, ['policy']) && p.policy === 'unicode-blank-line-v2' &&
     exactRecord(a, ['policy']) && (a.policy === 'keep' || a.policy === 'normalize') &&
     exactRecord(h, ['policy']) && h.policy === 'segmenter-default' &&
     exactRecord(n, ['policy', 'classifierVersion']) && (n.policy === 'keep' || n.policy === 'drop') && n.classifierVersion === 'numeral-re-v1'
