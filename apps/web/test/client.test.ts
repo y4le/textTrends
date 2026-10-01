@@ -39,6 +39,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -108,6 +109,61 @@ describe('WorkerClient close()', () => {
 });
 
 describe('WorkerClient restart machinery', () => {
+  it('keeps automatic recovery dead when the replacement constructor throws', async () => {
+    const client = new WorkerClient();
+    const restarted = vi.fn();
+    client.onRestart(restarted);
+    FakeWorker.throwOnConstruct = true;
+    expect(() => FakeWorker.instances.at(-1)!.onerror?.(new Event('error'))).not.toThrow();
+    expect(restarted).toHaveBeenCalledWith(true);
+    expect(client.diagnostics().health).toBe('dead');
+    await expect(client.query('snap', { op: 'trend' } as never).result).rejects.toThrow('WORKER_TERMINATED');
+  });
+
+  it('bounds repeated crashes even when generation barriers succeed between them', async () => {
+    const client = new WorkerClient();
+    const restarted = vi.fn();
+    client.onRestart(restarted);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      FakeWorker.instances.at(-1)!.onerror?.(new Event('error'));
+      const generation = `reopen-${attempt}`;
+      const open = client.openGeneration(generation, [], DEFAULT_INDEX_RECIPE);
+      const worker = FakeWorker.instances.at(-1)!;
+      const request = worker.posted.at(-1) as { job: number };
+      worker.onmessage?.({ data: {
+        v: PROTOCOL_VERSION_V4, t: 'generation-ready', job: request.job,
+        generation, snapshot: 'snapshot', readyDocs: [], missingDocs: [],
+      } });
+      await open.result;
+    }
+    FakeWorker.instances.at(-1)!.onerror?.(new Event('error'));
+    expect(restarted.mock.calls.map(([fatal]) => fatal)).toEqual([false, false, false, true]);
+    expect(FakeWorker.instances).toHaveLength(4);
+  });
+
+  it('grants automatic recovery a new window after a minute of stability', () => {
+    let now = 100;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const client = new WorkerClient();
+    for (let attempt = 0; attempt < 3; attempt++) FakeWorker.instances.at(-1)!.onerror?.(new Event('error'));
+    now += 60_001;
+    FakeWorker.instances.at(-1)!.onerror?.(new Event('error'));
+    expect(client.diagnostics().health).toBe('live');
+    expect(FakeWorker.instances).toHaveLength(5);
+    client.close();
+  });
+
+  it('exhausts recovery when slow crashes occur 25 seconds apart', () => {
+    let now = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const client = new WorkerClient();
+    for (let attempt = 0; attempt < 4; attempt++) {
+      FakeWorker.instances.at(-1)!.onerror?.(new Event('error'));
+      now += 25_000;
+    }
+    expect(client.diagnostics().health).toBe('dead');
+    expect(FakeWorker.instances).toHaveLength(4);
+  });
   it('reports sanitized health and explicitly revives a fatally exhausted worker', () => {
     const client = new WorkerClient();
     const first = FakeWorker.instances.at(-1)!;

@@ -12,7 +12,7 @@ import {
 import { useWorkbenchShortcuts } from './components/app/useWorkbenchShortcuts.ts';
 import { useUtilityPanes } from './components/app/useUtilityPanes.ts';
 import { ActivePlace, PlaceLoading } from './places/ActivePlace.tsx';
-import { useApp } from './lib/store-instance.ts';
+import { shutdownAppForReload, useApp } from './lib/store-instance.ts';
 import { StatusBar } from './components/StatusBar.tsx';
 import { HeaderActions } from './components/HeaderActions.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
@@ -128,6 +128,8 @@ export function App() {
   const inputError = useApp((s) => s.inputError);
   const retryAnalysis = useApp((s) => s.retryAnalysis);
   const loadError = useApp((s) => s.loadError);
+  const loadErrorFatal = useApp((s) => s.loadErrorFatal);
+  const [reloadError, setReloadError] = useState<string | null>(null);
   const notebookError = useApp((s) => s.notebookError);
   const clearNotebookError = useApp((s) => s.clearNotebookError);
   const commandError = useApp((s) => s.commandError);
@@ -918,7 +920,16 @@ export function App() {
             {loadError}{' '}
             <button
               type="button"
-              onClick={() => retryAnalysis()}
+              onClick={() => {
+                if (!loadErrorFatal) {
+                  retryAnalysis();
+                  return;
+                }
+                setReloadError(null);
+                void shutdownAppForReload({ preserveWorkspace: true })
+                  .then(() => window.location.reload())
+                  .catch((error: unknown) => setReloadError(`Could not save before reload: ${error instanceof Error ? error.message : String(error)}. Your edits remain open.`));
+              }}
               style={{
                 font: 'inherit',
                 color: 'inherit',
@@ -928,10 +939,11 @@ export function App() {
                 padding: '0 0.5ch',
               }}
             >
-              retry
+              {loadErrorFatal ? 'reload' : 'retry'}
             </button>
           </p>
         )}
+        {reloadError && <p role="alert">{reloadError}</p>}
       </div>
       <div className="workbench">
         <div className="place-region">

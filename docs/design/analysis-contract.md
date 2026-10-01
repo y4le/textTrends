@@ -195,6 +195,12 @@ cleanly instead of being silently upgraded or partially interpreted.
   repaired by reimport or explicitly removed. Source use still verifies bytes.
 - Artifact persistence failures degrade analysis safely and surface bounded
   warnings; workspace-save failure/retry remains visible across places and Reader.
+- Automatic worker recovery permits at most three replacements without a
+  60-second period since the previous crash. A successful generation barrier
+  does not reset that budget.
+  Constructor failure or exhaustion is fatal: old async continuations and
+  automatic import completion are fenced, and the app offers Reload. Explicit
+  analysis retry or manual worker restart can request a fresh process.
 
 ## Change rule
 

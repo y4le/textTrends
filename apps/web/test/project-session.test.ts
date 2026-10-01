@@ -33,6 +33,7 @@ interface OpenEntry {
   readonly generation: string;
   readonly docs: readonly GenerationDocSpecV4[];
   readonly resolve: (result: GenerationReady) => void;
+  readonly reject: (error: Error) => void;
   cancelled: boolean;
 }
 
@@ -52,8 +53,9 @@ class FakeClient implements ProjectSessionClient {
   onRestart(listener: (fatal: boolean) => void): void { this.restartListener = listener; }
   openGeneration(generation: string, docs: readonly GenerationDocSpecV4[]): { result: Promise<GenerationReady>; cancel: () => void } {
     let resolve!: (result: GenerationReady) => void;
-    const result = new Promise<GenerationReady>((done) => { resolve = done; });
-    const entry: OpenEntry = { generation, docs, resolve, cancelled: false };
+    let reject!: (error: Error) => void;
+    const result = new Promise<GenerationReady>((done, fail) => { resolve = done; reject = fail; });
+    const entry: OpenEntry = { generation, docs, resolve, reject, cancelled: false };
     this.opens.push(entry);
     return { result, cancel: () => { entry.cancelled = true; } };
   }
@@ -173,6 +175,57 @@ async function finalizeImport(session: ProjectSession, client: FakeClient, files
 }
 
 describe('generation and source resolution', () => {
+  it('does not automatically revive a fatal worker when import staging finishes', async () => {
+    const file = libraryFile('a.txt', 10, 'a');
+    const { session, client } = makeSession(emptyProject(), [file]);
+    session.appendFiles([file]);
+    client.restart(true);
+    await settle();
+    expect(client.opens).toHaveLength(0);
+    expect(session.getState().analysis).toMatchObject({ phase: 'error', fatal: true });
+    expect(session.getState().imports[0]!.status).toBe('failed');
+  });
+
+  it('fences a source read already in flight at fatal exhaustion', async () => {
+    let finishRead!: (bytes: ArrayBuffer) => void;
+    const file = libraryFile('a.txt', 10, 'a');
+    file.arrayBuffer = () => new Promise((resolve) => { finishRead = resolve; });
+    const { session, client } = makeSession(emptyProject(), [file]);
+    const { open } = await prepareImport(session, client, [file]);
+    client.restart(true);
+    finishRead(new ArrayBuffer(10));
+    client.snapshot({ generation: open.generation, snapshot: 'late', readyDocs: [], missingDocs: [] });
+    await settle();
+    expect(client.ingests).toHaveLength(0);
+    expect(session.getState().analysis).toMatchObject({ phase: 'error', fatal: true });
+    expect(session.getState().imports[0]!.status).toBe('failed');
+  });
+
+  it.each(['analysis retry', 'manual worker restart'])('keeps fatal recovery visible until %s', async (recovery) => {
+    const { session, client } = makeSession(emptyProject(), []);
+    session.start();
+    const oldOpen = client.lastOpen();
+    client.restart(true);
+    oldOpen.reject(new Error('WORKER_RESTARTED'));
+    await settle();
+    expect(session.getState().analysis).toMatchObject({ phase: 'error', fatal: true, message: expect.stringContaining('reload') });
+    expect(client.opens).toHaveLength(1);
+    if (recovery === 'analysis retry') session.start();
+    else client.restart(false);
+    expect(client.opens).toHaveLength(2);
+    expect(session.getState().analysis.phase).toBe('loading');
+  });
+
+  it('does not replace a synchronous ingest failure with extracting', async () => {
+    const file = libraryFile('a.txt', 10, 'a');
+    const { session, client } = makeSession(emptyProject(), [file]);
+    vi.spyOn(client, 'ingest').mockImplementation((generation, doc) => {
+      client.ingestError(generation, 'WORKER_TERMINATED', doc);
+      return { job: -1 };
+    });
+    await prepareImport(session, client, [file]);
+    expect(session.getState().imports[0]!.status).toBe('failed');
+  });
   it('rejects replacement before mutation and fences old events on acceptance', async () => {
     const original = libraryFile('original.txt', 10, 'a');
     const replacement = libraryFile('replacement.txt', 11, 'b');

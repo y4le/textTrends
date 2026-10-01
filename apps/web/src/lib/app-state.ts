@@ -415,6 +415,7 @@ export interface AppState {
   snapshot: SnapshotInfo | null;
   loadingPhase: string | null;
   loadError: string | null;
+  loadErrorFatal: boolean;
   /** One bounded UI error from a synchronous `SessionCommandError` (an illegal
    *  command the UI should have prevented). Async policy failures stay in
    *  `projectSession`. */

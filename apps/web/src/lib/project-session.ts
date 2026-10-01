@@ -337,6 +337,7 @@ export class ProjectSession {
    *  restart; import and reorder reopen it internally. */
   start(): void {
     this.assertLive();
+    this.analysis = { phase: 'loading', detail: null };
     const hashing = [...this.pending.values()].filter((entry) => entry.staging.phase === 'hashing');
     if (hashing.length > 0) {
       this.analysis = { phase: 'loading', detail: null };
@@ -439,6 +440,11 @@ export class ProjectSession {
   // ── Generation lane ─────────────────────────────────────────────────────────
 
   private startGeneration(): void {
+    if (this.analysis.phase === 'error' && this.analysis.fatal) {
+      this.data = this.materialize();
+      this.publish();
+      return;
+    }
     // Supersede the prior open. Ingest has no cancel handle — a newer
     // begin-generation is its fence.
     this.activeOpenCancel?.();
@@ -530,7 +536,7 @@ export class ProjectSession {
       // A staged import always has its attached File.
       await this.ingestAttached(generation, attempt, doc, (job) => {
         const p = this.pending.get(doc);
-        if (p) this.pending.set(doc, { ...p, ingestJob: job, status: 'extracting' });
+        if (p && job >= 0 && p.status !== 'failed') this.pending.set(doc, { ...p, ingestJob: job, status: 'extracting' });
       });
       return;
     }
@@ -578,6 +584,7 @@ export class ProjectSession {
 
   private handleSnapshot(info: SnapshotInfo): void {
     if (this.disposed || info.generation !== this.generation) return; // superseded generation
+    if (this.analysis.phase === 'error' && this.analysis.fatal) return;
     this.snapshot = info;
     this.analysis = { phase: 'ready' };
     const ready = new Set(info.readyDocs);
@@ -600,6 +607,7 @@ export class ProjectSession {
 
   private handleSourceReady(info: SourceReadyInfo): void {
     if (this.disposed || info.generation !== this.generation) return;
+    if (this.analysis.phase === 'error' && this.analysis.fatal) return;
     const encoding = info.source.kind === 'text' || info.source.kind === 'markup'
       ? info.source.encoding
       : undefined;
@@ -664,6 +672,7 @@ export class ProjectSession {
 
   private handleIngestError(generation: string, message: string, doc?: string): void {
     if (this.disposed || generation !== this.generation) return;
+    if (this.analysis.phase === 'error' && this.analysis.fatal) return;
     if (doc && this.pending.has(doc)) {
       const p = this.pending.get(doc)!;
       this.pending.set(doc, { ...p, status: 'failed' });
@@ -680,10 +689,15 @@ export class ProjectSession {
     this.snapshot = null;
     this.activeOpenCancel = null;
     if (fatal) {
+      this.genAttempt++;
+      for (const [doc, pending] of this.pending) {
+        this.pending.set(doc, { ...pending, status: 'failed' });
+      }
       this.analysis = { phase: 'error', message: 'the analysis worker crashed repeatedly; reload to retry', fatal: true };
       this.publish();
       return; // working copy, files, and pending imports are retained
     }
+    this.analysis = { phase: 'loading', detail: null };
     this.startGeneration();
   }
 
@@ -839,6 +853,7 @@ export class ProjectSession {
       this.startGeneration();
     } catch (error) {
       if (!scopeLease.isCurrent() || !staged.some(({ doc, importToken }) => this.pending.get(doc)?.importToken === importToken)) return;
+      if (this.analysis.phase === 'error' && this.analysis.fatal) return;
       this.analysis = { phase: 'error', message: `failed to prepare imports: ${msg(error)}`, fatal: false };
       this.publish();
     }

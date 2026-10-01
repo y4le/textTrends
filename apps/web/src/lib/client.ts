@@ -108,6 +108,7 @@ export interface GenerationReady {
 /** Bounded automatic restarts — a deterministic startup fault must not
  *  crash-loop forever; the last failure surfaces as fatal. */
 const MAX_WORKER_RESTARTS = 3;
+const WORKER_RESTART_WINDOW_MS = 60_000;
 
 type Pending =
   | { kind: 'query'; snapshot: string; op: QueryOpV4['op']; resolve: (r: QueryResultDataV4) => void; reject: (e: Error) => void }
@@ -128,6 +129,7 @@ export class WorkerClient {
   private workerEpoch = 0;
   private restartAttempts = 0;
   private restartCount = 0;
+  private lastRestartAt = Number.NEGATIVE_INFINITY;
   /** Set when restarts are exhausted: the worker is terminated and NOT
    *  replaced. New queries reject immediately — posting into a terminated
    *  worker would hang forever — and only an explicit openGeneration (a
@@ -181,6 +183,11 @@ export class WorkerClient {
    *  recovery is the app's: re-open the generation (warm) and refetch only
    *  what the barrier reports missing. */
   private restart(): void {
+    const now = performance.now();
+    if (now - this.lastRestartAt >= WORKER_RESTART_WINDOW_MS) {
+      this.restartAttempts = 0;
+    }
+    this.lastRestartAt = now;
     this.restartCount++;
     for (const [, p] of this.pending) {
       p.reject(new WorkerClientError('WORKER_RESTARTED', 'WORKER_RESTARTED'));
@@ -200,7 +207,14 @@ export class WorkerClient {
       return;
     }
     this.restartAttempts++;
-    this.worker = this.spawn();
+    try {
+      this.worker = this.spawn();
+    } catch {
+      this.workerEpoch++;
+      this.dead = true;
+      this.restartListener?.(true);
+      return;
+    }
     this.restartListener?.(false);
   }
 
@@ -263,9 +277,8 @@ export class WorkerClient {
         const p = this.pending.get(m.job);
         if (p?.kind === 'open') {
           this.pending.delete(m.job);
-          // A completed barrier is proof of a functioning worker: reset the
-          // restart budget so an old crash doesn't starve a future recovery.
-          this.restartAttempts = 0;
+          // A barrier alone cannot prove stability: an eager query may crash
+          // again immediately. The restart window owns the recovery budget.
           p.resolve({
             generation: m.generation,
             snapshot: m.snapshot,
@@ -358,15 +371,8 @@ export class WorkerClient {
     if (this.closed) return false;
     this.restartAttempts = 0;
     this.dead = false;
-    try {
-      this.restart();
-      return !this.dead;
-    } catch {
-      this.dead = true;
-      this.workerEpoch++;
-      this.restartListener?.(true);
-      return false;
-    }
+    this.restart();
+    return !this.dead;
   }
 
   private post(message: ToWorkerV4, transfer?: Transferable[]): void {
