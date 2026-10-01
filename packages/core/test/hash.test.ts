@@ -97,6 +97,15 @@ describe('canonicalJson', () => {
     expect(() => canonicalJson(hidden)).toThrow(/non-enumerable/);
   });
 
+  it('serializes string arrays without invoking inherited toJSON', () => {
+    let calls = 0;
+    const values = ['café', '\n', String.fromCharCode(0xd800), '😀'];
+    const expected = JSON.stringify(values);
+    Object.setPrototypeOf(values, { toJSON() { calls++; return 'changed'; } });
+    expect(canonicalJson(values)).toBe(expected);
+    expect(calls).toBe(0);
+  });
+
   it('rejects cyclic values instead of overflowing', () => {
     const a: Record<string, unknown> = {};
     a['self'] = a;

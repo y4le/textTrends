@@ -84,7 +84,8 @@ function serialize(value: unknown, seen: WeakSet<object>): string {
           throw new RangeError(`non-index array property '${k}' in canonical JSON`);
         }
       }
-      const parts: string[] = [];
+      const values: unknown[] = [];
+      let stringsOnly = true;
       for (let i = 0; i < obj.length; i++) {
         // Read through the descriptor: a getter at a canonical index must be
         // rejected, never EXECUTED during identity computation (review finding
@@ -99,9 +100,18 @@ function serialize(value: unknown, seen: WeakSet<object>): string {
         if (d.value === undefined) {
           throw new RangeError('array holes/undefined are outside the canonical JSON domain');
         }
-        parts.push(serialize(d.value, seen));
+        values.push(d.value);
+        stringsOnly &&= typeof d.value === 'string';
       }
-      return `[${parts.join(',')}]`;
+      if (stringsOnly) {
+        // Descriptor admission above still rejects holes/accessors/extra own
+        // keys. Serialize a fresh image with no prototype, so a caller's
+        // inherited toJSON can never run. Primitive string escaping is exactly
+        // canonical JSON and needs no recursive per-element serialization.
+        Object.setPrototypeOf(values, null);
+        return JSON.stringify(values);
+      }
+      return `[${values.map((item) => serialize(item, seen)).join(',')}]`;
     }
     // Only plain records — Date, Map, Set, boxed primitives, class instances
     // would all silently serialize as "{}" and collide (review finding).
