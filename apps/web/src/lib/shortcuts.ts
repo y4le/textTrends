@@ -868,12 +868,14 @@ function shiftIsImpliedByResolvedKey(stroke: ShortcutStroke): boolean {
     || (stroke.key.length === 1 && stroke.key >= 'A' && stroke.key <= 'Z'));
 }
 
-function resolvedKeyMatches(eventKey: string, strokeKey: string): boolean {
+function resolvedKeyMatches(eventKey: string, stroke: ShortcutStroke): boolean {
+  const strokeKey = stroke.key;
   if (eventKey === strokeKey) return true;
   // Some browser/platform combinations retain the lowercase key name even
   // with Shift held alongside Cmd/Ctrl. Modifiers still decide the chord;
   // normalize only single ASCII letters here.
-  return eventKey.length === 1
+  return (stroke.ctrl === true || stroke.meta === true)
+    && eventKey.length === 1
     && strokeKey.length === 1
     && /[a-z]/iu.test(eventKey)
     && /[a-z]/iu.test(strokeKey)
@@ -886,11 +888,11 @@ function strokeMatches(event: ShortcutEventLike, stroke: ShortcutStroke): boolea
   // layouts may synthesize the same character without exposing that physical
   // modifier; the resolved character is the stable contract here.
   if (shiftIsImpliedByResolvedKey(stroke)) {
-    return resolvedKeyMatches(event.key, stroke.key)
+    return resolvedKeyMatches(event.key, stroke)
       && event.ctrlKey === (stroke.ctrl === true)
       && event.metaKey === (stroke.meta === true);
   }
-  return resolvedKeyMatches(event.key, stroke.key)
+  return resolvedKeyMatches(event.key, stroke)
     && event.shiftKey === (stroke.shift === true)
     && event.ctrlKey === (stroke.ctrl === true)
     && event.metaKey === (stroke.meta === true);

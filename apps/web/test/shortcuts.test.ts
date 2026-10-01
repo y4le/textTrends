@@ -120,6 +120,18 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key(']'), 'reader-text-next')).toBe(true);
   });
 
+  it('keeps passage and token letter shortcuts distinct in both directions', () => {
+    for (const [plain, shifted, page, token] of [
+      ['h', 'H', 'footer-page-previous', 'footer-token-previous'],
+      ['l', 'L', 'footer-page-next', 'footer-token-next'],
+    ] as const) {
+      expect(shortcutMatches(key(plain), page)).toBe(true);
+      expect(shortcutMatches(key(plain), token)).toBe(false);
+      expect(shortcutMatches(key(shifted, { shiftKey: true }), page)).toBe(false);
+      expect(shortcutMatches(key(shifted, { shiftKey: true }), token)).toBe(true);
+    }
+  });
+
   it('lets focused typing controls and locally handled events win at the root', () => {
     const input = ({
       closest: (selector: string) => selector.includes('input') ? { tagName: 'INPUT' } : null,
