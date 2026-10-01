@@ -59,24 +59,13 @@ import {
 import { RANGE_CLEAR_SUPPRESSION_MS, rangeClearDecision } from '../../lib/range-clear-gesture.ts';
 import {
   idleTrendTitleGesture,
-  nextTrendTitleFocus,
   resetTrendTitleGesture,
-  trendTitleDown,
-  trendTitleMove,
-  trendTitleUp,
   type TrendTitleEffect,
   type TrendTitleGesture,
 } from '../../lib/trend-title-gesture.ts';
+import { TrendTitleControls } from './TrendTitleControls.tsx';
+import { TrendRangeHandles, type TrendRangeHandleDrag } from './TrendRangeHandles.tsx';
 import type { CaptureBarcodePointer } from '../../lib/trend-surface.ts';
-
-const TREND_TITLE_ARIA_KEYS = shortcutAria([
-  'trend-title-previous',
-  'trend-title-next',
-  'trend-title-first',
-  'trend-title-last',
-  'trend-title-select',
-  'trend-title-extend',
-]);
 
 interface RangePreview {
   readonly mode: 'pointer' | 'touch' | 'touch-anchor' | 'keyboard' | 'handle' | 'title';
@@ -185,13 +174,7 @@ export function ScrubSurface({
   const releasedTouchPointers = useRef(new Set<number>());
   const suppressDoubleClickUntil = useRef(0);
   const lastDirectPointerAt = useRef(0);
-  const rangeHandleDrag = useRef<{
-    readonly pointerId: number;
-    readonly edge: 'start' | 'end';
-    readonly fixed: ScrubTarget;
-    head: ScrubTarget;
-    moved: boolean;
-  } | null>(null);
+  const rangeHandleDrag = useRef<TrendRangeHandleDrag | null>(null);
   const titleGesture = useRef<TrendTitleGesture>(idleTrendTitleGesture());
   const titleKeyboardAnchor = useRef<number | null>(null);
   const titleControlRefs = useRef(new Map<number, HTMLButtonElement>());
@@ -1160,105 +1143,22 @@ export function ScrubSurface({
             }}
           />
         ))}
-        {rangeHandleSpecs.map((handle) => {
-          const preferredLeft = handle.edge === 'start' ? handle.x - 40 : handle.x - 4;
-          const left = Math.max(0, Math.min(plotW - 44, preferredLeft));
-          const top = handle.edge === 'start'
-            ? handle.top
-            : Math.max(handle.top, handle.bottom - 44);
-          const markerLeft = Math.max(2, Math.min(42, handle.x - left));
-          return (
-            <button
-              key={handle.edge}
-              type="button"
-              className={`trend-range-handle trend-range-handle-${handle.edge}`}
-              data-range-handle={handle.edge}
-              aria-label={`Drag active scope ${handle.edge}`}
-              style={{ left, top }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onPointerDown={(event) => {
-                if (!event.isPrimary || event.button !== 0 || !committedRangeEndpoints) return;
-                trendDoubleTap.current = idleTrendDoubleTap();
-                clearTouchHold();
-                const reset = resetTouchRangeGesture(touchGesture.current);
-                touchGesture.current = reset.state;
-                const head = committedRangeEndpoints[handle.edge];
-                rangeHandleDrag.current = {
-                  pointerId: event.pointerId,
-                  edge: handle.edge,
-                  fixed: committedRangeEndpoints[handle.edge === 'start' ? 'end' : 'start'],
-                  head,
-                  moved: false,
-                };
-                event.currentTarget.dataset.dragging = 'true';
-                try {
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                } catch {
-                  // Synthetic pointer events used by accessibility and browser
-                  // regression tests have no native pointer to capture.
-                }
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onPointerMove={(event) => {
-                const drag = rangeHandleDrag.current;
-                if (!drag || drag.pointerId !== event.pointerId) return;
-                const raw = handleTargetAt(event.clientX, event.clientY);
-                if (raw) {
-                  const head = boundedHandleTarget(drag.edge, drag.fixed, raw);
-                  drag.head = head;
-                  drag.moved = drag.moved
-                    || head.doc !== committedRangeEndpoints?.[drag.edge].doc
-                    || head.token !== committedRangeEndpoints?.[drag.edge].token;
-                  if (drag.moved) {
-                    setPreview({ mode: 'handle', origin: drag.fixed, head });
-                  }
-                }
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onPointerUp={(event) => {
-                const drag = rangeHandleDrag.current;
-                if (!drag || drag.pointerId !== event.pointerId) return;
-                rangeHandleDrag.current = null;
-                delete event.currentTarget.dataset.dragging;
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                  event.currentTarget.releasePointerCapture(event.pointerId);
-                }
-                if (drag.moved) {
-                  suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
-                  commitPreview({ mode: 'handle', origin: drag.fixed, head: drag.head });
-                } else {
-                  setPreview(null);
-                }
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onPointerCancel={(event) => {
-                if (rangeHandleDrag.current?.pointerId !== event.pointerId) return;
-                rangeHandleDrag.current = null;
-                delete event.currentTarget.dataset.dragging;
-                setPreview(null);
-                event.stopPropagation();
-              }}
-              onLostPointerCapture={(event) => {
-                if (rangeHandleDrag.current?.pointerId !== event.pointerId) return;
-                rangeHandleDrag.current = null;
-                delete event.currentTarget.dataset.dragging;
-                setPreview(null);
-              }}
-            >
-              <span
-                className="trend-range-handle-mark"
-                style={{ left: markerLeft }}
-                aria-hidden="true"
-              />
-            </button>
-          );
-        })}
+        <TrendRangeHandles
+          specs={rangeHandleSpecs} plotWidth={plotW} endpoints={committedRangeEndpoints}
+          dragRef={rangeHandleDrag} targetAt={handleTargetAt} boundTarget={boundedHandleTarget}
+          onStart={() => {
+            trendDoubleTap.current = idleTrendDoubleTap();
+            clearTouchHold();
+            const reset = resetTouchRangeGesture(touchGesture.current);
+            touchGesture.current = reset.state;
+          }}
+          onPreview={(fixed, head) => setPreview({ mode: 'handle', origin: fixed, head })}
+          onCommit={(fixed, head) => {
+            suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
+            commitPreview({ mode: 'handle', origin: fixed, head });
+          }}
+          onCancel={() => setPreview(null)}
+        />
         {scrubX !== null && (
           <div
             {...guideAnchorProps('chart-cursor')}
@@ -1279,195 +1179,30 @@ export function ScrubSurface({
           />
         )}
       </div>
-      <div
-        className="trend-title-controls"
-        role="group"
-        aria-label="Select whole texts"
-        aria-describedby={hiddenTitles ? 'trend-hidden-title-note' : undefined}
-        style={{
-          width: plotW,
-          height: labelBands.reduce(
-            (maximum, band) => Math.max(maximum, band.focusTop + band.focusHeight),
-            0,
-          ),
+      <TrendTitleControls
+        labelBands={labelBands} docs={docs} docTokenCount={docTokenCount} titleByDoc={titleByDoc}
+        plotW={plotW} trendView={trendView} hiddenTitles={hiddenTitles}
+        titleFocusOrdinal={titleFocusOrdinal} setTitleFocusOrdinal={setTitleFocusOrdinal}
+        titleControlRefs={titleControlRefs} titleKeyboardAnchor={titleKeyboardAnchor}
+        gestureRef={titleGesture} onEffect={applyTitleEffect} onCommitRange={commitWholeTextRange}
+        onClearPreview={() => setPreview(null)}
+        targetAt={(clientX, clientY) => {
+          const rect = sliderRef.current?.getBoundingClientRect();
+          if (!rect) return null;
+          const ordinal = trendStageDocument(clientX - rect.left, clientY - rect.top, hitSpec);
+          return ordinal !== null && (docTokenCount[ordinal] ?? 0) > 0 ? ordinal : null;
         }}
-      >
-        {labelBands.map((band) => {
-          const doc = docs[band.d];
-          const title = doc ? titleByDoc.get(doc) ?? doc : '';
-          const disabled = !doc || (docTokenCount[band.d] ?? 0) <= 0;
-          const bandWidth = Math.max(0, band.right - band.left);
-          // A by-book label is left-aligned. Keep its touch target around the
-          // rendered title rather than blocking vertical page scroll across
-          // the row's full width. Combined labels use pan-y below.
-          const targetWidth = trendView === 'series'
-            ? bandWidth
-            : band.titlePainted
-              ? Math.min(bandWidth, Math.max(44, title.length * 7 + 12))
-              : bandWidth;
-          const titleTargetFromPointer = (clientX: number, clientY: number): number | null => {
-            const rect = sliderRef.current?.getBoundingClientRect();
-            if (!rect) return null;
-            const ordinal = trendStageDocument(
-              clientX - rect.left,
-              clientY - rect.top,
-              hitSpec,
-            );
-            return ordinal !== null && (docTokenCount[ordinal] ?? 0) > 0 ? ordinal : null;
-          };
-          return (
-            <button
-              key={doc ?? band.d}
-              type="button"
-              ref={(element) => {
-                if (element) titleControlRefs.current.set(band.d, element);
-                else titleControlRefs.current.delete(band.d);
-              }}
-              className="trend-title-control"
-              data-trend-title-control={band.d}
-              data-title-painted={String(band.titlePainted)}
-              disabled={disabled}
-              tabIndex={!disabled && band.d === titleFocusOrdinal ? 0 : -1}
-              aria-keyshortcuts={TREND_TITLE_ARIA_KEYS}
-              aria-label={`Text ${band.d + 1} of ${docs.length}: ${title} — select whole text`}
-              title={title}
-              style={{
-                left: band.left,
-                top: band.focusTop,
-                width: targetWidth,
-                height: band.focusHeight,
-                pointerEvents: band.titlePainted ? undefined : 'none',
-                touchAction: trendView === 'series' ? 'pan-y' : 'none',
-              }}
-              onFocus={() => setTitleFocusOrdinal(band.d)}
-              onKeyDown={(event) => {
-                if (event.ctrlKey || event.metaKey || event.altKey) return;
-                const move = event.key === 'Home'
-                  ? 'first'
-                  : event.key === 'End'
-                    ? 'last'
-                    : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-                      ? 'previous'
-                      : event.key === 'ArrowRight' || event.key === 'ArrowDown'
-                        ? 'next'
-                        : null;
-                if (move === null) return;
-                const enabled = docTokenCount.map((count) => count > 0);
-                const next = nextTrendTitleFocus(band.d, move, enabled);
-                if (next === null) return;
-                event.preventDefault();
-                event.stopPropagation();
-                if (next !== band.d) {
-                  setTitleFocusOrdinal(next);
-                  titleControlRefs.current.get(next)?.focus();
-                }
-                if (event.shiftKey) {
-                  if (next === band.d) return;
-                  titleKeyboardAnchor.current ??= band.d;
-                  commitWholeTextRange(titleKeyboardAnchor.current, next);
-                } else {
-                  titleKeyboardAnchor.current = null;
-                }
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                // Direct pointers commit on pointerup. A zero-detail click is
-                // keyboard or assistive-technology activation.
-                if (event.detail === 0) {
-                  titleKeyboardAnchor.current = null;
-                  commitWholeTextRange(band.d, band.d);
-                }
-              }}
-              onDoubleClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onPointerDown={(event) => {
-                if (!event.isPrimary || event.button !== 0 || disabled) return;
-                trendDoubleTap.current = idleTrendDoubleTap();
-                clearTouchHold();
-                const touchReset = resetTouchRangeGesture(touchGesture.current);
-                touchGesture.current = touchReset.state;
-                applyTouchRangeEffect(touchReset.effect);
-                pointerTap.current = null;
-                pointerDrag.current = null;
-                rangeHandleDrag.current = null;
-                titleKeyboardAnchor.current = null;
-                setTitleFocusOrdinal(band.d);
-                setPreview(null);
-                const transition = trendTitleDown(
-                  event.pointerId,
-                  band.d,
-                  event.clientX,
-                  event.clientY,
-                );
-                titleGesture.current = transition.state;
-                try {
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                } catch {
-                  // Synthetic PointerEvents do not create native capture state.
-                }
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onPointerMove={(event) => {
-                const transition = trendTitleMove(titleGesture.current, {
-                  pointerId: event.pointerId,
-                  ordinal: titleTargetFromPointer(event.clientX, event.clientY),
-                  clientX: event.clientX,
-                  clientY: event.clientY,
-                });
-                titleGesture.current = transition.state;
-                applyTitleEffect(transition.effect);
-                if (transition.state.phase === 'pressed') {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }
-              }}
-              onPointerUp={(event) => {
-                const moved = trendTitleMove(titleGesture.current, {
-                  pointerId: event.pointerId,
-                  ordinal: titleTargetFromPointer(event.clientX, event.clientY),
-                  clientX: event.clientX,
-                  clientY: event.clientY,
-                });
-                titleGesture.current = moved.state;
-                applyTitleEffect(moved.effect);
-                const transition = trendTitleUp(titleGesture.current, event.pointerId);
-                titleGesture.current = transition.state;
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                  event.currentTarget.releasePointerCapture(event.pointerId);
-                }
-                applyTitleEffect(transition.effect);
-                if (transition.effect.kind !== 'none') {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }
-              }}
-              onPointerCancel={(event) => {
-                if (
-                  titleGesture.current.phase !== 'pressed'
-                  || titleGesture.current.pointerId !== event.pointerId
-                ) return;
-                const transition = resetTrendTitleGesture(titleGesture.current);
-                titleGesture.current = transition.state;
-                applyTitleEffect(transition.effect);
-                event.stopPropagation();
-              }}
-              onLostPointerCapture={(event) => {
-                if (
-                  titleGesture.current.phase !== 'pressed'
-                  || titleGesture.current.pointerId !== event.pointerId
-                ) return;
-                const transition = resetTrendTitleGesture(titleGesture.current);
-                titleGesture.current = transition.state;
-                applyTitleEffect(transition.effect);
-              }}
-            />
-          );
-        })}
-      </div>
+        onStart={() => {
+          trendDoubleTap.current = idleTrendDoubleTap();
+          clearTouchHold();
+          const reset = resetTouchRangeGesture(touchGesture.current);
+          touchGesture.current = reset.state;
+          applyTouchRangeEffect(reset.effect);
+          pointerTap.current = null;
+          pointerDrag.current = null;
+          rangeHandleDrag.current = null;
+        }}
+      />
       {hiddenTitles && (
         <span id="trend-hidden-title-note" className="visually-hidden">
           Titles are hidden at this row height. Selection remains available from the keyboard.
