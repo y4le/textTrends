@@ -29,7 +29,6 @@ import {
   parseWorkspaceTrendView,
   TREND_MAX_ROWS,
   termGroupIdentity,
-  type GroupMember,
   type NumericTrend,
   type TermGroupSpec,
   type TrendBinsSpecV1,
@@ -133,7 +132,7 @@ const FOOTER_PASSAGE_MAX_TOKENS = 400;
 
 /** The max compared/matches terms — one authority, shared with the kwic
  *  track cap so a series set can always be sent as matches tracks. */
-export const MAX_SERIES = MAX_KWIC_TRACKS;
+const MAX_SERIES = MAX_KWIC_TRACKS;
 
 /** (generation, snapshot) identity — a query result is written only if the live
  *  snapshot still matches this. Snapshot ids are unique per publication; the
@@ -287,6 +286,7 @@ export function createAppRuntime(
   // never cancels the resident baseline (ruling §2).
   const selectedTrendLane = new QueryLane(scope);
   const selectedDispersionLane = new QueryLane(scope);
+  let hydrateWorkspace!: (workspace: WorkspaceV1) => void;
   let vocabulary!: ReturnType<typeof createVocabularyController>;
   let compare!: ReturnType<typeof createCompareController>;
   // Full-reader pages are a distinct latest-wins presentation intent. Rapid
@@ -397,7 +397,7 @@ export function createAppRuntime(
       onError: (message: string) => void,
       errorMessage: (error: unknown) => string = queryErrorMessage,
     ): void => {
-      const handle = client.query(snapshotId, op);
+      const handle = client.query(snapshotId, op, { lane: lane.name });
       const untrack = lane.track(handle.cancel);
       void handle.result
         // Release before delivery: a subscriber may synchronously refresh the
@@ -1528,6 +1528,69 @@ export function createAppRuntime(
       },
     });
 
+    hydrateWorkspace = (workspace) => {
+        const state = get();
+        const liveIds = new Set([
+          ...(state.projectSession?.project.data.order ?? []),
+          ...(state.projectSession?.imports.map((item) => item.doc) ?? []),
+        ]);
+        // The parsed workspace guarantees every document occurs in its order.
+        const unavailableDocs = workspace.corpus.docs
+          .filter((doc) => !liveIds.has(doc.doc))
+          .map((doc) => ({ index: workspace.corpus.order.indexOf(doc.doc), doc }));
+
+        const fittedRestoredTrendBins = fitTrendBinsToCorpus(
+          state,
+          workspace.views.trend.bins,
+          true,
+        );
+        const restoredTrendBins = fittedRestoredTrendBins ?? state.trendBins;
+        const restoredTrendBinsChanged =
+          restoredTrendBins.mode !== workspace.views.trend.bins.mode
+          || restoredTrendBins.count !== workspace.views.trend.bins.count;
+        const frequencyFilter = workspace.views.frequency.filter;
+        set({
+          unavailableDocs,
+          trendViewPreference: workspace.views.trend.mode,
+          trendView: (state.projectSession?.project.data.order.length ?? 0) > 1
+            || workspace.corpus.order.length === 0
+            ? workspace.views.trend.mode
+            : 'series',
+          trendBins: restoredTrendBins,
+          trendMeasure: workspace.views.trend.measure,
+          trendSettingsNotice: fittedRestoredTrendBins === null
+            ? `No trend bin mode can represent this corpus within the ${TREND_MAX_ROWS.toLocaleString()}-row result limit.`
+            : restoredTrendBinsChanged
+              ? trendGeometryNotice(workspace.views.trend.bins, restoredTrendBins)
+              : null,
+          frequencyView: {
+            schema: 'texttrends/frequency-view/2',
+            minCount: workspace.views.frequency.minCount,
+            minDocFreq: workspace.views.frequency.minDocFreq,
+            classes: workspace.views.frequency.classes,
+            stoplistTopN: workspace.views.frequency.stoplistTopN,
+            ...(frequencyFilter === undefined
+              ? {}
+              : { filter: frequencyFilter }),
+            sort: workspace.views.frequency.sort,
+            page: { offset: 0, limit: workspace.views.frequency.pageSize },
+          },
+          keynessView: compare.restoreView(workspace, liveIds),
+          removedGroups: [],
+        });
+        adoptNotebook(
+          {
+            notebook: workspace.notebook,
+            activeGroupIds: new Set(workspace.active),
+            soloGroupId: null,
+          },
+          { reissue: true },
+        );
+        get().runInventory();
+        get().runFrequency();
+        get().runKeyness();
+      };
+
     return {
       bootstrap: { phase: 'initializing' },
       projectSession: null,
@@ -1550,7 +1613,6 @@ export function createAppRuntime(
       notebookError: null,
       removedGroups: [],
       series: [],
-      inputError: null,
       trends: new Map(),
       kwic: null,
       matchesReveal: null,
@@ -1578,31 +1640,6 @@ export function createAppRuntime(
       occurrenceNavigation: null,
       ...reader.initial,
 
-      quickAdd(input) {
-        const state = get();
-        const room = Math.min(
-          NOTEBOOK_LIMITS_V1.maxGroups - state.notebook.groups.length,
-          MAX_SERIES - state.activeGroupIds.size,
-        );
-        const parsed = parseQuickAdd(input, newId, Math.max(0, room), state.notebook.groups);
-        if (parsed.error !== null) {
-          // ATOMIC refusal: the existing notebook and its results stand
-          // untouched beside the message (append-only — a refused add never
-          // clears anything).
-          set({ inputError: parsed.error });
-          return;
-        }
-        set({ inputError: null });
-        if (parsed.groups.length === 0) return; // blank or all-duplicates: no-op
-        const notebook: QueryNotebookV1 = {
-          schema: 'texttrends/query-notebook/3',
-          groups: [...state.notebook.groups, ...parsed.groups],
-        };
-        const active = new Set(state.activeGroupIds);
-        for (const g of parsed.groups) active.add(g.id); // room was preflighted
-        adoptNotebook({ notebook, activeGroupIds: active }, { reissue: true });
-      },
-
       mergeStarterTerms(input) {
         const state = get();
         let groups = [...state.notebook.groups];
@@ -1610,8 +1647,7 @@ export function createAppRuntime(
         let added = 0;
         let activated = 0;
         let skipped = 0;
-        // Deliberately parse one label at a time: unlike authored quick-add,
-        // demo suggestions are best-effort under capacity and one invalid or
+        // Demo suggestions are best-effort under capacity. One invalid or
         // duplicate suggestion must not refuse its valid siblings atomically.
         for (const raw of input.split(',')) {
           const label = raw.trim();
@@ -1740,74 +1776,7 @@ export function createAppRuntime(
         return true;
       },
 
-      setGroupStyle(groupId, style) {
-        const group = get().notebook.groups.find((candidate) => candidate.id === groupId);
-        if (!group) return;
-        get().saveTerm(groupId, {
-          aliases: group.aliases,
-          ...(group.displayName ? { displayName: group.displayName } : {}),
-          exactMatch: group.exactMatch,
-          countOverlaps: group.countOverlaps,
-          style,
-        });
-      },
-
-      // ── Notebook authoring actions (commit B: model only; UI lands with
-      //    the panel). Every action leaves invariants via adoptNotebook. ──
-      renameGroup(groupId, name) {
-        const nb = get().notebook;
-        const g = nb.groups.find((x) => x.id === groupId);
-        if (!g) return;
-        const normalized = name.normalize('NFC');
-        const { displayName: _oldName, ...base } = g;
-        const renamed: NotebookGroupV1 = normalized === g.aliases[0]
-          ? base
-          : { ...base, displayName: normalized };
-        try {
-          validateNotebookGroup(renamed);
-        } catch (e) {
-          refuseNotebook(msg(e));
-          return;
-        }
-        const notebook: QueryNotebookV1 = { ...nb, groups: nb.groups.map((x) => (x.id === groupId ? renamed : x)) };
-        // Presentation-only: labels update, NO worker request (invariant 2).
-        adoptNotebook({ notebook }, { reissue: false });
-      },
-
-      setGroupMembers(groupId, members, countOverlaps) {
-        const nb = get().notebook;
-        const g = nb.groups.find((x) => x.id === groupId);
-        if (!g) return false;
-        const aliasOf = (member: GroupMember): string => {
-          switch (member.kind) {
-            case 'token': return member.surface;
-            case 'prefix': return `${member.stem}*`;
-            case 'suffix': return `*${member.stem}`;
-            case 'phrase': return member.elements.map((element) => element.kind === 'token'
-              ? element.surface
-              : element.kind === 'prefix' ? `${element.stem}*` : `*${element.stem}`).join(' ');
-          }
-        };
-        const edited: NotebookGroupV1 = {
-          ...g,
-          aliases: members.map(aliasOf),
-          exactMatch: members.some((member) =>
-            member.match.case === 'sensitive' || member.match.diacritics === 'sensitive'),
-          countOverlaps,
-        };
-        try {
-          validateNotebookGroup(edited);
-        } catch (e) {
-          refuseNotebook(msg(e));
-          return false;
-        }
-        const changed = groupIdentity(edited) !== groupIdentity(g);
-        const notebook: QueryNotebookV1 = { ...nb, groups: nb.groups.map((x) => (x.id === groupId ? edited : x)) };
-        // A semantic edit preserves the UUID but invalidates and reissues the
-        // results (invariant 3); an identity-neutral edit reissues nothing.
-        adoptNotebook({ notebook }, { reissue: changed });
-        return true;
-      },
+      // Every notebook mutation preserves invariants through adoptNotebook.
 
       removeGroup(groupId) {
         const nb = get().notebook;
@@ -2023,15 +1992,6 @@ export function createAppRuntime(
           });
         }
         scheduleFooterPassage(target);
-      },
-
-      clearScrub() {
-        if (get().interaction.kind === 'rsvp') return;
-        settlePositionHistory();
-        occurrenceLane.supersede();
-        set({ scrub: null, occurrenceNavigation: null, matchesReveal: null });
-        resetFooterPassage();
-        runMatchesWindow({ kind: 'rank', rank: 0 });
       },
 
       stepPositionHistory(direction) {
@@ -2734,75 +2694,6 @@ export function createAppRuntime(
 
       ...compare.actions,
 
-      addFrequencyTerm(key) {
-        const label = key.normalize('NFC');
-        const state = get();
-        if (state.notebook.groups.length >= NOTEBOOK_LIMITS_V1.maxGroups) {
-          refuseNotebook(`a notebook holds at most ${NOTEBOOK_LIMITS_V1.maxGroups} terms`);
-          return;
-        }
-        const probe: NotebookGroupV1 = {
-          id: 'probe',
-          aliases: [label],
-          exactMatch: true,
-          countOverlaps: false,
-          style: firstFreeStyle(state.notebook.groups, state.activeGroupIds),
-        };
-        if (state.notebook.groups.some((group) => groupIdentity(group) === groupIdentity(probe))) {
-          refuseNotebook('that exact term is already in the notebook');
-          return;
-        }
-        const group = { ...probe, id: newId() };
-        try {
-          validateNotebookGroup(group);
-        } catch (e) {
-          refuseNotebook(msg(e));
-          return;
-        }
-        const notebook: QueryNotebookV1 = {
-          schema: 'texttrends/query-notebook/3',
-          groups: [...state.notebook.groups, group],
-        };
-        const active = new Set(state.activeGroupIds);
-        if (active.size < MAX_SERIES) active.add(group.id);
-        adoptNotebook({ notebook, activeGroupIds: active }, { reissue: active.has(group.id) });
-      },
-
-      showFrequencyTermInKwic(key) {
-        const label = key.normalize('NFC');
-        const state = get();
-        const probe: NotebookGroupV1 = {
-          id: 'probe',
-          aliases: [label],
-          exactMatch: true,
-          countOverlaps: false,
-          style: firstFreeStyle(state.notebook.groups, state.activeGroupIds),
-        };
-        const group = state.notebook.groups.find(
-          (candidate) => groupIdentity(candidate) === groupIdentity(probe),
-        );
-        if (!group) {
-          get().addFrequencyTerm(key);
-          const added = get().notebook.groups.find(
-            (candidate) => groupIdentity(candidate) === groupIdentity(probe),
-          );
-          if (added && get().activeGroupIds.has(added.id)) {
-            get().setPlace('matches');
-          } else if (added) {
-            refuseNotebook('term added; deactivate another term before showing its matches');
-          }
-          return;
-        }
-        if (!state.activeGroupIds.has(group.id) && state.activeGroupIds.size >= MAX_SERIES) {
-          refuseNotebook('deactivate a group before showing matches for this term');
-          return;
-        }
-        const active = new Set(state.activeGroupIds);
-        active.add(group.id);
-        adoptNotebook({ activeGroupIds: active, soloGroupId: null }, { reissue: true });
-        get().setPlace('matches');
-      },
-
       setLinkedSelection(selection) {
         const { snapshot } = get();
         if (selection !== null
@@ -2922,7 +2813,7 @@ export function createAppRuntime(
           activeGroupIds: new Set(),
           soloGroupId: null,
         }, { reissue: true });
-        set({ removedGroups: [], inputError: null, unavailableDocs: [] });
+        set({ removedGroups: [], unavailableDocs: [] });
         return { texts, terms };
       },
       removeImport(doc) {
@@ -2975,7 +2866,7 @@ export function createAppRuntime(
         // When terms are part of the confirmed reset, their deletion undo
         // history is term state too and must not resurrect a cleared term.
         // A texts-only reset leaves an unrelated term undo available.
-        set({ ...(termCount > 0 ? { removedGroups: [] } : {}), inputError: null, unavailableDocs: [] });
+        set({ ...(termCount > 0 ? { removedGroups: [] } : {}), unavailableDocs: [] });
         return { texts: documentIds.length, terms: termCount };
       },
       editMeta(doc, patch) {
@@ -2999,68 +2890,7 @@ export function createAppRuntime(
       retryWorkspaceSave() {
         persistence.saveNow();
       },
-      restoreWorkspace(workspace) {
-        const state = get();
-        const liveIds = new Set([
-          ...(state.projectSession?.project.data.order ?? []),
-          ...(state.projectSession?.imports.map((item) => item.doc) ?? []),
-        ]);
-        // The parsed workspace guarantees every document occurs in its order.
-        const unavailableDocs = workspace.corpus.docs
-          .filter((doc) => !liveIds.has(doc.doc))
-          .map((doc) => ({ index: workspace.corpus.order.indexOf(doc.doc), doc }));
 
-        const fittedRestoredTrendBins = fitTrendBinsToCorpus(
-          state,
-          workspace.views.trend.bins,
-          true,
-        );
-        const restoredTrendBins = fittedRestoredTrendBins ?? state.trendBins;
-        const restoredTrendBinsChanged =
-          restoredTrendBins.mode !== workspace.views.trend.bins.mode
-          || restoredTrendBins.count !== workspace.views.trend.bins.count;
-        const frequencyFilter = workspace.views.frequency.filter;
-        set({
-          unavailableDocs,
-          trendViewPreference: workspace.views.trend.mode,
-          trendView: (state.projectSession?.project.data.order.length ?? 0) > 1
-            || workspace.corpus.order.length === 0
-            ? workspace.views.trend.mode
-            : 'series',
-          trendBins: restoredTrendBins,
-          trendMeasure: workspace.views.trend.measure,
-          trendSettingsNotice: fittedRestoredTrendBins === null
-            ? `No trend bin mode can represent this corpus within the ${TREND_MAX_ROWS.toLocaleString()}-row result limit.`
-            : restoredTrendBinsChanged
-              ? trendGeometryNotice(workspace.views.trend.bins, restoredTrendBins)
-              : null,
-          frequencyView: {
-            schema: 'texttrends/frequency-view/2',
-            minCount: workspace.views.frequency.minCount,
-            minDocFreq: workspace.views.frequency.minDocFreq,
-            classes: workspace.views.frequency.classes,
-            stoplistTopN: workspace.views.frequency.stoplistTopN,
-            ...(frequencyFilter === undefined
-              ? {}
-              : { filter: frequencyFilter }),
-            sort: workspace.views.frequency.sort,
-            page: { offset: 0, limit: workspace.views.frequency.pageSize },
-          },
-          keynessView: compare.restoreView(workspace, liveIds),
-          removedGroups: [],
-        });
-        adoptNotebook(
-          {
-            notebook: workspace.notebook,
-            activeGroupIds: new Set(workspace.active),
-            soloGroupId: null,
-          },
-          { reissue: true },
-        );
-        get().runInventory();
-        get().runFrequency();
-        get().runKeyness();
-      },
     };
   });
 
@@ -3242,7 +3072,7 @@ export function createAppRuntime(
       // is the caller's, after this returns).
       unsubscribe = next.subscribe(acceptSessionState);
       acceptSessionState(next.getState());
-      if (workspace !== undefined) store.getState().restoreWorkspace(workspace);
+      if (workspace !== undefined) hydrateWorkspace(workspace);
       if (store.getState().routeStatus === 'pending') {
         const place = navigation.defaultPlaceFor(next.getState().project);
         navigation.replaceEntry(place, store.getState().layers);

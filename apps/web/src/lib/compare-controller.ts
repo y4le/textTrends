@@ -62,8 +62,8 @@ export function createCompareController({
   // paging A cannot supersede B, and neither depends on the global brush.
   const keynessALane = new QueryLane(scope);
   const keynessBLane = new QueryLane(scope);
-  const keynessInventoryALane = new QueryLane(scope);
-  const keynessInventoryBLane = new QueryLane(scope);
+  const keynessInventoryALane = new QueryLane(scope, 'compare-inventory-a');
+  const keynessInventoryBLane = new QueryLane(scope, 'compare-inventory-b');
   // A demo acquisition knows its declared first document before concurrent
   // extraction has made that document ready. Keep that one-shot intent outside
   // the durable workspace so async completion order cannot choose Book 2.

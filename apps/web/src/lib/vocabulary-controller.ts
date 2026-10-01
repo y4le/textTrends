@@ -34,10 +34,10 @@ export function createVocabularyController({
   inventoryGeometryPatch, onCorpusInventoryReady,
 }: VocabularyDependencies) {
   // Vocabulary-wide analytics are independent of notebook query lanes.
-  const inventoryLane = new QueryLane(scope);
+  const inventoryLane = new QueryLane(scope, 'vocabulary-inventory');
   // Inputs presents stable, full-text facts. Its baseline query must be able
   // to land even when a rapid range gesture supersedes the vocabulary lane.
-  const corpusInventoryLane = new QueryLane(scope);
+  const corpusInventoryLane = new QueryLane(scope, 'corpus-inventory');
   const frequencyLane = new QueryLane(scope);
   const actions: VocabularyActions = {
     runInventory() {

@@ -4,7 +4,6 @@ import type { StoreApi, UseBoundStore } from 'zustand';
 import type {
   MatchesAnchorV1,
   MatchesAxisArraysV1,
-  GroupMember,
   FrequencyTextFilterV1,
   KwicContextMark,
   NumericTrend,
@@ -75,6 +74,8 @@ export interface QueryClient {
   query(
     snapshot: string,
     query: QueryOpV4,
+    /** Local ownership metadata; never serialized into the worker protocol. */
+    context?: { readonly lane?: string | undefined },
   ): { result: Promise<QueryResultDataV4>; cancel: () => void };
 }
 
@@ -496,7 +497,6 @@ export interface AppState {
   /** The EFFECTIVE active comparison, in notebook order (solo-projected) —
    *  the stored projection every panel and query lane consumes. */
   series: readonly SeriesIntent[];
-  inputError: string | null;
   /** Add demo suggestions without replacing authored terms. Valid new terms
    *  enter the notebook; as many as fit also become active. */
   mergeStarterTerms(input: string): { readonly added: number; readonly activated: number; readonly skipped: number };
@@ -582,11 +582,7 @@ export interface AppState {
   } | null;
 
   // ── Query/presentation intent (owned here). ──
-  /** Append-only quick-add: each comma term becomes a single-token folded
-   *  group and active; a term already in the notebook
-   *  (same matching identity) is skipped; a batch that cannot FULLY activate
-   *  is refused atomically via `inputError` (nothing partial, ruling §3). */
-  quickAdd(input: string): void;
+
   addTerm(input: {
     readonly aliases: readonly string[];
     readonly displayName?: string;
@@ -601,12 +597,9 @@ export interface AppState {
     readonly countOverlaps: boolean;
     readonly style: SeriesStyleV1;
   }): boolean;
-  setGroupStyle(groupId: string, style: SeriesStyleV1): void;
-  // ── Notebook authoring (slice-1 commit B: model + actions; UI lands in the
-  //    panel commit). Rename/reorder are presentation-only (no reissue);
-  //    member/overlap edits and active-set changes reissue the results. ──
-  renameGroup(groupId: string, name: string): void;
-  setGroupMembers(groupId: string, members: readonly GroupMember[], countOverlaps: boolean): boolean;
+
+  // Reordering changes presentation; semantic edits use saveTerm.
+
   removeGroup(groupId: string): void;
   undoRemoveGroup(): void;
   dismissRemovedGroup(): void;
@@ -645,8 +638,7 @@ export interface AppState {
   setFrequencyFilter(filter: FrequencyTextFilterV1 | null): void;
   setFrequencyStoplistTopN(topN: number): void;
   setFrequencyPage(offset: number): void;
-  addFrequencyTerm(key: string): void;
-  showFrequencyTermInKwic(key: string): void;
+
   runKeyness(): void;
   loadMoreKeyness(side: 'a' | 'b'): void;
   /** Restore the default first-document-v-rest comparison. The document may
@@ -660,7 +652,7 @@ export interface AppState {
   swapKeynessSides(): void;
   applyKeynessSettings(input: KeynessSettingsInputV1): void;
   setScrub(target: ScrubTarget, intent?: ScrubIntent): void;
-  clearScrub(): void;
+
   /** Move through reading positions without recording the traversal itself. */
   stepPositionHistory(direction: -1 | 1): ScrubTarget | null;
   stepOccurrence(direction: 1 | -1): void;
@@ -710,8 +702,6 @@ export interface AppState {
   clearCommandError(): void;
   clearAppNotice(): void;
   retryWorkspaceSave(): void;
-  /** Restore preferences after the composition root has selected the corpus. */
-  restoreWorkspace(workspace: WorkspaceV1): void;
 }
 
 /** The synchronously-constructed runtime: the React-facing store plus the

@@ -7,7 +7,7 @@ import type { QueryOpV4, QueryResultFor } from '../shared/analysis-contract.ts';
 export class QueryLane {
   private readonly cancels = new Set<() => void>();
   readonly ops: LatestOperation;
-  constructor(scope: OperationScope) {
+  constructor(scope: OperationScope, readonly name?: string) {
     this.ops = new LatestOperation(scope);
   }
   /** Cancel + drop every tracked request and supersede outstanding leases.

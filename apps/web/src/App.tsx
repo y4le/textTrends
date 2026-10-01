@@ -134,7 +134,6 @@ export function App() {
   const [appHeaderEl, setAppHeaderEl] = useState<HTMLElement | null>(null);
   const presentation = usePresentation();
   const guide = useGuide();
-  const inputError = useApp((s) => s.inputError);
   const retryAnalysis = useApp((s) => s.retryAnalysis);
   const loadError = useApp((s) => s.loadError);
   const loadErrorFatal = useApp((s) => s.loadErrorFatal);
@@ -924,9 +923,6 @@ export function App() {
         </p>
       )}
       <div role="status" aria-live="polite">
-        {inputError && (
-          <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>{inputError}</p>
-        )}
         {bootstrap.phase === 'error' && (
           <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
             failed to prepare the app: {bootstrap.message} — reload the page to retry
