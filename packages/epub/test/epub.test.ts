@@ -41,13 +41,14 @@ describe('manifest-directed EPUB admission', () => {
     expect(() => parseEpub(zipSync(files), cap)).toThrow(/root/);
   });
 
-  it('charges a repeated spine reference once and each duplicate ZIP entry separately', () => {
+  it('rejects repeated spine paths and duplicate requested ZIP entries', () => {
     const files = archive();
     delete files['mimetype'];
     delete files['epub/images/unused.jpg'];
     files['epub/content.opf'] = strToU8(strFromU8(files['epub/content.opf']!).replace('<itemref idref="chapter"/>', '<itemref idref="chapter"/><itemref idref="chapter"/>'));
     const exactSize = Object.values(files).reduce((total, file) => total + file.length, 0);
-    expect(parseEpub(zipSync(files), exactSize).documents).toHaveLength(4);
+    expect(() => parseEpub(zipSync(files), exactSize)).toThrowError(expect.objectContaining({ code: 'INVALID_EPUB' }));
+    files['epub/content.opf'] = strToU8(strFromU8(files['epub/content.opf']!).replace('<itemref idref="chapter"/><itemref idref="chapter"/>', '<itemref idref="chapter"/>'));
     files['epub/text/chaptez.xhtml'] = files['epub/text/chapter.xhtml']!;
     const bytes = zipSync(files, { level: 0 });
     const from = strToU8('epub/text/chaptez.xhtml');
@@ -55,6 +56,6 @@ describe('manifest-directed EPUB admission', () => {
     for (let index = 0; index <= bytes.length - from.length; index++) {
       if (from.every((value, offset) => bytes[index + offset] === value)) bytes.set(to, index);
     }
-    expect(() => parseEpub(bytes, exactSize)).toThrowError(expect.objectContaining({ code: 'CAP_EXCEEDED' }));
+    expect(() => parseEpub(bytes, exactSize)).toThrowError(expect.objectContaining({ code: 'INVALID_EPUB' }));
   });
 });

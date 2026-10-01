@@ -69,7 +69,13 @@ TXT/Markdown/HTML decoder behavior is deterministic: BOM-declared Unicode wins, 
 strict UTF-8 is attempted before the pinned Windows-1252 fallback. Ill-formed
 UTF-16 and decoder replacement output are rejected. Newline normalization is
 currently disabled and therefore part of the recipe identity. EPUB uses its
-own XML/UTF-8 extraction path and shared inflated-byte budget.
+own XML/UTF-8 extraction path. Its 32 MiB cumulative inflated-byte budget,
+8 MiB XML-document limit, 100k per-document and 400k aggregate markup counts
+bound synchronous input and DOM work. ZIP inflation checks actual chunks,
+declared length, and CRC; duplicate requested members and spine paths fail.
+Extraction parses one chapter at a time and caps selected output before joining;
+worker metadata does not retain section text. These admission guards do not
+change accepted text or its recipe identity.
 
 ## Index and coordinates
 
@@ -233,3 +239,8 @@ bounded Reader slice; it does not constitute a new analysis lane.
 
 [Application composition](architecture/application-composition.md) owns lifecycle
 implementation; [statistics](statistics.md) owns numerical methods.
+
+XML admission also caps each tag at 65,536 UTF-16 units, each tag at 256
+attributes, and each document at 50,000 attributes before DOM construction.
+This bounds the parser's quadratic attribute lookup; quoted values, comments
+and CDATA do not count as attributes; bare attribute names count toward the limit.

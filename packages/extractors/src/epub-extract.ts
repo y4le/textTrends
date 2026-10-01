@@ -29,6 +29,7 @@ export async function extractEpubDocument(
   bytes: Uint8Array,
   recipe: EpubRecipe,
   maxExtractedBytes: number,
+  maxTextUtf16: number,
 ): Promise<ExtractedDocument> {
   const { EpubError, extractEpub } = await import('@texttrends/epub');
   let result;
@@ -36,6 +37,8 @@ export async function extractEpubDocument(
     result = extractEpub(bytes, {
       partitions: recipe.extractor.partitions,
       maxExtractedBytes,
+      maxTextUtf16,
+      retainSectionText: false,
     });
   } catch (e) {
     // Map ONLY the library's recognized domain errors; anything else (a

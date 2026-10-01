@@ -32,32 +32,37 @@ function shouldSkip(element: Element): boolean {
   return semanticTokens(element).some((token) => SKIPPED_SEMANTICS.has(token));
 }
 
-function walkText(node: Node, output: string[], inPre = false): void {
-  if (node.nodeType === 3) {
-    const value = (node.nodeValue ?? '').replace(/\r\n?/gu, '\n');
-    output.push(value.replace(inPre ? /[\t\f\v ]+/gu : /[\t\n\f\v ]+/gu, ' '));
-    return;
-  }
-  if (node.nodeType !== 1) return;
-  const element = node as Element;
-  if (shouldSkip(element)) return;
-  if (element.localName === 'br') {
-    output.push('\n');
-    return;
-  }
-  if (element.localName === 'img') {
-    const alternateText = element.getAttribute('alt')?.trim();
-    if (alternateText) output.push(alternateText);
-    return;
-  }
+function walkText(root: Node, output: string[]): void {
+  const stack: { node: Node; inPre: boolean; exit: boolean }[] = [{ node: root, inPre: false, exit: false }];
+  while (stack.length > 0) {
+    const { node, inPre, exit } = stack.pop()!;
+    if (exit) { output.push('\n\n'); continue; }
+    if (node.nodeType === 3) {
+      const value = (node.nodeValue ?? '').replace(/\r\n?/gu, '\n');
+      output.push(value.replace(inPre ? /[\t\f\v ]+/gu : /[\t\n\f\v ]+/gu, ' '));
+      continue;
+    }
+    if (node.nodeType !== 1) continue;
+    const element = node as Element;
+    if (shouldSkip(element)) continue;
+    if (element.localName === 'br') {
+      output.push('\n');
+      continue;
+    }
+    if (element.localName === 'img') {
+      const alternateText = element.getAttribute('alt')?.trim();
+      if (alternateText) output.push(alternateText);
+      continue;
+    }
 
-  const isBlock = BLOCK_ELEMENTS.has(element.localName);
-  if (isBlock) output.push('\n\n');
-  for (let index = 0; index < element.childNodes.length; index++) {
-    const child = element.childNodes.item(index);
-    if (child !== null) walkText(child, output, inPre || element.localName === 'pre');
+    const isBlock = BLOCK_ELEMENTS.has(element.localName);
+    if (isBlock) output.push('\n\n');
+    if (isBlock) stack.push({ node, inPre, exit: true });
+    for (let index = element.childNodes.length - 1; index >= 0; index--) {
+      const child = element.childNodes.item(index);
+      if (child !== null) stack.push({ node: child, inPre: inPre || element.localName === 'pre', exit: false });
+    }
   }
-  if (isBlock) output.push('\n\n');
 }
 
 function cleanExtractedText(value: string): string {

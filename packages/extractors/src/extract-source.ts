@@ -52,7 +52,7 @@ function extractTransformed(
 ): Promise<ExtractedDocument> {
   switch (recipe.format) {
     case 'epub':
-      return extractEpubDocument(bytes, recipe, limits.maxArchiveInflatedBytesPerDoc);
+      return extractEpubDocument(bytes, recipe, limits.maxArchiveInflatedBytesPerDoc, limits.maxTextUtf16PerDoc);
     case 'html':
       return extractHtmlDocument(bytes, recipe, limits.maxTextUtf16PerDoc);
     default:

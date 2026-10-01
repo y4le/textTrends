@@ -49,6 +49,7 @@ export interface EbookSection {
   readonly partition: EbookPartition;
   readonly semanticTypes: readonly string[];
   readonly linear: boolean;
+  /** Empty when retainSectionText is false; ranges still address joined text. */
   readonly text: string;
   readonly includedInText: boolean;
   /** Null when this section is not part of the selected joined text. */

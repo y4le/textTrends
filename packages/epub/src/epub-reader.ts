@@ -12,3 +12,5 @@ export { parsePackage, type ManifestItem, type ParsedPackage, type SpineItem } f
 export { decodeUtf8 } from './text.js';
 export type * from './types.js';
 export { extractXhtml, type ExtractedXhtml } from './xhtml.js';
+
+export { EPUB_PARSE_LIMITS, type EpubParseLimits } from './limits.js';

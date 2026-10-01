@@ -1,4 +1,5 @@
-import { unzipSync } from 'fflate';
+import { EPUB_PARSE_LIMITS, type EpubParseLimits } from './limits.js';
+import { BoundedZip } from './zip.js';
 import { EpubError } from './errors.js';
 import { parsePackage, type ParsedPackage } from './opf.js';
 import { decodeUtf8 } from './text.js';
@@ -43,13 +44,7 @@ function resolveArchivePath(baseFile: string, relativeReference: string): string
   return segments.join('/');
 }
 
-function requiredFile(files: Record<string, Uint8Array>, name: string, label: string): Uint8Array {
-  const value = files[name];
-  if (value === undefined) throw new EpubError('INVALID_EPUB', `EPUB is missing ${label}: ${name}`);
-  return value;
-}
-
-export function parseEpub(bytes: Uint8Array, maximumExtractedBytes: number): ParsedEpub {
+export function openEpub(bytes: Uint8Array, maximumExtractedBytes: number, limits: EpubParseLimits = {}) {
   if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
     throw new EpubError('INVALID_EPUB', 'File is not a ZIP/EPUB');
   }
@@ -57,43 +52,24 @@ export function parseEpub(bytes: Uint8Array, maximumExtractedBytes: number): Par
     throw new RangeError('maximumExtractedBytes must be a positive safe integer');
   }
 
-  const files: Record<string, Uint8Array> = Object.create(null);
-  let declaredExtractedSize = 0;
-  let actualExtractedSize = 0;
-  const extract = (requested: ReadonlySet<string>): void => {
-    // Skip entries extracted in earlier passes. Within this pass every selected
-    // ZIP entry is charged, including duplicate names (fflate keeps the last).
-    const alreadyExtracted = new Set(Object.keys(files));
-    let extracted: Record<string, Uint8Array>;
-    try {
-      extracted = unzipSync(bytes, {
-        filter: (file) => {
-          if (!requested.has(file.name) || alreadyExtracted.has(file.name)) return false;
-          declaredExtractedSize += file.originalSize;
-          if (declaredExtractedSize > maximumExtractedBytes) {
-            throw new EpubError('CAP_EXCEEDED', `EPUB text exceeds the ${maximumExtractedBytes}-byte extraction limit`);
-          }
-          return true;
-        },
-      });
-    } catch (error) {
-      if (error instanceof EpubError) throw error;
-      throw new EpubError('INVALID_EPUB', 'Could not decompress EPUB', { cause: error });
-    }
-    for (const [name, file] of Object.entries(extracted)) {
-      actualExtractedSize += file.byteLength;
-      if (actualExtractedSize > maximumExtractedBytes) {
-        throw new EpubError('CAP_EXCEEDED', `Extracted EPUB text exceeds the ${maximumExtractedBytes}-byte extraction limit`);
-      }
-      files[name] = file;
-    }
+  const bound = {
+    maxDocumentBytes: limits.maxDocumentBytes ?? EPUB_PARSE_LIMITS.maxDocumentBytes,
+    maxMarkupPerDocument: limits.maxMarkupPerDocument ?? EPUB_PARSE_LIMITS.maxMarkupPerDocument,
+    maxMarkupTotal: limits.maxMarkupTotal ?? EPUB_PARSE_LIMITS.maxMarkupTotal,
   };
-
-  extract(new Set(['META-INF/container.xml']));
-  const containerXml = decodeUtf8(
-    requiredFile(files, 'META-INF/container.xml', 'container descriptor'),
-    'EPUB container descriptor',
-  );
+  if (Object.entries(bound).some(([key, value]) => !Number.isSafeInteger(value) || value <= 0 || value > EPUB_PARSE_LIMITS[key as keyof typeof EPUB_PARSE_LIMITS])) throw new RangeError('EPUB parse limits may only reduce the positive default bounds');
+  const archive = new BoundedZip(bytes, maximumExtractedBytes);
+  let markupTotal = 0;
+  const readMarkup = (name: string): string => {
+    const source = archive.read(name, bound.maxDocumentBytes);
+    if (source.byteLength > bound.maxDocumentBytes) throw new EpubError('CAP_EXCEEDED', `EPUB document exceeds ${bound.maxDocumentBytes} bytes: ${name}`);
+    let count = 0;
+    for (const byte of source) if (byte === 0x3c) count++;
+    markupTotal += count;
+    if (count > bound.maxMarkupPerDocument || markupTotal > bound.maxMarkupTotal) throw new EpubError('CAP_EXCEEDED', `EPUB markup exceeds its parsing budget: ${name}`);
+    return decodeUtf8(source, name);
+  };
+  const containerXml = readMarkup('META-INF/container.xml');
   const container = parseXml(containerXml, 'EPUB container descriptor');
   const rootfile = firstDescendant(container, 'rootfile');
   const packageReference = rootfile?.getAttribute('full-path');
@@ -102,18 +78,28 @@ export function parseEpub(bytes: Uint8Array, maximumExtractedBytes: number): Par
   }
 
   const packagePath = resolveArchivePath('', packageReference);
-  extract(new Set([packagePath]));
-  const packageXml = decodeUtf8(requiredFile(files, packagePath, 'package document'), 'EPUB package');
+  const packageXml = readMarkup(packagePath);
   const parsedPackage = parsePackage(packageXml, 'EPUB package');
-  extract(new Set(parsedPackage.spine.map((item) => resolveArchivePath(packagePath, item.item.href))));
+
+  if (parsedPackage.spine.length > 4096) throw new EpubError('CAP_EXCEEDED', 'EPUB spine exceeds 4096 documents');
+  const paths = parsedPackage.spine.map((item) => resolveArchivePath(packagePath, item.item.href));
+  if (new Set(paths).size !== paths.length) throw new EpubError('INVALID_EPUB', 'EPUB spine repeats a resolved archive path');
   const documents = parsedPackage.spine.map((spineItem) => {
     const archivePath = resolveArchivePath(packagePath, spineItem.item.href);
     return {
       idref: spineItem.idref,
       href: archivePath,
       linear: spineItem.linear,
-      source: decodeUtf8(requiredFile(files, archivePath, 'spine document'), archivePath),
     };
   });
-  return { package: parsedPackage, documents };
+  return { package: parsedPackage, documents,
+    readDocument: (document: (typeof documents)[number]): EpubDocument => ({ ...document, source: readMarkup(document.href) }),
+  };
+}
+
+/** Eager public parser retained for archive-client consumers. Extraction uses
+ * the internal lazy reader so only one chapter's DOM/source is resident. */
+export function parseEpub(bytes: Uint8Array, maximumExtractedBytes: number): ParsedEpub {
+  const reader = openEpub(bytes, maximumExtractedBytes);
+  return { package: reader.package, documents: reader.documents.map(reader.readDocument) };
 }

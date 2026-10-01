@@ -236,3 +236,25 @@ These are local scaling
 observations, not CI budgets or browser-tier validation. The next validation
 step is attributable browser worker/IndexedDB memory on representative sources;
 these data do not justify raising the product cap or replacing the engine.
+
+## EPUB admission guard calibration (2026-10-01)
+
+Node 24.14.1, Linux aarch64, isolated processes with `--expose-gc` and
+`/usr/bin/time`; synthetic EPUBs generated with fflate, source and metadata
+matching the package fixtures. Times measure extraction; peak RSS includes
+Node, archive generation, and extraction. These are guard probes, not a claim
+that all real-world EPUBs have been sampled.
+
+| Probe | Archive bytes | Result | Extraction | Peak RSS |
+| --- | ---: | --- | ---: | ---: |
+| 50,001 `<p>a</p>` elements | 2,695 | CAP_EXCEEDED before DOM | 14 ms | 93 MiB |
+| 49,950 elements, just below markup limit | 2,694 | admitted, 149,848 UTF-16 | 303 ms | 249 MiB |
+| 20,000 nested divs | 2,444 | admitted, “visible” | 106 ms | 145 MiB |
+| 1M-character chapter with output cap 100 | 3,079 | CAP_EXCEEDED before joining | 26 ms | 98 MiB |
+
+Per XML document, 8 MiB input and 100k `<` characters bound DOM allocation;
+400k cumulative markup characters and 32 MiB inflated bytes bound book-wide
+work. Counts are conservative even inside comments/CDATA. The worker retains
+no per-section text copies. Deflate input chunks are 4 KiB, bounding a single
+callback's maximum expansion near 4 MiB; output past a declared size is rejected
+rather than silently truncated. Future limit increases need fresh calibration.
