@@ -1,3 +1,5 @@
+import { useFooterHover } from './useFooterHover.ts';
+import { useFooterShuttle } from './useFooterShuttle.ts';
 import {
   useCallback,
   useEffect,
@@ -72,9 +74,7 @@ import {
   rangeClearDecision,
 } from '../../lib/range-clear-gesture.ts';
 
-const FOOTER_HOVER_DWELL_MS = 120;
 
-const FOOTER_SHUTTLE_ARIA_INTERVAL_MS = 1_000;
 
 type FooterKeyboardEvent = KeyboardEvent<HTMLDivElement> | globalThis.KeyboardEvent;
 
@@ -148,12 +148,7 @@ export function FooterInteractive({
   const layoutRef = useRef(layout);
   docsRef.current = docs;
   layoutRef.current = layout;
-  const pointerSample = useRef<{ readonly doc: string; readonly token: number } | null>(null);
-  const frame = useRef<number | null>(null);
-  const shuttleFrame = useRef<number | null>(null);
   const suppressDoubleClickUntil = useRef(0);
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hoverReady = useRef(false);
   const lastPointerIntent = useRef<PointerIntent>('direct');
   const lastDirectPointerAt = useRef(0);
   const snapIndexCache = useRef<{
@@ -169,10 +164,6 @@ export function FooterInteractive({
   const shuttleRate = shuttleOffsetPx === null
     ? null
     : footerShuttleRate(shuttleOffsetPx, visiblePassageTokens);
-  const ariaScrubLatest = useRef(scrub);
-  const ariaScrubTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const ariaShuttleActive = useRef(false);
-  const [ariaScrub, setAriaScrub] = useState(scrub);
   const passageWindow = useRef<PassageWindowV1 | null>(null);
   const queuedPageDirection = useRef<1 | -1 | null>(null);
   const [keyboardStatus, setKeyboardStatus] = useState('');
@@ -197,6 +188,34 @@ export function FooterInteractive({
     position: number | null;
     lastFrameAt: number | null;
   } | null>(null);
+  const setAbsoluteScrub = useCallback((target: { readonly doc: string; readonly token: number }) => {
+    queuedPageDirection.current = null;
+    setKeyboardStatus('');
+    setScrub(target);
+  }, [setScrub]);
+
+  const { sample: pointerSample, ready: hoverReady, schedule, enter: enterHover, clear: clearHover, cancelSample } = useFooterHover(setAbsoluteScrub);
+  const { ariaScrub, start: runShuttle, stop: cancelShuttle } = useFooterShuttle(scrub, shuttleRate, (at) => {
+      const tap = pointerTap.current;
+      if (!tap || tap.mode !== 'shuttle' || tap.position === null) return false;
+      const rate = footerShuttleRate(tap.offsetPx, visiblePassageTokensRef.current);
+      const firstFrame = tap.lastFrameAt === null;
+      const elapsed = firstFrame ? 0 : at - tap.lastFrameAt!;
+      tap.lastFrameAt = at;
+      const previousPosition = tap.position;
+      const next = advanceFooterShuttle(layoutRef.current, tap.position, rate, elapsed);
+      if (next) {
+        tap.position = next.position;
+        const doc = docsRef.current[next.docOrdinal];
+        const current = useApp.getState().scrub;
+        if (doc && (current?.doc !== doc || current.token !== next.token)) {
+          setAbsoluteScrub({ doc, token: next.token });
+        }
+      }
+    return rate !== 0 && (firstFrame || next?.position !== previousPosition)
+      && pointerTap.current?.mode === 'shuttle';
+  });
+  const stopShuttle = useCallback(() => { cancelShuttle(); setShuttleOffsetPx(null); }, [cancelShuttle]);
   const docOrdinal = scrub ? docs.indexOf(scrub.doc) : -1;
   const progress = scrub && docOrdinal >= 0
     ? corpusProgress(layout, docOrdinal, scrub.token)
@@ -243,11 +262,6 @@ export function FooterInteractive({
   const stripHeight = Math.max(geometry.stripMinHeight, stripVisualHeight);
   const stripTop = stripHeight - stripVisualHeight;
 
-  const setAbsoluteScrub = useCallback((target: { readonly doc: string; readonly token: number }) => {
-    queuedPageDirection.current = null;
-    setKeyboardStatus('');
-    setScrub(target);
-  }, [setScrub]);
 
   useEffect(() => {
     passageWindow.current = null;
@@ -267,93 +281,34 @@ export function FooterInteractive({
     setKeyboardStatus('');
   }, [occurrenceNavigation]);
 
-  const schedule = useCallback((target: { readonly doc: string; readonly token: number }) => {
-    pointerSample.current = target;
-    frame.current ??= requestAnimationFrame(() => {
-      frame.current = null;
-      if (pointerSample.current) setAbsoluteScrub(pointerSample.current);
-    });
-  }, [setAbsoluteScrub]);
-
   const applyFooterTouchTransition = (transition: FooterTouchTransition) => {
     footerTouch.current = transition.state;
     const scrubbing = transition.state.phase === 'scrubbing';
     setTouchScrubbing((current) => current === scrubbing ? current : scrubbing);
     if (transition.state.phase === 'spent') {
-      pointerSample.current = null;
-      if (frame.current !== null) {
-        cancelAnimationFrame(frame.current);
-        frame.current = null;
-      }
+      cancelSample();
     }
     if (transition.effect.kind === 'jump') setAbsoluteScrub(transition.effect.point);
     else if (transition.effect.kind === 'scrub') schedule(transition.effect.point);
   };
 
-  useEffect(() => {
-    ariaScrubLatest.current = scrub;
-    if (shuttleRate === null) {
-      if (ariaScrubTimer.current !== null) {
-        clearTimeout(ariaScrubTimer.current);
-        ariaScrubTimer.current = null;
-      }
-      if (ariaShuttleActive.current) setAriaScrub(scrub);
-      ariaShuttleActive.current = false;
+  const cancelPointerGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') {
+      applyFooterTouchTransition(footerTouchCancel(footerTouch.current, event.pointerId));
       return;
     }
-    if (!ariaShuttleActive.current) setAriaScrub(scrub);
-    ariaShuttleActive.current = true;
-    ariaScrubTimer.current ??= setTimeout(() => {
-      ariaScrubTimer.current = null;
-      setAriaScrub(ariaScrubLatest.current);
-    }, FOOTER_SHUTTLE_ARIA_INTERVAL_MS);
-  }, [scrub, shuttleRate]);
-
-  const stopShuttle = useCallback(() => {
-    if (shuttleFrame.current !== null) {
-      cancelAnimationFrame(shuttleFrame.current);
-      shuttleFrame.current = null;
+    const range = footerRange.current;
+    if ((range.phase === 'armed' || range.phase === 'brushing') && range.pointerId === event.pointerId) {
+      const reset = resetFooterRangeGesture(range);
+      footerRange.current = reset.state;
+      applyFooterRangeEffect(reset.effect);
     }
-    setShuttleOffsetPx(null);
-  }, []);
+    if (pointerTap.current?.pointerId === event.pointerId) {
+      pointerTap.current = null;
+      stopShuttle();
+    }
+  };
 
-  const runShuttle = useCallback(() => {
-    if (shuttleFrame.current !== null) return;
-    const tick = (at: number) => {
-      shuttleFrame.current = null;
-      const tap = pointerTap.current;
-      if (!tap || tap.mode !== 'shuttle' || tap.position === null) return;
-      const rate = footerShuttleRate(tap.offsetPx, visiblePassageTokensRef.current);
-      const firstFrame = tap.lastFrameAt === null;
-      const elapsed = firstFrame ? 0 : at - tap.lastFrameAt!;
-      tap.lastFrameAt = at;
-      const previousPosition = tap.position;
-      const next = advanceFooterShuttle(layoutRef.current, tap.position, rate, elapsed);
-      if (next) {
-        tap.position = next.position;
-        const doc = docsRef.current[next.docOrdinal];
-        const current = useApp.getState().scrub;
-        if (doc && (current?.doc !== doc || current.token !== next.token)) {
-          setAbsoluteScrub({ doc, token: next.token });
-        }
-      }
-      if (
-        rate !== 0
-        && (firstFrame || next?.position !== previousPosition)
-        && pointerTap.current?.mode === 'shuttle'
-      ) {
-        shuttleFrame.current = requestAnimationFrame(tick);
-      }
-    };
-    shuttleFrame.current = requestAnimationFrame(tick);
-  }, [setAbsoluteScrub]);
-
-  useEffect(() => () => {
-    if (frame.current !== null) cancelAnimationFrame(frame.current);
-    if (shuttleFrame.current !== null) cancelAnimationFrame(shuttleFrame.current);
-    if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
-    if (ariaScrubTimer.current !== null) clearTimeout(ariaScrubTimer.current);
-  }, []);
   const attachSlider = useCallback((element: HTMLDivElement | null) => {
     sliderRef.current = element;
     containerRef(element);
@@ -864,29 +819,11 @@ export function FooterInteractive({
         onKeyDown={onKeyDown}
         onPointerEnter={(event) => {
           if (!observePrecisePointer(event.pointerType)) return;
-          hoverReady.current = false;
-          if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
           const point = localPoint(event);
           const target = point ? pointerTargetAt(point.x, point.y, true) : null;
-          pointerSample.current = target ? { doc: target.doc, token: target.token } : null;
-          hoverTimer.current = setTimeout(() => {
-            hoverTimer.current = null;
-            hoverReady.current = true;
-            if (pointerSample.current) schedule(pointerSample.current);
-          }, FOOTER_HOVER_DWELL_MS);
+          enterHover(target ? { doc: target.doc, token: target.token } : null);
         }}
-        onPointerLeave={() => {
-          hoverReady.current = false;
-          pointerSample.current = null;
-          if (hoverTimer.current !== null) {
-            clearTimeout(hoverTimer.current);
-            hoverTimer.current = null;
-          }
-          if (frame.current !== null) {
-            cancelAnimationFrame(frame.current);
-            frame.current = null;
-          }
-        }}
+        onPointerLeave={clearHover}
         onPointerMove={(event) => {
           if (event.pointerType === 'touch') {
             const point = localPoint(event);
@@ -934,11 +871,7 @@ export function FooterInteractive({
                   ? (layout.bases[d] ?? 0) + tap.anchorTarget.token + 0.5
                   : null;
                 tap.lastFrameAt = null;
-                pointerSample.current = null;
-                if (frame.current !== null) {
-                  cancelAnimationFrame(frame.current);
-                  frame.current = null;
-                }
+                cancelSample();
                 setAbsoluteScrub(tap.anchorTarget);
               }
               tap.offsetPx = event.clientX - tap.x;
@@ -1096,64 +1029,11 @@ export function FooterInteractive({
           if (target) setAbsoluteScrub({ doc: target.doc, token: target.token });
         }}
         onPointerCancel={(event) => {
-          if (event.pointerType === 'touch') {
-            applyFooterTouchTransition(footerTouchCancel(
-              footerTouch.current,
-              event.pointerId,
-            ));
-            pointerSample.current = null;
-            if (frame.current !== null) {
-              cancelAnimationFrame(frame.current);
-              frame.current = null;
-            }
-            return;
-          }
-          const range = footerRange.current;
-          if (
-            (range.phase === 'armed' || range.phase === 'brushing')
-            && range.pointerId === event.pointerId
-          ) {
-            const reset = resetFooterRangeGesture(range);
-            footerRange.current = reset.state;
-            applyFooterRangeEffect(reset.effect);
-          }
-          if (pointerTap.current?.pointerId === event.pointerId) {
-            pointerTap.current = null;
-            stopShuttle();
-          }
-          hoverReady.current = false;
-          pointerSample.current = null;
-          if (hoverTimer.current !== null) {
-            clearTimeout(hoverTimer.current);
-            hoverTimer.current = null;
-          }
-          if (frame.current !== null) {
-            cancelAnimationFrame(frame.current);
-            frame.current = null;
-          }
+          cancelPointerGesture(event);
+          if (event.pointerType === 'touch') cancelSample();
+          else clearHover();
         }}
-        onLostPointerCapture={(event) => {
-          if (event.pointerType === 'touch') {
-            applyFooterTouchTransition(footerTouchCancel(
-              footerTouch.current,
-              event.pointerId,
-            ));
-            return;
-          }
-          const range = footerRange.current;
-          if (
-            (range.phase === 'armed' || range.phase === 'brushing')
-            && range.pointerId === event.pointerId
-          ) {
-            const reset = resetFooterRangeGesture(range);
-            footerRange.current = reset.state;
-            applyFooterRangeEffect(reset.effect);
-          }
-          if (pointerTap.current?.pointerId === event.pointerId) {
-            pointerTap.current = null;
-            stopShuttle();
-          }
-        }}
+        onLostPointerCapture={cancelPointerGesture}
       >
         {strip}
         {previewLeft !== null && previewRight !== null && (
