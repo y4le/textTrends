@@ -12,7 +12,7 @@ export { FREQUENCY_TOKEN_CLASSES_V1, FREQUENCY_SORT_FIELDS_V1, KEYNESS_SORT_FIEL
 //
 // SURFACE DISCIPLINE (simplification plan, Phase G): the barrel exports ONLY
 // symbols consumed through the package surface by production code, plus the
-// documented owner-retained surfaces (the stats methods, epubExtractionRecipe).
+// documented owner-retained surfaces (the stats methods, analytical literals, epubExtractionRecipe).
 // Internal contracts stay module-exported for cross-module use and focused
 // same-package tests; those tests import the module path, never the barrel.
 
@@ -43,16 +43,18 @@ export { CapError } from './contract/brands.ts';
 // The explicit retained brand list (the wildcard export is gone): TextHash is
 // the one brand production code names through the package surface.
 export type { TextHash } from './contract/brands.ts';
-export { canonicalJson, hashSourceBytes, hashText } from './contract/hash.ts';
-export { verifiedHashOf, verifiedTextOf, verifyText, type VerifiedText } from './contract/verified-text.ts';
-export { exactArray, exactRecord, isNonNegSafeInt, isRecord, isString } from './contract/guards.ts';
 export {
-  ALIAS_COMPILER_V1,
-  compileAlias,
-  compileAliasOrThrow,
-  type AliasCompileErrorCode,
-  type AliasCompileResult,
-} from './project/alias.ts';
+  canonicalJson,
+  hashSourceBytes,
+} from './contract/hash.ts';
+export { verifiedHashOf, verifiedTextOf, verifyText, type VerifiedText } from './contract/verified-text.ts';
+export {
+  exactRecord,
+  isNonNegSafeInt,
+  isRecord,
+  isString,
+} from './contract/guards.ts';
+
 export {
   EMPTY_NOTEBOOK,
   EXACT_MATCH,
@@ -79,21 +81,15 @@ export {
 export {
   TREND_RATE_DENOMINATOR,
   TREND_SMOOTHING_WINDOWS,
-  WORKSPACE_MAX_ID_UNITS,
-  WORKSPACE_SCHEMA,
   parseWorkspace,
   parseWorkspaceTrendView,
   reconcileWorkspaceDocuments,
   type TrendSmoothingWindow,
-  type WorkspaceCompareViewV1,
-  type WorkspaceCorpusV1,
   type WorkspaceDocumentMetaV1,
-  type WorkspaceFrequencyViewV1,
   type WorkspaceLibraryDocumentV1,
   type WorkspaceTrendMeasureV1,
   type WorkspaceTrendViewV1,
   type WorkspaceV1,
-  type WorkspaceWarmTextV1,
 } from './project/workspace.ts';
 export {
   DEFAULT_INDEX_RECIPE,
@@ -139,17 +135,14 @@ export {
   type BoundTexts,
 } from './ops/binding.ts';
 export {
-  KWIC_CONTEXT_MARKS_MAX_PER_SIDE,
   KWIC_CONTEXT_MAX_TOKENS,
   KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
-  materializeKwicPage,
   type KwicContextMark,
   type KwicRow,
 } from './ops/kwic.ts';
 export {
   buildMatchesAxis,
-  MATCHES_AXIS_STRIDE,
   matchesAxisPayloadBytes,
   copyMatchesAxis,
   materializeMatchesWindow,
@@ -160,80 +153,43 @@ export {
   type MatchesPositionBracketV1,
   type MatchesWindowRequestV1,
   type MatchesWindowV1,
-  type NumericMatchesWindowV1,
 } from './ops/matches.ts';
 export {
-  checkedResolverFor,
   occurrencePayloadBytes,
   occurrences,
   OCCURRENCE_LIMITS_V1,
   TERM_GROUP_LIMITS_V1,
   termGroupIdentity,
-  trackDocumentSlices,
-  validateGroup,
   type GroupMember,
-  type PhraseElement,
   type NumericOccurrences,
-  type ResolverTable,
   type TermGroupSpec,
 } from './ops/occurrences.ts';
 export {
   company,
   createCompanyScratch,
-  COMPANY_CHECKPOINT_SPAN,
   COMPANY_GAP_EDGES_V1,
-  type CompanyCheckpoint,
-  type CompanyPairV1,
   type CompanyRequestV1,
   type CompanyResultV1,
-  type CompanyScratchV1,
   type CompanyTrackInputV1,
 } from './ops/company.ts';
 export {
   createDestinationsScratch,
-  destinationIntegerSqrt,
   destinationScratchBytes,
   materializeDestinations,
   planDestinationWindowSpikeV0,
   planDestinations,
-  DESTINATION_CHECKPOINT_SPAN,
-  DESTINATION_COUNT_CAP,
-  DESTINATION_MAX_MARKS,
-  DESTINATION_MAX_RARITY_WEIGHT,
   DESTINATION_MAX_RESULTS,
-  DESTINATION_PER_DOC_KEEP,
-  DESTINATION_SCORE_SCALE,
-  DESTINATION_SNIPPET_TOKENS,
-  DESTINATION_SNIPPET_UTF16,
-  DESTINATION_SNIPPET_UTF8,
-  DESTINATION_WINDOW_OPTIONS_V0,
   DESTINATION_WINDOW_TOKENS_V1,
-  type DestinationCheckpoint,
-  type DestinationFocusV1,
-  type DestinationMarkV1,
-  type DestinationResultItemV1,
   type DestinationsRequestV1,
   type DestinationsResultV1,
-  type DestinationsScratchV1,
   type DestinationTrackInputV1,
-  type DestinationWindowSpikeRequestV0,
-  type DestinationWindowTokensV0,
-  type NumericDestinationV1,
-  type NumericDestinationsPlanV1,
 } from './ops/destinations.ts';
 export {
   materializeReaderPage,
   planReaderPage,
-  READER_MAX_MARKS,
-  READER_MAX_TEXT_UTF16,
-  READER_MAX_TOKENS,
-  READER_MAX_TRACKS,
-  type NumericReaderPagePlan,
-  type ReaderCappedBy,
   type ReaderCursor,
   type ReaderPageMark,
   type ReaderPageResult,
-  type ReaderTrackIdentity,
 } from './ops/reader.ts';
 export {
   occurrenceStep,
@@ -245,7 +201,6 @@ export {
 export {
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,
-  DISPERSION_PACK_CHUNK,
   dispersionTransferBuffers,
   packDensityTrack,
   packExactTrack,
@@ -253,7 +208,6 @@ export {
   selectionSlotMap,
   type DispersionGeometryV1,
   type DispersionResultV1,
-  type DispersionTrackDataV1,
   type DispersionTrackV1,
 } from './ops/dispersion.ts';
 export {
@@ -269,24 +223,16 @@ export {
   inventoryTransferBuffers,
   INVENTORY_MAX_MATTR_WINDOW,
   INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
-  INVENTORY_MAX_VOCAB_TYPES,
-  INVENTORY_SCAN_CHUNK,
-  type InventoryCheckpoint,
   type InventoryDocumentInputV1,
   type InventoryDocumentRowV1,
   type InventoryRequestV1,
   type InventoryResultV1,
   type InventoryRhythmV1,
-  type InventoryTotalsV1,
 } from './ops/inventory.ts';
 export {
   frequencyList,
   FREQUENCY_FILTER_MAX_UNITS,
   FREQUENCY_PAGE_MAX,
-  FREQUENCY_REGEX_MAX_UNITS,
-  FREQUENCY_SCAN_CHUNK,
-  FREQUENCY_WINDOW_MAX,
-  type FrequencyCheckpoint,
   type FrequencyListRequestV1,
   type FrequencyListResultV1,
   type FrequencyListRowV1,
@@ -299,18 +245,11 @@ export {
   STOPLIST_EN_VERSION,
   STOPLIST_MAX_TOP_N,
   isStoplistSpecV1,
-  type StoplistResultV1,
-  type StoplistSpecV1,
 } from './ops/stoplist-contract.ts';
-export {
-  validateStoplistRanks,
-  type StoplistRanksV1,
-} from './ops/stoplist-ranks.ts';
+
 export {
   firstSelectionOverlap,
   keyness,
-  KEYNESS_SCAN_CHUNK,
-  type KeynessCheckpoint,
   type KeynessResultV1,
   type KeynessDivergenceV1,
   type KeynessRowV1,

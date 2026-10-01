@@ -1,3 +1,4 @@
+import { FREQUENCY_WINDOW_MAX } from '../../../packages/core/src/ops/frequency.ts';
 /**
  * Protocol v4 runtime validators (contract §12.8: each op's runtime schema
  * complete before the engine implements it). These prove the total wire
@@ -22,7 +23,6 @@ import {
   INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
   FREQUENCY_PAGE_MAX,
   FREQUENCY_FILTER_MAX_UNITS,
-  FREQUENCY_WINDOW_MAX,
   KWIC_CONTEXT_MAX_TOKENS,
   STOPLIST_EN_ID,
   STOPLIST_EN_VERSION,

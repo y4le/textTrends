@@ -1,3 +1,4 @@
+import { hashText } from '../src/contract/hash.ts';
 /**
  * Extraction core — golden tests:
  * decoder policy (BOMs, strict UTF-8, total windows-1252 fallback, exact
@@ -14,7 +15,6 @@ import {
   finalizeExtraction,
   hashExtractionRecipe,
   hashSourceBytes,
-  hashText,
   validateExtractionRecipe,
   type PreparedExtraction,
 } from '../src/index.ts';

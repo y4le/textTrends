@@ -1,3 +1,4 @@
+import { hashText } from '../../../../packages/core/src/contract/hash.ts';
 /**
  * e2e protocol harness — compiled ONLY in `--mode e2e` builds (M6 consult
  * §2): destructive protocol probes against the REAL WorkerClient and the
@@ -15,7 +16,6 @@ import {
   defaultExtractionRecipes,
   hashExtractionRecipe,
   hashSourceBytes,
-  hashText,
 } from '@texttrends/core';
 
 const encoder = new TextEncoder();

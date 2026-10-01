@@ -50,7 +50,8 @@ describe('downloadable demo corpora', () => {
 
   it('matches every shipped source byte-for-byte', async () => {
     const { readFile } = await import('node:fs/promises');
-    const { hashSourceBytes, hashText } = await import('@texttrends/core');
+    const { hashSourceBytes } = await import('@texttrends/core');
+    const { hashText } = await import('../../../packages/core/src/contract/hash.ts');
     for (const corpus of BUILTIN_CORPORA) {
       for (const doc of demoCorpusFixtures(corpus.id)) {
         const bytes = await readFile(new URL(`../public/corpora/${corpus.sourceDirectory}/${doc.doc}.txt`, import.meta.url));
