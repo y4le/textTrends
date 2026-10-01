@@ -113,6 +113,7 @@ function ReaderProse({
         && mark.charsUtf16.end >= segment.end,
     ) ?? null;
 
+  const presentedMarks = new Set<ReaderPageMarkV1>();
   return (
     <div
       className="source-text"
@@ -157,14 +158,16 @@ function ReaderProse({
             </span>
           );
         }
+        const firstPiece = !presentedMarks.has(mark);
+        presentedMarks.add(mark);
         const clippedStart = mark.clippedStart && segment.start === mark.charsUtf16.start;
         const clippedEnd = mark.clippedEnd && segment.end === mark.charsUtf16.end;
         return (
           <span
             key={`${segment.start}:${segment.end}`}
-            role="button"
-            tabIndex={0}
-            aria-label={`${text} · Find ${labelOf.get(mark.seriesId) ?? mark.seriesId} reference in Matches`}
+            role={firstPiece ? 'button' : undefined}
+            tabIndex={firstPiece ? 0 : undefined}
+            aria-label={firstPiece ? `${text} · Find ${labelOf.get(mark.seriesId) ?? mark.seriesId} reference in Matches` : undefined}
             title={[
               'Show this full reference in Matches',
               clippedStart ? 'continues from previous page' : '',
@@ -179,7 +182,7 @@ function ReaderProse({
               });
             }}
             onKeyDown={(event) => {
-              if (event.key !== 'Enter' && event.key !== ' ') return;
+              if (!firstPiece || (event.key !== 'Enter' && event.key !== ' ')) return;
               event.preventDefault();
               setReadingCursor(mark.tokens.start);
               centerKwicAt(mark.seriesId, page.doc, mark.tokens.start, {
@@ -189,6 +192,7 @@ function ReaderProse({
               });
             }}
             data-reader-mark={mark.seriesId}
+            data-reader-mark-start={mark.tokens.start}
             data-reader-offset={segment.start}
             data-reader-cursor={inCursor || undefined}
             data-reader-cursor-start={inCursor && segment.start === cursor?.start || undefined}

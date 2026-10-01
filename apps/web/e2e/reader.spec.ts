@@ -488,3 +488,34 @@ test('Reader body focus keeps page keys and owned controls close on browser Back
   await expect(reader).toHaveCount(0);
   await expect(page.locator('#matches-grid')).toBeFocused();
 });
+
+
+test('a multiword Reader mark split by the cursor exposes one prose action', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
+    name: 'phrase-mark.txt', mimeType: 'text/plain',
+    buffer: Buffer.from('foo bar gamma. '.repeat(20)),
+  });
+  await awaitReadyCount(page, 1);
+  await submitAndAwaitFreshResults(page, 'foo bar');
+  const footer = page.getByRole('slider', { name: 'Corpus footer position' });
+  await footer.focus();
+  await footer.press('Home');
+  await page.getByRole('button', { name: /Open reader at .* token 1$/ }).click();
+  const reader = page.getByRole('main', { name: /Reader: phrase-mark/ });
+  const pieces = reader.locator('[data-reader-mark-start="0"]');
+  await expect.poll(() => pieces.count()).toBeGreaterThan(1);
+  const action = reader.locator('[data-reader-mark-start="0"][role="button"]');
+  await expect(action).toHaveCount(1);
+  await expect(action).toHaveAccessibleName(/foo.*Find foo bar reference in Matches/);
+  expect((await pieces.allTextContents()).join('')).toBe('foo bar');
+  await action.focus();
+  await action.press('Enter');
+  await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-anchor', '0');
+  await reader.getByRole('button', { name: 'Return to workbench', exact: true }).click();
+  await gotoPlace(page, 'matches');
+  await expect(page.getByRole('grid', { name: 'Matches' }).getByRole('row', { selected: true }).getByRole('button', { name: 'foo bar', exact: true })).toBeVisible();
+});
