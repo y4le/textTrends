@@ -1891,16 +1891,18 @@ export function createAppRuntime(
         runMatchesWindow(anchor, window);
       },
 
-      setMatchesColumnWidth(column, width) {
-        if (!(column in MATCHES_COLUMN_DEFAULTS) || !Number.isFinite(width)) return;
-        const view = get().matchesView;
-        const next = clampMatchesColumnWidth(column, width);
-        if (view.columns[column] === next) return;
-        set({
-          matchesView: {
-            columns: { ...view.columns, [column]: next },
-          },
-        });
+      setMatchesColumns(columns) {
+        const keys = Object.keys(MATCHES_COLUMN_DEFAULTS) as MatchesColumn[];
+        if (keys.some((column) => columns[column] !== 'auto' && !Number.isFinite(columns[column]))) return;
+        if (!Number.isFinite(columns.left) || !Number.isFinite(columns.right)) return;
+        const next: MatchesColumnSettings = {
+          left: clampMatchesColumnWidth('left', columns.left),
+          right: clampMatchesColumnWidth('right', columns.right),
+          node: columns.node === 'auto' ? 'auto' : clampMatchesColumnWidth('node', columns.node),
+          book: columns.book === 'auto' ? 'auto' : clampMatchesColumnWidth('book', columns.book),
+        };
+        if (keys.every((column) => get().matchesView.columns[column] === next[column])) return;
+        set({ matchesView: { columns: next } });
       },
 
       setMatchesContextWeights(left, right) {

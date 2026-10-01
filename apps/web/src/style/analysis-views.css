@@ -1955,6 +1955,11 @@ html[data-trend-row-resizing='true'] * {
   touch-action: none;
 }
 
+.kwic-column-resizer--leading {
+  inset-inline-end: auto;
+  inset-inline-start: -6px;
+}
+
 .kwic-column-resizer::after {
   position: absolute;
   inset-block: 5px;

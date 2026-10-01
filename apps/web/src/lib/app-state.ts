@@ -619,7 +619,7 @@ export interface AppState {
       readonly contextTokens?: number;
     },
   ): void;
-  setMatchesColumnWidth(column: MatchesColumn, width: number): void;
+  setMatchesColumns(columns: MatchesColumnSettings): void;
   setMatchesContextWeights(left: number, right: number): void;
   resetMatchesColumn(column: MatchesColumn): void;
   resetMatchesColumns(): void;

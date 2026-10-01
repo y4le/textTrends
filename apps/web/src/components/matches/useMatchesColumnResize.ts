@@ -2,6 +2,7 @@ import { useColumnPointerDrag } from '../useColumnPointerDrag.ts';
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -10,6 +11,8 @@ import {
 import type { AppState } from '../../lib/app-state.ts';
 import {
   matchesColumnWidthFromDrag,
+  matchesFixedBoundarySettings,
+  matchesFixedBoundaryMax,
   matchesColumnWidthFromKey,
   MATCHES_COLUMN_PADDING_CH,
   type MatchesColumn,
@@ -41,7 +44,7 @@ interface MatchesColumnResizeOptions {
   readonly resolveFor: (settings: MatchesColumnSettings) => ResolvedMatchesColumns;
   readonly templateFor: (settings: MatchesColumnSettings) => string;
   readonly announce: (text: string) => void;
-  readonly setColumnWidth: AppState['setMatchesColumnWidth'];
+  readonly setColumns: AppState['setMatchesColumns'];
   readonly setContextWeights: AppState['setMatchesContextWeights'];
   readonly resetColumn: AppState['resetMatchesColumn'];
   readonly resetColumns: AppState['resetMatchesColumns'];
@@ -51,13 +54,33 @@ interface MatchesColumnResizeOptions {
  * descriptions remain with the grid that renders the handles. */
 export function useMatchesColumnResize({
   portRef, columns, displayedColumns, chPx, resolveFor, templateFor,
-  announce, setColumnWidth, setContextWeights, resetColumn, resetColumns,
+  announce, setColumns, setContextWeights, resetColumn, resetColumns,
 }: MatchesColumnResizeOptions) {
   const leftHeadingRef = useRef<HTMLDivElement | null>(null);
   const rightHeadingRef = useRef<HTMLDivElement | null>(null);
   const adjustButtonRef = useRef<HTMLButtonElement | null>(null);
   const focusFrameRef = useRef<number | null>(null);
   const [columnsAdjustable, setColumnsAdjustable] = useState(false);
+  const [fixedMaximums, setFixedMaximums] = useState({ node: 48, book: 80 });
+
+  useLayoutEffect(() => {
+    const left = leftHeadingRef.current;
+    const right = rightHeadingRef.current;
+    if (!left || !right) return;
+    const measure = () => {
+      const leftPx = left.getBoundingClientRect().width;
+      const rightPx = right.getBoundingClientRect().width;
+      const node = matchesFixedBoundaryMax('node', displayedColumns.node, leftPx, rightPx, chPx);
+      const book = matchesFixedBoundaryMax('book', displayedColumns.book, leftPx, rightPx, chPx);
+      setFixedMaximums((current) => current.node === node && current.book === book
+        ? current : { node, book });
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(left);
+    observer?.observe(right);
+    return () => observer?.disconnect();
+  }, [chPx, displayedColumns.node, displayedColumns.book]);
 
   const scheduleFocus = (focus: () => void) => {
     if (focusFrameRef.current !== null) cancelAnimationFrame(focusFrameRef.current);
@@ -152,14 +175,17 @@ export function useMatchesColumnResize({
         const next = matchesColumnWidthFromDrag(
           drag.column,
           drag.startWidth,
-          delta,
+          drag.column === 'book' ? -delta : delta,
           drag.chPx,
         );
         if (next === drag.currentWidth) return;
-        drag.currentWidth = next;
-        drag.currentSettings = { ...drag.restoreSettings, [drag.column]: next };
-        event.currentTarget.setAttribute('aria-valuenow', String(next));
-        event.currentTarget.setAttribute('aria-valuetext', `${next} characters`);
+        drag.currentSettings = matchesFixedBoundarySettings(
+          drag.restoreSettings, drag.column, drag.startWidth,
+          drag.startLeftPx, drag.startRightPx, drag.chPx, next,
+        );
+        drag.currentWidth = drag.currentSettings[drag.column] as number;
+        event.currentTarget.setAttribute('aria-valuenow', String(drag.currentWidth));
+        event.currentTarget.setAttribute('aria-valuetext', `${drag.currentWidth} characters`);
       }
       drag.moved = true;
       writeSettings(drag.currentSettings);
@@ -169,7 +195,7 @@ export function useMatchesColumnResize({
         setContextWeights(drag.currentSettings.left, drag.currentSettings.right);
         announce(`${drag.column} context share ${drag.currentWidth}%`);
       } else {
-        setColumnWidth(drag.column, drag.currentWidth);
+        setColumns(drag.currentSettings);
         announce(`${drag.column} column width ${drag.currentWidth} characters`);
       }
     },
@@ -227,7 +253,12 @@ export function useMatchesColumnResize({
     if (next === null) return;
     event.preventDefault();
     event.stopPropagation();
-    setColumnWidth(column, next);
+    const leftPx = leftHeadingRef.current?.getBoundingClientRect().width ?? 0;
+    const rightPx = rightHeadingRef.current?.getBoundingClientRect().width ?? 0;
+    const settings = matchesFixedBoundarySettings(
+      columns, column, displayedColumns[column], leftPx, rightPx, chPx, next,
+    );
+    setColumns(settings);
     announce(`${column} column width ${next} characters`);
   };
 
@@ -255,6 +286,7 @@ export function useMatchesColumnResize({
     rightHeadingRef,
     adjustButtonRef,
     columnsAdjustable,
+    fixedMaximums,
     beginColumnDrag,
     moveColumnDrag,
     endColumnDrag,

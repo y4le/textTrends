@@ -712,7 +712,7 @@ describe('store query intent discipline', () => {
     const before = workspaceSemanticKey(f.store.getState());
     const issued = f.issued.length;
 
-    f.store.getState().setMatchesColumnWidth('left', 72);
+    f.store.getState().setMatchesColumns({ ...f.store.getState().matchesView.columns, left: 72 });
     expect(f.store.getState().matchesView).toMatchObject({
       columns: {
         left: 72,
@@ -724,7 +724,7 @@ describe('store query intent discipline', () => {
     expect(workspaceSemanticKey(f.store.getState())).toBe(before);
     expect(f.issued).toHaveLength(issued);
 
-    f.store.getState().setMatchesColumnWidth('node', -20);
+    f.store.getState().setMatchesColumns({ ...f.store.getState().matchesView.columns, node: -20 });
     expect(f.store.getState().matchesView.columns.node).toBe(1);
     f.store.getState().resetMatchesColumns();
     expect(f.store.getState().matchesView.columns).toEqual({
@@ -760,8 +760,7 @@ describe('store query intent discipline', () => {
   it('keeps semantic column intent stable when visible terms change', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setMatchesColumnWidth('left', 61);
-    f.store.getState().setMatchesColumnWidth('right', 57);
+    f.store.getState().setMatchesColumns({ ...f.store.getState().matchesView.columns, left: 61, right: 57 });
     f.store.getState().mergeStarterTerms('ox, elephants');
     expect(f.store.getState().matchesView.columns).toEqual({
       left: 61,

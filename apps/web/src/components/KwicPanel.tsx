@@ -86,10 +86,11 @@ export function KwicPanel({
   const scrub = useApp((state) => state.scrub);
   const linkedSelection = useApp((state) => state.linkedSelection);
   const series = useApp((state) => state.series);
+  const notebook = useApp((state) => state.notebook);
   const interaction = useApp((state) => state.interaction);
   const view = useApp((state) => state.matchesView);
   const requestWindow = useApp((state) => state.requestMatchesWindow);
-  const setColumnWidth = useApp((state) => state.setMatchesColumnWidth);
+  const setColumns = useApp((state) => state.setMatchesColumns);
   const setContextWeights = useApp((state) => state.setMatchesContextWeights);
   const resetColumn = useApp((state) => state.resetMatchesColumn);
   const resetColumns = useApp((state) => state.resetMatchesColumns);
@@ -250,9 +251,16 @@ export function KwicPanel({
   };
 
   const columnContent = useMemo(() => {
-    const visibleNodes = rows.map((row) => row.nodeText);
+    const activeIds = new Set(displayedSeries.map((item) => item.id));
+    const authoredNodes = findQuery
+      ? findQuery.group.members.map((member) => member.kind === 'token'
+          ? member.surface
+          : member.kind === 'phrase'
+            ? member.elements.map((element) => element.kind === 'token' ? element.surface : `${element.stem}*`).join(' ')
+            : `${member.stem}*`)
+      : notebook.groups.filter((group) => activeIds.has(group.id)).flatMap((group) => group.aliases);
     return {
-      nodes: visibleNodes.length > 0 ? visibleNodes : displayedSeries.map((item) => item.label),
+      nodes: authoredNodes.length > 0 ? authoredNodes : displayedSeries.map((item) => item.label),
       books: docs.map((doc, index) => `(${index + 1}) ${titleByDoc.get(doc) ?? doc}`),
       tokens: [
         'token',
@@ -263,7 +271,7 @@ export function KwicPanel({
         }),
       ],
     };
-  }, [displayedSeries, docs, rows, titleByDoc, tokenCountsByDoc]);
+  }, [displayedSeries, docs, findQuery, notebook.groups, titleByDoc, tokenCountsByDoc]);
   const displayedColumns = useMemo(() => resolvedMatchesColumns(
     view.columns,
     columnContent,
@@ -336,12 +344,12 @@ export function KwicPanel({
   const columnsAtDefault = isDefaultMatchesColumns(view.columns);
 
   const {
-    leftHeadingRef, rightHeadingRef, adjustButtonRef, columnsAdjustable,
+    leftHeadingRef, rightHeadingRef, adjustButtonRef, columnsAdjustable, fixedMaximums,
     beginColumnDrag, moveColumnDrag, endColumnDrag, cancelColumnDrag,
     onColumnKeyDown, toggleColumnsAdjustable, resetColumnWidths,
   } = useMatchesColumnResize({
     portRef, columns: view.columns, displayedColumns, chPx: viewport.chPx,
-    resolveFor, templateFor, announce, setColumnWidth, setContextWeights,
+    resolveFor, templateFor, announce, setColumns, setContextWeights,
     resetColumn, resetColumns,
   });
 
@@ -351,7 +359,8 @@ export function KwicPanel({
     const width = context
       ? (column === 'left' ? pair.first : pair.second)
       : displayedColumns[column];
-    const limits = context ? { min: 1, max: 99 } : MATCHES_COLUMN_LIMITS[column];
+    const limits = context ? { min: 1, max: 99 }
+      : { min: MATCHES_COLUMN_LIMITS[column].min, max: fixedMaximums[column] };
     const automatic = !context && view.columns[column] === 'auto';
     return (
       <ColumnResizeHandle
@@ -363,7 +372,7 @@ export function KwicPanel({
           ? `${width}% of context space`
           : `${width} characters${automatic ? ', automatic' : ''}`}
         adjustable={columnsAdjustable}
-        className="kwic-column-resizer"
+        className={`kwic-column-resizer${column === 'book' ? ' kwic-column-resizer--leading' : ''}`}
         onKeyDown={(event) => onColumnKeyDown(event, column)}
         onPointerDown={(event) => beginColumnDrag(event, column)}
         onPointerMove={moveColumnDrag}
@@ -502,7 +511,7 @@ export function KwicPanel({
             tooltipsDisabled={columnsAdjustable}
             renderResizeHandle={(column) => column.key === 'token'
               ? null
-              : resizeHandle(column.key, column.label)}
+              : column.key === 'right' ? null : resizeHandle(column.key, column.label)}
           />
           <div
             className="kwic-scroll-plane"

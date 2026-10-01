@@ -97,8 +97,9 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   const bookWidth = matches.getByRole('separator', { name: /^text width$/i });
   await expect(bookWidth).toHaveAttribute('aria-valuenow', '3');
   await bookWidth.focus();
+  const maximum = await bookWidth.getAttribute('aria-valuemax');
   await bookWidth.press('End');
-  await expect(bookWidth).toHaveAttribute('aria-valuenow', '80');
+  await expect(bookWidth).toHaveAttribute('aria-valuenow', maximum!);
   const expandedBook = await firstBook.evaluate((cell) => ({
     clipped: cell.querySelector('span')!.scrollWidth
       > cell.querySelector('span')!.clientWidth,

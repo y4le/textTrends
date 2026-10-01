@@ -3,6 +3,8 @@ import {
   clampMatchesColumnWidth,
   matchesBookColumnWidth,
   matchesColumnWidthFromDrag,
+  matchesFixedBoundarySettings,
+  matchesFixedBoundaryMax,
   matchesColumnWidthFromKey,
   matchesGridTemplate,
   matchesNodeColumnWidth,
@@ -26,6 +28,21 @@ describe('Matches column geometry', () => {
     expect(matchesColumnWidthFromDrag('node', 18, 17, 8)).toBe(20);
     expect(matchesColumnWidthFromDrag('node', 18, -200, 8)).toBe(1);
     expect(matchesColumnWidthFromDrag('book', 20, 20, 0)).toBe(20);
+  });
+
+  it('trades fixed boundary deltas with right context while retaining left geometry', () => {
+    for (const column of ['node', 'book'] as const) {
+      const settings = { ...MATCHES_COLUMN_DEFAULTS, node: 8, book: 8 };
+      const result = matchesFixedBoundarySettings(settings, column, 8, 200, 300, 10, 12);
+      expect(result[column]).toBe(12);
+      const remaining = 500 - 40;
+      const left = remaining * result.left / (result.left + result.right);
+      expect(Math.abs(left - 200)).toBeLessThanOrEqual(3);
+      const clamped = matchesFixedBoundarySettings(settings, column, 8, 200, 30, 10, 48);
+      expect(clamped[column]).toBe(10);
+      expect(matchesFixedBoundaryMax(column, 8, 200, 30, 10)).toBe(clamped[column]);
+    }
+    expect(matchesNodeColumnWidth(['wolf*'])).toBe(48);
   });
 
   it('supports fine, coarse, and endpoint separator keys', () => {

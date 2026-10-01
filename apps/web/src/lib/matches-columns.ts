@@ -2,6 +2,7 @@ import { KWIC_CONTEXT_MAX_TOKENS } from '@texttrends/core';
 import type { WidthClass } from './presentation.ts';
 import {
   fitTextColumn,
+  proportionalPairFromPixels,
   partitionedGridTemplate,
   type PartitionTrack,
 } from './column-layout.ts';
@@ -74,6 +75,9 @@ export function clampMatchesColumnWidth(
 }
 
 export function matchesNodeColumnWidth(values: readonly string[]): number {
+  // Affix matches have no authored maximum token width. Reserve the declared
+  // ceiling once rather than reflowing the grid as longer matches arrive.
+  if (values.some((value) => value.includes('*'))) return MATCHES_COLUMN_LIMITS.node.max;
   return fitTextColumn(
     values.map((value) => value.replace(/\s+/gu, ' ').trim()),
     MATCHES_COLUMN_LIMITS.node.min,
@@ -156,6 +160,39 @@ export function matchesColumnWidthFromDrag(
     return clampMatchesColumnWidth(column, startWidth);
   }
   return clampMatchesColumnWidth(column, startWidth + deltaPx / chPx);
+}
+
+/** A fixed-column boundary trades width with right context. Keeping left
+ * context's pixel width at drag start lets the visible separator follow the
+ * pointer; only ratios and character intent are committed. */
+export function matchesFixedBoundaryMax(
+  column: 'node' | 'book', startWidth: number,
+  leftPx: number, rightPx: number, chPx: number,
+): number {
+  if (!(chPx > 0) || ![startWidth, leftPx, rightPx].every(Number.isFinite)) {
+    return MATCHES_COLUMN_LIMITS[column].max;
+  }
+  const rightFloor = Math.max(chPx, (leftPx + rightPx) / 100);
+  return Math.min(MATCHES_COLUMN_LIMITS[column].max,
+    startWidth + Math.max(0, Math.floor((rightPx - rightFloor) / chPx)));
+}
+
+export function matchesFixedBoundarySettings(
+  settings: MatchesColumnSettings,
+  column: 'node' | 'book',
+  startWidth: number,
+  leftPx: number,
+  rightPx: number,
+  chPx: number,
+  requestedWidth: number,
+): MatchesColumnSettings {
+  if (!(chPx > 0) || ![startWidth, leftPx, rightPx, requestedWidth].every(Number.isFinite)) return settings;
+  const rightFloor = Math.max(chPx, (leftPx + rightPx) / 100);
+  const growthLimit = matchesFixedBoundaryMax(column, startWidth, leftPx, rightPx, chPx);
+  const width = Math.min(clampMatchesColumnWidth(column, requestedWidth), growthLimit);
+  const delta = (width - startWidth) * chPx;
+  const pair = proportionalPairFromPixels(leftPx, Math.max(rightFloor, rightPx - delta));
+  return { ...settings, [column]: width, left: pair.first, right: pair.second };
 }
 
 export function matchesColumnWidthFromKey(

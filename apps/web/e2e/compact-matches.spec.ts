@@ -102,12 +102,9 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
 
   const leftWidth = grid.getByRole('separator', { name: 'Left context width' });
   const matchWidth = grid.getByRole('separator', { name: 'Match width' });
-  const rightWidth = grid.getByRole('separator', { name: 'Right context width' });
   await expect(leftWidth).toHaveAttribute('tabindex', '-1');
   await expect(matchWidth).toHaveAttribute('tabindex', '-1');
-  await expect(rightWidth).toHaveAttribute('tabindex', '-1');
   await expect(leftWidth).toHaveAttribute('aria-valuenow', '50');
-  await expect(rightWidth).toHaveAttribute('aria-valuenow', '50');
   const lockedDivider = await leftWidth.evaluate((handle) => ({
     color: getComputedStyle(handle, '::after').borderInlineStartColor,
     opacity: Number.parseFloat(getComputedStyle(handle).opacity),
@@ -196,7 +193,7 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   });
   expect(defaultCenterError).toBeLessThanOrEqual(1);
 
-  await rightWidth.evaluate((handle) => {
+  await leftWidth.evaluate((handle) => {
     const x = handle.getBoundingClientRect().left + handle.getBoundingClientRect().width / 2;
     const init = {
       bubbles: true,
@@ -212,7 +209,7 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
     handle.dispatchEvent(new PointerEvent('pointermove', { ...init, clientX: x + 48 }));
     handle.dispatchEvent(new PointerEvent('pointerup', { ...init, clientX: x + 48 }));
   });
-  expect(Number(await rightWidth.getAttribute('aria-valuenow'))).toBeGreaterThan(50);
+  expect(Number(await leftWidth.getAttribute('aria-valuenow'))).toBeGreaterThan(50);
 
   await leftWidth.focus();
   await leftWidth.press('Home');
@@ -255,7 +252,7 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   });
 
   await toolbar.getByRole('button', { name: 'Reset column widths' }).click();
-  await expect(matchWidth).toHaveAttribute('aria-valuenow', '6');
+  await expect(matchWidth).toHaveAttribute('aria-valuenow', '8');
   await toolbar.getByRole('button', { name: 'Lock column widths' }).click();
   await expect(matchWidth).toHaveAttribute('tabindex', '-1');
   expect((await trace(page)).events.filter(
@@ -381,4 +378,33 @@ test('Matches header keys stay on the header and grid Enter opens Reader', async
   const before = await grid.getAttribute('aria-activedescendant');
   await grid.press('ArrowDown');
   await expect(grid).not.toHaveAttribute('aria-activedescendant', before!);
+});
+
+
+test('each independent Matches boundary follows its drag within one character cell', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'matches' });
+  const grid = page.getByRole('grid', { name: 'Matches' });
+  await page.getByRole('button', { name: 'Adjust column widths', exact: true }).click();
+  await expect(grid.getByRole('separator', { name: 'Right context width' })).toHaveCount(0);
+  await expect.poll(async () => Number(await grid.getByRole('separator', { name: 'text width', exact: true }).getAttribute('aria-valuenow'))).toBeGreaterThan(3);
+  for (const [name, delta] of [['left context width', 32], ['match width', 32], ['text width', 32]] as const) {
+    const handle = grid.getByRole('separator', { name, exact: true });
+    const before = (await handle.boundingBox())!;
+    const leftBefore = (await grid.getByRole('columnheader', { name: /^left context/ }).boundingBox())!.width;
+    const x = before.x + (name === 'text width' ? before.width - 3 : 3);
+    const y = before.y + before.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + delta, y, { steps: 4 });
+    await page.mouse.up();
+    const after = (await handle.boundingBox())!;
+    expect(Math.abs(after.x - before.x - delta), name).toBeLessThanOrEqual(9);
+    if (name !== 'left context width') {
+      const leftAfter = (await grid.getByRole('columnheader', { name: /^left context/ }).boundingBox())!.width;
+      expect(Math.abs(leftAfter - leftBefore)).toBeLessThanOrEqual(9);
+    }
+    expect(await grid.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  }
 });
