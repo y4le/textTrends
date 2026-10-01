@@ -10,6 +10,11 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   const toolbar = page.getByRole('toolbar', { name: 'Match columns' });
   const grid = page.getByRole('grid', { name: 'Matches' });
   await expect(grid).toBeVisible({ timeout: 30_000 });
+  await expect.poll(async () => {
+    const port = await grid.boundingBox();
+    const controls = await toolbar.boundingBox();
+    return controls!.x - (port!.x + port!.width);
+  }).toBeGreaterThanOrEqual(-0.5);
   await expect(page.getByRole('complementary', { name: 'Terms' })).toBeVisible();
   await expect(page.getByRole('group', { name: 'Match terms' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(1);

@@ -1,10 +1,10 @@
+import { useColumnPointerDrag } from '../useColumnPointerDrag.ts';
 import {
   useCallback,
   useEffect,
   useRef,
   useState,
   type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
 import type { AppState } from '../../lib/app-state.ts';
@@ -56,7 +56,6 @@ export function useMatchesColumnResize({
   const leftHeadingRef = useRef<HTMLDivElement | null>(null);
   const rightHeadingRef = useRef<HTMLDivElement | null>(null);
   const adjustButtonRef = useRef<HTMLButtonElement | null>(null);
-  const columnDragRef = useRef<ColumnDrag | null>(null);
   const focusFrameRef = useRef<number | null>(null);
   const [columnsAdjustable, setColumnsAdjustable] = useState(false);
 
@@ -76,159 +75,111 @@ export function useMatchesColumnResize({
     portRef.current?.style.setProperty('--kwic-template', templateFor(settings));
   }, [portRef, templateFor]);
 
-  const cancelActiveColumnDrag = useCallback(() => {
-    const drag = columnDragRef.current;
-    if (!drag) return false;
-    columnDragRef.current = null;
-    writeSettings(drag.restoreSettings);
-    if (drag.column === 'left' || drag.column === 'right') {
-      const pair = proportionalPairFromPixels(
-        drag.restoreSettings.left,
-        drag.restoreSettings.right,
-      );
-      const restored = drag.column === 'left' ? pair.first : pair.second;
-      drag.handle.setAttribute('aria-valuenow', String(restored));
-      drag.handle.setAttribute('aria-valuetext', `${restored}% of context space`);
-    } else {
-      const restored = resolveFor(drag.restoreSettings)[drag.column];
-      const automatic = drag.restoreSettings[drag.column] === 'auto';
-      drag.handle.setAttribute('aria-valuenow', String(restored));
-      drag.handle.setAttribute(
-        'aria-valuetext',
-        `${restored} characters${automatic ? ', automatic' : ''}`,
-      );
-    }
-    try {
-      if (drag.handle.hasPointerCapture(drag.pointerId)) {
-        drag.handle.releasePointerCapture(drag.pointerId);
+  const {
+    cancel: cancelActiveColumnDrag,
+    begin: beginColumnDrag,
+    move: moveColumnDrag,
+    end: endColumnDrag,
+    cancelEvent: cancelColumnDrag,
+  } = useColumnPointerDrag<ColumnDrag, MatchesColumn>({
+    enabled: columnsAdjustable,
+    announce,
+    restore: (drag) => {
+      writeSettings(drag.restoreSettings);
+      if (drag.column === 'left' || drag.column === 'right') {
+        const pair = proportionalPairFromPixels(
+          drag.restoreSettings.left,
+          drag.restoreSettings.right,
+        );
+        const restored = drag.column === 'left' ? pair.first : pair.second;
+        drag.handle.setAttribute('aria-valuenow', String(restored));
+        drag.handle.setAttribute('aria-valuetext', `${restored}% of context space`);
+      } else {
+        const restored = resolveFor(drag.restoreSettings)[drag.column];
+        const automatic = drag.restoreSettings[drag.column] === 'auto';
+        drag.handle.setAttribute('aria-valuenow', String(restored));
+        drag.handle.setAttribute(
+          'aria-valuetext',
+          `${restored} characters${automatic ? ', automatic' : ''}`,
+        );
       }
-    } catch {
-      // Synthetic PointerEvents do not always establish native capture.
-    }
-    return true;
-  }, [resolveFor, writeSettings]);
-
-  const beginColumnDrag = (
-    event: ReactPointerEvent<HTMLDivElement>,
-    column: MatchesColumn,
-  ) => {
-    if (!columnsAdjustable || !event.isPrimary || event.button !== 0) {
-      if (columnDragRef.current && event.pointerId !== columnDragRef.current.pointerId) {
-        cancelActiveColumnDrag();
-        announce('Column resize cancelled');
-      }
-      return;
-    }
-    if (columnDragRef.current) return;
-    const heading = event.currentTarget.parentElement;
-    if (!heading) return;
-    if (!(chPx > 0)) return;
-    const leftPx = leftHeadingRef.current?.getBoundingClientRect().width ?? 0;
-    const rightPx = rightHeadingRef.current?.getBoundingClientRect().width ?? 0;
-    const startWidth = column === 'left'
-      ? Math.max(0, leftPx / chPx - MATCHES_COLUMN_PADDING_CH)
-      : column === 'right'
-        ? Math.max(0, rightPx / chPx - MATCHES_COLUMN_PADDING_CH)
-        : displayedColumns[column];
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.focus({ preventScroll: true });
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Synthetic PointerEvents do not always establish native capture.
-    }
-    columnDragRef.current = {
-      column,
-      pointerId: event.pointerId,
-      startClientX: event.clientX,
-      startWidth,
-      restoreSettings: columns,
-      startLeftPx: leftPx,
-      startRightPx: rightPx,
-      chPx,
-      handle: event.currentTarget,
-      currentWidth: startWidth,
-      currentSettings: columns,
-      moved: false,
-    };
-  };
-
-  const moveColumnDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = columnDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const delta = event.clientX - drag.startClientX;
-    if (drag.column === 'left' || drag.column === 'right') {
-      const total = drag.startLeftPx + drag.startRightPx;
-      if (!(total > 2)) return;
-      const selected = drag.column === 'left' ? drag.startLeftPx : drag.startRightPx;
-      const target = Math.max(1, Math.min(total - 1, selected + delta));
-      const pair = drag.column === 'left'
-        ? proportionalPairFromPixels(target, total - target)
-        : proportionalPairFromPixels(total - target, target);
-      drag.currentSettings = {
-        ...drag.restoreSettings,
-        left: pair.first,
-        right: pair.second,
+    },
+    create: (event, column) => {
+      const heading = event.currentTarget.parentElement;
+      if (!heading) return null;
+      if (!(chPx > 0)) return null;
+      const leftPx = leftHeadingRef.current?.getBoundingClientRect().width ?? 0;
+      const rightPx = rightHeadingRef.current?.getBoundingClientRect().width ?? 0;
+      const startWidth = column === 'left'
+        ? Math.max(0, leftPx / chPx - MATCHES_COLUMN_PADDING_CH)
+        : column === 'right'
+          ? Math.max(0, rightPx / chPx - MATCHES_COLUMN_PADDING_CH)
+          : displayedColumns[column];
+      return {
+        column,
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startWidth,
+        restoreSettings: columns,
+        startLeftPx: leftPx,
+        startRightPx: rightPx,
+        chPx,
+        handle: event.currentTarget,
+        currentWidth: startWidth,
+        currentSettings: columns,
+        moved: false,
       };
-      drag.currentWidth = drag.column === 'left' ? pair.first : pair.second;
-      event.currentTarget.setAttribute('aria-valuenow', String(drag.currentWidth));
-      event.currentTarget.setAttribute('aria-valuetext', `${drag.currentWidth}% of context space`);
-    } else {
-      const next = matchesColumnWidthFromDrag(
-        drag.column,
-        drag.startWidth,
-        delta,
-        drag.chPx,
-      );
-      if (next === drag.currentWidth) return;
-      drag.currentWidth = next;
-      drag.currentSettings = { ...drag.restoreSettings, [drag.column]: next };
-      event.currentTarget.setAttribute('aria-valuenow', String(next));
-      event.currentTarget.setAttribute('aria-valuetext', `${next} characters`);
-    }
-    drag.moved = true;
-    writeSettings(drag.currentSettings);
-  };
-
-  const endColumnDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = columnDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    columnDragRef.current = null;
-    try {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
+    },
+    preview: (drag, event) => {
+      const delta = event.clientX - drag.startClientX;
+      if (drag.column === 'left' || drag.column === 'right') {
+        const total = drag.startLeftPx + drag.startRightPx;
+        if (!(total > 2)) return;
+        const selected = drag.column === 'left' ? drag.startLeftPx : drag.startRightPx;
+        const target = Math.max(1, Math.min(total - 1, selected + delta));
+        const pair = drag.column === 'left'
+          ? proportionalPairFromPixels(target, total - target)
+          : proportionalPairFromPixels(total - target, target);
+        drag.currentSettings = {
+          ...drag.restoreSettings,
+          left: pair.first,
+          right: pair.second,
+        };
+        drag.currentWidth = drag.column === 'left' ? pair.first : pair.second;
+        event.currentTarget.setAttribute('aria-valuenow', String(drag.currentWidth));
+        event.currentTarget.setAttribute('aria-valuetext', `${drag.currentWidth}% of context space`);
+      } else {
+        const next = matchesColumnWidthFromDrag(
+          drag.column,
+          drag.startWidth,
+          delta,
+          drag.chPx,
+        );
+        if (next === drag.currentWidth) return;
+        drag.currentWidth = next;
+        drag.currentSettings = { ...drag.restoreSettings, [drag.column]: next };
+        event.currentTarget.setAttribute('aria-valuenow', String(next));
+        event.currentTarget.setAttribute('aria-valuetext', `${next} characters`);
       }
-    } catch {
-      // Synthetic PointerEvents do not always establish native capture.
-    }
-    if (!drag.moved) return;
-    if (drag.column === 'left' || drag.column === 'right') {
-      setContextWeights(drag.currentSettings.left, drag.currentSettings.right);
-      announce(`${drag.column} context share ${drag.currentWidth}%`);
-    } else {
-      setColumnWidth(drag.column, drag.currentWidth);
-      announce(`${drag.column} column width ${drag.currentWidth} characters`);
-    }
-  };
-
-  const cancelColumnDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = columnDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    cancelActiveColumnDrag();
-    announce('Column resize cancelled');
-  };
+      drag.moved = true;
+      writeSettings(drag.currentSettings);
+    },
+    commit: (drag) => {
+      if (drag.column === 'left' || drag.column === 'right') {
+        setContextWeights(drag.currentSettings.left, drag.currentSettings.right);
+        announce(`${drag.column} context share ${drag.currentWidth}%`);
+      } else {
+        setColumnWidth(drag.column, drag.currentWidth);
+        announce(`${drag.column} column width ${drag.currentWidth} characters`);
+      }
+    },
+  });
 
   const onColumnKeyDown = (
     event: KeyboardEvent<HTMLDivElement>,
     column: MatchesColumn,
   ) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
@@ -298,10 +249,6 @@ export function useMatchesColumnResize({
     resetColumns();
     announce('Column widths reset');
   };
-
-  useEffect(() => () => {
-    cancelActiveColumnDrag();
-  }, [cancelActiveColumnDrag]);
 
   return {
     leftHeadingRef,

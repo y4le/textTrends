@@ -1845,6 +1845,8 @@ html[data-trend-row-resizing='true'] * {
 
 .kwic-grid-shell {
   --kwic-header-height: var(--kwic-header-block-size);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   position: relative;
   min-block-size: 10rem;
   overflow: hidden;
@@ -1862,6 +1864,9 @@ html[data-trend-row-resizing='true'] * {
 }
 
 .kwic-virtual-grid {
+  grid-column: 1;
+  grid-row: 1;
+  min-inline-size: 0;
   --kwic-template:
     minmax(0, 1fr)
     minmax(0, 19.5ch)
@@ -1978,10 +1983,10 @@ html[data-trend-row-resizing='true'] * {
 }
 
 .kwic-column-toolbar {
-  position: absolute;
-  z-index: 5;
-  inset-block-start: 0;
-  inset-inline-end: 0;
+  position: static;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
   display: flex;
   block-size: var(--kwic-header-height);
   align-items: stretch;

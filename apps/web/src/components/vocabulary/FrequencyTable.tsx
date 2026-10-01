@@ -1,3 +1,4 @@
+import { useColumnPointerDrag } from '../useColumnPointerDrag.ts';
 import {
   Fragment,
   useCallback,
@@ -8,7 +9,6 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from 'react';
 import {
   FREQUENCY_FILTER_MAX_UNITS,
@@ -217,7 +217,6 @@ export function FrequencyTable({
   const adjustButtonRef = useRef<HTMLButtonElement | null>(null);
   const filterInputRef = useRef<HTMLInputElement | null>(null);
   const refocusFilterAfterModeChangeRef = useRef(false);
-  const columnDragRef = useRef<FrequencyColumnDrag | null>(null);
   const initialNavigationClaimedRef = useRef(false);
   const previousRowHeightRef = useRef(rowHeight);
   const topLayer = layers.at(-1);
@@ -234,112 +233,73 @@ export function FrequencyTable({
   const rowTarget = target;
   const stalePopRequested = useRef(false);
 
-  const cancelActiveColumnDrag = useCallback(() => {
-    const drag = columnDragRef.current;
-    if (!drag) return false;
-    columnDragRef.current = null;
-    setColumns(drag.restoreSettings);
-    try {
-      if (drag.handle.hasPointerCapture(drag.pointerId)) {
-        drag.handle.releasePointerCapture(drag.pointerId);
-      }
-    } catch {
-      // Synthetic PointerEvents do not always establish native capture.
-    }
-    return true;
-  }, []);
-
-  const beginColumnDrag = (
-    event: ReactPointerEvent<HTMLDivElement>,
-    column: VocabularyColumn,
-  ) => {
-    if (!columnsAdjustable || !event.isPrimary || event.button !== 0) return;
-    if (columnDragRef.current) return;
-    const heading = event.currentTarget.parentElement;
-    const nextHeading = heading?.nextElementSibling;
-    if (!(heading instanceof HTMLElement) || !(nextHeading instanceof HTMLElement)) return;
-    const firstPx = heading.getBoundingClientRect().width;
-    const secondPx = nextHeading.getBoundingClientRect().width;
-    if (!(firstPx + secondPx > 2)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.focus({ preventScroll: true });
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Synthetic PointerEvents do not always establish native capture.
-    }
-    columnDragRef.current = {
-      column,
-      pointerId: event.pointerId,
-      startClientX: event.clientX,
-      startFirstPx: firstPx,
-      startSecondPx: secondPx,
-      restoreSettings: columns,
-      handle: event.currentTarget,
-      currentSettings: columns,
-      moved: false,
-    };
-  };
-
-  const moveColumnDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = columnDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const next = vocabularyColumnBoundaryFromDrag(
-      drag.restoreSettings,
-      drag.column,
-      event.clientX - drag.startClientX,
-      drag.startFirstPx,
-      drag.startSecondPx,
-      activeColumns,
-    );
-    if (next[drag.column] === drag.currentSettings[drag.column]) return;
-    drag.currentSettings = next;
-    drag.moved = true;
+  const commitColumns = useCallback((next: VocabularyColumnSettings) => {
     setColumns(next);
-    event.currentTarget.setAttribute('aria-valuenow', String(next[drag.column]));
-    event.currentTarget.setAttribute('aria-valuetext', `${next[drag.column]}% relative width`);
-  };
-
-  const endColumnDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = columnDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    columnDragRef.current = null;
-    try {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-    } catch {
-      // Synthetic PointerEvents do not always establish native capture.
-    }
-    if (drag.moved) {
-      saveVocabularyColumnSettings(
-        columnStorage,
-        drag.currentSettings,
+    saveVocabularyColumnSettings(columnStorage, next);
+  }, [columnStorage]);
+  const {
+    cancel: cancelActiveColumnDrag,
+    begin: beginColumnDrag,
+    move: moveColumnDrag,
+    end: endColumnDrag,
+    cancelEvent: cancelColumnDrag,
+  } = useColumnPointerDrag<FrequencyColumnDrag, VocabularyColumn>({
+    enabled: columnsAdjustable,
+    announce: setColumnAnnouncement,
+    restore: (drag) => {
+      setColumns(drag.restoreSettings);
+      // A preview and cancellation can share a React batch. Restore the
+      // imperative accessibility preview even when the state did not change.
+      const width = drag.restoreSettings[drag.column];
+      drag.handle.setAttribute('aria-valuenow', String(width));
+      drag.handle.setAttribute('aria-valuetext', `${width}% relative width`);
+    },
+    create: (event, column) => {
+      const heading = event.currentTarget.parentElement;
+      const nextHeading = heading?.nextElementSibling;
+      if (!(heading instanceof HTMLElement) || !(nextHeading instanceof HTMLElement)) return null;
+      const firstPx = heading.getBoundingClientRect().width;
+      const secondPx = nextHeading.getBoundingClientRect().width;
+      if (!(firstPx + secondPx > 2)) return null;
+      return {
+        column,
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startFirstPx: firstPx,
+        startSecondPx: secondPx,
+        restoreSettings: columns,
+        handle: event.currentTarget,
+        currentSettings: columns,
+        moved: false,
+      };
+    },
+    preview: (drag, event) => {
+      const next = vocabularyColumnBoundaryFromDrag(
+        drag.restoreSettings,
+        drag.column,
+        event.clientX - drag.startClientX,
+        drag.startFirstPx,
+        drag.startSecondPx,
+        activeColumns,
       );
-      setColumnAnnouncement(
-        `${vocabularyColumnLabel(drag.column)} column width ${drag.currentSettings[drag.column]}%`,
-      );
-    }
-  };
-
-  const cancelColumnDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = columnDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    event.stopPropagation();
-    cancelActiveColumnDrag();
-    setColumnAnnouncement('Column resize cancelled');
-  };
+      if (next[drag.column] === drag.currentSettings[drag.column]) return;
+      drag.currentSettings = next;
+      drag.moved = true;
+      setColumns(next);
+      event.currentTarget.setAttribute('aria-valuenow', String(next[drag.column]));
+      event.currentTarget.setAttribute('aria-valuetext', `${next[drag.column]}% relative width`);
+    },
+    commit: (drag) => {
+        commitColumns(drag.currentSettings);
+        setColumnAnnouncement(`${vocabularyColumnLabel(drag.column)} column width ${drag.currentSettings[drag.column]}%`);
+    },
+  });
 
   const onColumnKeyDown = (
     event: KeyboardEvent<HTMLDivElement>,
     column: VocabularyColumn,
   ) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
@@ -354,7 +314,7 @@ export function FrequencyTable({
     if (event.key === 'Enter') {
       event.preventDefault();
       event.stopPropagation();
-      setColumns((current) => resetVocabularyColumnBoundary(current, column, activeColumns));
+      commitColumns(resetVocabularyColumnBoundary(columns, column, activeColumns));
       setColumnAnnouncement(`${vocabularyColumnLabel(column)} column reset`);
       return;
     }
@@ -364,7 +324,7 @@ export function FrequencyTable({
     if (next === null) return;
     event.preventDefault();
     event.stopPropagation();
-    setColumns(next);
+    commitColumns(next);
     setColumnAnnouncement(`${vocabularyColumnLabel(column)} column width ${next[column]}%`);
   };
 
@@ -404,7 +364,7 @@ export function FrequencyTable({
 
   const resetColumnWidths = () => {
     cancelActiveColumnDrag();
-    setColumns(VOCABULARY_COLUMN_DEFAULTS);
+    commitColumns(VOCABULARY_COLUMN_DEFAULTS);
     setColumnAnnouncement('Column widths reset');
   };
 
@@ -429,11 +389,6 @@ export function FrequencyTable({
     const timer = window.setTimeout(() => setFrequencyFilter(next), 150);
     return () => window.clearTimeout(timer);
   }, [filterDraft, filterError, setFrequencyFilter, view.filter]);
-
-  useEffect(() => {
-    if (columnDragRef.current !== null) return;
-    saveVocabularyColumnSettings(columnStorage, columns);
-  }, [columnStorage, columns]);
 
   useEffect(() => {
     stalePopRequested.current = false;

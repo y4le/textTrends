@@ -494,3 +494,56 @@ test('a single-text Vocabulary result omits document distribution columns', asyn
   await expect(row.getByRole('cell')).toHaveCount(2);
   await expectNoBodyOverflow(page);
 });
+
+test('Vocabulary keyboard widths, boundary reset and reset-all survive reloads', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'vocabulary');
+  const toolbar = page.getByRole('toolbar', { name: 'Vocabulary columns' });
+  const separator = page.getByRole('table', { name: 'Vocabulary frequency list' }).getByRole('separator').first();
+  const unlock = async () => toolbar.getByRole('button', { name: 'Adjust column widths' }).click();
+  const reopen = async () => {
+    await page.reload();
+    await awaitAllReady(page);
+    await unlock();
+  };
+  await unlock();
+  const original = Number(await separator.getAttribute('aria-valuenow'));
+  await separator.press('Control+ArrowRight');
+  await expect(separator).toHaveAttribute('aria-valuenow', String(original));
+  await separator.press('ArrowRight');
+  await expect(separator).toHaveAttribute('aria-valuenow', String(original + 1));
+  await reopen();
+  await expect(separator).toHaveAttribute('aria-valuenow', String(original + 1));
+  await separator.press('Enter');
+  await reopen();
+  await expect(separator).toHaveAttribute('aria-valuenow', String(original));
+  await separator.press('ArrowRight');
+  await toolbar.getByRole('button', { name: 'Reset column widths' }).click();
+  await reopen();
+  await expect(separator).toHaveAttribute('aria-valuenow', String(original));
+});
+
+test('a second pointer cancels Vocabulary column preview without persisting it', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'vocabulary');
+  const toolbar = page.getByRole('toolbar', { name: 'Vocabulary columns' });
+  await toolbar.getByRole('button', { name: 'Adjust column widths' }).click();
+  const separator = page.getByRole('table', { name: 'Vocabulary frequency list' }).getByRole('separator').first();
+  const original = await separator.getAttribute('aria-valuenow');
+  await separator.evaluate((handle) => {
+    const init = { bubbles: true, cancelable: true, pointerId: 41, pointerType: 'touch', isPrimary: true, button: 0, clientX: handle.getBoundingClientRect().x, clientY: 10 };
+    handle.dispatchEvent(new PointerEvent('pointerdown', init));
+    handle.dispatchEvent(new PointerEvent('pointermove', { ...init, clientX: init.clientX + 30 }));
+    handle.dispatchEvent(new PointerEvent('pointerdown', { ...init, pointerId: 42, isPrimary: false }));
+    handle.dispatchEvent(new PointerEvent('pointerup', init));
+  });
+  await expect(separator).toHaveAttribute('aria-valuenow', original!);
+  await page.reload();
+  await awaitAllReady(page);
+  await toolbar.getByRole('button', { name: 'Adjust column widths' }).click();
+  await expect(separator).toHaveAttribute('aria-valuenow', original!);
+});
