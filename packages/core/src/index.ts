@@ -1,3 +1,4 @@
+export { FREQUENCY_TOKEN_CLASSES_V1, FREQUENCY_SORT_FIELDS_V1, KEYNESS_SORT_FIELDS_V1, TREND_COORDINATES, TREND_BIN_MODES, isFrequencyTokenClass, isFrequencySortField, isKeynessSortField, isTrendCoordinate, isTrendBins } from './contract/analysis-literals.ts';
 // @texttrends/core — the analysis engine.
 //
 // This package is environment-agnostic by contract: no DOM, no Worker, no

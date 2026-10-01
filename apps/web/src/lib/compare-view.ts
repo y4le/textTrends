@@ -1,3 +1,4 @@
+import { isFrequencyTokenClass, isKeynessSortField } from '@texttrends/core';
 import {
   STOPLIST_MAX_TOP_N,
   type FrequencyTokenClassV1,
@@ -136,11 +137,12 @@ export function compareSettingsError(
     return 'Minimum combined documents must be a whole number of at least 1.';
   }
   if (
-    input.classes.length === 0
+    !Array.isArray(input.classes)
+    || input.classes.length === 0
     || input.classes.length > 2
     || new Set(input.classes).size !== input.classes.length
     || input.classes.some(
-      (value) => value !== 'lexical' && value !== 'numeral',
+      (value) => !isFrequencyTokenClass(value),
     )
   ) {
     return 'Select at least one unique token class.';
@@ -153,8 +155,7 @@ export function compareSettingsError(
     return `Common-word depth must be a whole number from 0 to ${STOPLIST_MAX_TOP_N}.`;
   }
   if (
-    !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']
-      .includes(input.sortBy)
+    !isKeynessSortField(input.sortBy)
   ) {
     return 'Choose an available shared sort field.';
   }

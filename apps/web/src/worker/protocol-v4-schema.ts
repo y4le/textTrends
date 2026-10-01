@@ -1,3 +1,4 @@
+import { isFrequencyTokenClass, isFrequencySortField, isKeynessSortField, isTrendCoordinate, isTrendBins } from '@texttrends/core';
 /**
  * Runtime validators for protocol v4 (contract §12.8 requires each op's
  * runtime schema complete before the engine implements it). Every validator
@@ -10,7 +11,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isStoplistSpecV1, isString as isStr, KWIC_CONTEXT_MAX_TOKENS, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, FREQUENCY_PAGE_MAX, FREQUENCY_FILTER_MAX_UNITS, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isStoplistSpecV1, isString as isStr, KWIC_CONTEXT_MAX_TOKENS, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, FREQUENCY_PAGE_MAX, FREQUENCY_FILTER_MAX_UNITS } from '@texttrends/core';
 import {
   COMPANY_GAP_EDGES_V1,
   DESTINATION_MAX_RESULTS,
@@ -19,36 +20,7 @@ import {
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const MATCH = new Set(['sensitive', 'folded']);
-// Closed literal unions the kernels accept — a wire caller must not smuggle
-// an unsupported coordinate/sort key through as a "trusted" request.
-const COORDINATES = new Set(['document-relative', 'declared-sequence']);
-const FREQUENCY_CLASSES = new Set(['lexical', 'numeral']);
-const FREQUENCY_SORT_KEYS = new Set([
-  'count',
-  'docFreq',
-  'dp',
-  'dpNorm',
-  'ratePer10k',
-  'class',
-  'key',
-]);
-const KEYNESS_SORT_KEYS = new Set([
-  'logRatio',
-  'logRatioLow',
-  'g2',
-  'countA',
-  'countB',
-]);
 const KEYNESS_SIDES = new Set(['a', 'b', 'both']);
-
-function narrowTrendBins(value: unknown): boolean {
-  if (!exactRecord(value, ['mode', 'count']) || !isCount(value.count)) return false;
-  return value.mode === 'per-doc'
-    ? value.count >= TREND_PER_DOC_MIN && value.count <= TREND_PER_DOC_MAX
-    : value.mode === 'fixed-tokens'
-      && value.count >= TREND_FIXED_TOKENS_MIN
-      && value.count <= TREND_FIXED_TOKENS_MAX;
-}
 
 /** The extraction recipe value carried in a doc spec — structural shape only;
  *  the worker's async core validator (validateExtractionRecipe, which also
@@ -174,7 +146,7 @@ export function narrowQueryV4(q: unknown): boolean {
     case 'trend':
       return narrowSelection(q.selection) && narrowGroup(q.group) &&
         exactRecord(q.request, ['coordinate', 'bins']) &&
-        COORDINATES.has(q.request.coordinate as string) && narrowTrendBins(q.request.bins);
+        isTrendCoordinate(q.request.coordinate) && isTrendBins(q.request.bins);
     case 'matches-window': {
       const r = q.request as Record<string, unknown>;
       if (
@@ -323,10 +295,10 @@ export function narrowQueryV4(q: unknown): boolean {
         (filter.minCount as number) < 1 ||
         !isCount(filter.minDocFreq) ||
         (filter.minDocFreq as number) < 1 ||
-        !denseBoundedArray(filter.classes, 1, 2, (value) => FREQUENCY_CLASSES.has(value as string)) ||
+        !denseBoundedArray(filter.classes, 1, 2, (value) => isFrequencyTokenClass(value)) ||
         new Set(filter.classes as unknown[]).size !== (filter.classes as unknown[]).length ||
         (filter.stoplist !== undefined && !isStoplistSpecV1(filter.stoplist)) ||
-        !FREQUENCY_SORT_KEYS.has(sort.by as string) ||
+        !isFrequencySortField(sort.by) ||
         (sort.dir !== 1 && sort.dir !== -1) ||
         (
           r.dispersion === false &&
@@ -408,11 +380,11 @@ export function narrowQueryV4(q: unknown): boolean {
         !isCount(filter.minDocFreqTotal) ||
         (filter.minDocFreqTotal as number) < 1 ||
         !denseBoundedArray(filter.classes, 1, 2, (value) =>
-          FREQUENCY_CLASSES.has(value as string)) ||
+          isFrequencyTokenClass(value)) ||
         new Set(filter.classes as unknown[]).size !==
           (filter.classes as unknown[]).length ||
         (filter.stoplist !== undefined && !isStoplistSpecV1(filter.stoplist)) ||
-        !KEYNESS_SORT_KEYS.has(sort.by as string) ||
+        !isKeynessSortField(sort.by) ||
         (sort.dir !== 1 && sort.dir !== -1) ||
         !isCount(page.offset) ||
         !isCount(page.limit) ||

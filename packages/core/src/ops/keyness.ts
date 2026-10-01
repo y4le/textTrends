@@ -53,12 +53,8 @@ import {
 
 export const KEYNESS_SCAN_CHUNK = 65_536;
 
-export type KeynessSortFieldV1 =
-  | 'logRatio'
-  | 'logRatioLow'
-  | 'g2'
-  | 'countA'
-  | 'countB';
+export type { KeynessSortFieldV1 } from '../contract/analysis-literals.ts';
+import { isFrequencyTokenClass, isKeynessSortField, type KeynessSortFieldV1 } from '../contract/analysis-literals.ts';
 export type KeynessSideV1 = 'a' | 'b' | 'both';
 
 export interface KeynessTableRequestV1 {
@@ -167,7 +163,7 @@ function validateRequest(request: KeynessTableRequestV1): void {
     request.filter.classes.length > 2 ||
     new Set(request.filter.classes).size !== request.filter.classes.length ||
     request.filter.classes.some(
-      (value) => value !== 'lexical' && value !== 'numeral',
+      (value) => !isFrequencyTokenClass(value),
     )
   ) {
     throw new RangeError('keyness classes must be a nonempty unique class list');
@@ -179,8 +175,7 @@ function validateRequest(request: KeynessTableRequestV1): void {
     throw new RangeError('invalid common-word filter');
   }
   if (
-    !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']
-      .includes(request.sort.by) ||
+    !isKeynessSortField(request.sort.by) ||
     (request.sort.dir !== 1 && request.sort.dir !== -1)
   ) {
     throw new RangeError('invalid keyness sort');

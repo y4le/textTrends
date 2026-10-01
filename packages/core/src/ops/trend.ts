@@ -20,20 +20,9 @@ import type { ProjectDocId } from '../contract/brands.ts';
 import type { CorpusSnapshotV1 } from '../snapshot/compose.ts';
 import type { ResolvedSelection } from '../snapshot/selection.ts';
 
-export type TrendCoordinate = 'document-relative' | 'declared-sequence';
-
-export type TrendBinMode = 'per-doc' | 'fixed-tokens';
-
-export interface TrendBinsSpecV1 {
-  readonly mode: TrendBinMode;
-  /** Bins per document under `per-doc`; tokens per bin under `fixed-tokens`. */
-  readonly count: number;
-}
-
-export const TREND_PER_DOC_MIN = 4;
-export const TREND_PER_DOC_MAX = 200;
-export const TREND_FIXED_TOKENS_MIN = 250;
-export const TREND_FIXED_TOKENS_MAX = 50_000;
+export { TREND_PER_DOC_MIN, TREND_PER_DOC_MAX, TREND_FIXED_TOKENS_MIN, TREND_FIXED_TOKENS_MAX } from '../contract/analysis-literals.ts';
+export type { TrendCoordinate, TrendBinMode, TrendBinsSpecV1 } from '../contract/analysis-literals.ts';
+import { isTrendCoordinate, TREND_PER_DOC_MIN, TREND_PER_DOC_MAX, TREND_FIXED_TOKENS_MIN, TREND_FIXED_TOKENS_MAX, type TrendCoordinate, type TrendBinsSpecV1 } from '../contract/analysis-literals.ts';
 /** Bound SVG point count, not merely typed-array memory. */
 export const TREND_MAX_ROWS = 4_000;
 
@@ -81,7 +70,7 @@ export function trend(
   if (occ.selection !== selection.hash) {
     throw new RangeError('occurrences were computed under a different selection');
   }
-  if (request.coordinate !== 'document-relative' && request.coordinate !== 'declared-sequence') {
+  if (!isTrendCoordinate(request.coordinate)) {
     throw new RangeError(`unknown trend coordinate '${String(request.coordinate)}'`);
   }
   const bins = request.bins;

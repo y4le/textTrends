@@ -43,15 +43,8 @@ export const FREQUENCY_FILTER_MAX_UNITS = 256;
 export const FREQUENCY_REGEX_MAX_UNITS = FREQUENCY_FILTER_MAX_UNITS;
 export const FREQUENCY_SCAN_CHUNK = 65_536;
 
-export type FrequencyTokenClassV1 = 'lexical' | 'numeral';
-export type FrequencySortFieldV1 =
-  | 'count'
-  | 'docFreq'
-  | 'dp'
-  | 'dpNorm'
-  | 'ratePer10k'
-  | 'class'
-  | 'key';
+export type { FrequencyTokenClassV1, FrequencySortFieldV1 } from '../contract/analysis-literals.ts';
+import { isFrequencyTokenClass, isFrequencySortField, type FrequencyTokenClassV1, type FrequencySortFieldV1 } from '../contract/analysis-literals.ts';
 
 export interface FrequencyTextFilterV1 {
   readonly mode: 'literal' | 'regex';
@@ -119,7 +112,7 @@ function validateRequest(request: FrequencyListRequestV1): void {
     request.filter.classes.length < 1 ||
     request.filter.classes.length > 2 ||
     new Set(request.filter.classes).size !== request.filter.classes.length ||
-    request.filter.classes.some((value) => value !== 'lexical' && value !== 'numeral')
+    request.filter.classes.some((value) => !isFrequencyTokenClass(value))
   ) {
     throw new RangeError('frequency classes must be a nonempty unique class list');
   }
@@ -154,8 +147,7 @@ function validateRequest(request: FrequencyListRequestV1): void {
     throw new RangeError('invalid common-word filter');
   }
   if (
-    !['count', 'docFreq', 'dp', 'dpNorm', 'ratePer10k', 'class', 'key']
-      .includes(request.sort.by) ||
+    !isFrequencySortField(request.sort.by) ||
     (request.sort.dir !== 1 && request.sort.dir !== -1) ||
     (
       !request.dispersion &&

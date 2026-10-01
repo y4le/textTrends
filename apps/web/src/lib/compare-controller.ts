@@ -1,9 +1,10 @@
+import { compareSettingsError } from './compare-view.ts';
 /** Compare query ownership inside the single composed application store.
  * Each rank table and header inventory has its own lane. Cross-slice snapshot
  * publication and geometry subscriptions remain in the runtime.
  */
 import type { StoreApi } from 'zustand';
-import { STOPLIST_EN_ID, STOPLIST_EN_VERSION, STOPLIST_MAX_TOP_N, type WorkspaceV1 } from '@texttrends/core';
+import { STOPLIST_EN_ID, STOPLIST_EN_VERSION, type WorkspaceV1 } from '@texttrends/core';
 import type { AppState, KeynessViewV1, KeynessTableState, KeynessInventoryState, KeynessScope } from './app-state.ts';
 import type { KeynessResultV1 } from '../shared/analysis-contract.ts';
 import type { SessionState } from './project-session.ts';
@@ -583,29 +584,7 @@ export function createCompareController({
     },
 
     applyKeynessSettings(input) {
-      if (
-        !Number.isSafeInteger(input.minCountTotal) ||
-        input.minCountTotal < 1 ||
-        !Number.isSafeInteger(input.minDocFreqTotal) ||
-        input.minDocFreqTotal < 1 ||
-        !Array.isArray(input.classes) ||
-        input.classes.length < 1 ||
-        input.classes.length > 2 ||
-        new Set(input.classes).size !== input.classes.length ||
-        input.classes.some(
-          (value) => value !== 'lexical' && value !== 'numeral',
-        ) ||
-        !Number.isSafeInteger(input.stoplistTopN) ||
-        input.stoplistTopN < 0 ||
-        input.stoplistTopN > STOPLIST_MAX_TOP_N ||
-        !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']
-          .includes(input.sortBy) ||
-        (input.dirA !== 1 && input.dirA !== -1) ||
-        (input.dirB !== 1 && input.dirB !== -1) ||
-        typeof input.showConfidenceIntervals !== 'boolean'
-      ) {
-        return;
-      }
+      if (compareSettingsError(input) !== null) return;
       const view = get().keynessView;
       const sharedQueryChanged =
         view.minCountTotal !== input.minCountTotal ||

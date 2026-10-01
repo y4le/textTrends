@@ -1,3 +1,4 @@
+import { isFrequencyTokenClass, isFrequencySortField, isKeynessSortField, isTrendBins } from '../contract/analysis-literals.ts';
 /**
  * The browser workspace is the one durable description of the current
  * corpus and analysis preferences. Source bytes live in the local library;
@@ -18,10 +19,6 @@ import { MAX_KWIC_TRACKS } from '../ops/kwic.ts';
 import { type KeynessSortFieldV1 } from '../ops/keyness.ts';
 import { STOPLIST_MAX_TOP_N } from '../ops/stoplist-contract.ts';
 import {
-  TREND_FIXED_TOKENS_MAX,
-  TREND_FIXED_TOKENS_MIN,
-  TREND_PER_DOC_MAX,
-  TREND_PER_DOC_MIN,
   type TrendBinsSpecV1,
 } from '../ops/trend.ts';
 import { parseQueryNotebook, type QueryNotebookV1 } from './notebook.ts';
@@ -155,7 +152,7 @@ function parseClasses(value: unknown, what: string): readonly FrequencyTokenClas
   const classes = denseArray(value, 2, what);
   if (
     classes.length === 0
-    || classes.some((item) => item !== 'lexical' && item !== 'numeral')
+    || classes.some((item) => !isFrequencyTokenClass(item))
     || new Set(classes).size !== classes.length
   ) {
     throw new RangeError(`${what} must be a nonempty unique token-class list`);
@@ -256,19 +253,7 @@ export function parseWorkspaceTrendView(value: unknown): WorkspaceTrendViewV1 {
     && value.mode !== 'by-book'
     && value.mode !== 'by-book-scaled'
   ) throw new RangeError('trend mode is invalid');
-  if (
-    !exactRecord(value.bins, ['mode', 'count'])
-    || !isNonNegSafeInt(value.bins.count)
-    || (
-      value.bins.mode === 'per-doc'
-        ? value.bins.count < TREND_PER_DOC_MIN || value.bins.count > TREND_PER_DOC_MAX
-        : value.bins.mode === 'fixed-tokens'
-          ? value.bins.count < TREND_FIXED_TOKENS_MIN || value.bins.count > TREND_FIXED_TOKENS_MAX
-          : true
-    )
-  ) {
-    throw new RangeError('trend bins are invalid');
-  }
+  if (!isTrendBins(value.bins)) throw new RangeError('trend bins are invalid');
   let measure: WorkspaceTrendMeasureV1;
   if (exactRecord(value.measure, ['kind']) && value.measure.kind === 'count') {
     measure = { kind: 'count' };
@@ -311,8 +296,7 @@ function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
     || !isNonNegSafeInt(value.stoplistTopN)
     || value.stoplistTopN > STOPLIST_MAX_TOP_N
     || !exactRecord(value.sort, ['by', 'dir'])
-    || !['count', 'docFreq', 'dp', 'dpNorm', 'ratePer10k', 'class', 'key']
-      .includes(value.sort.by as string)
+    || !isFrequencySortField(value.sort.by)
     || (value.sort.dir !== 1 && value.sort.dir !== -1)
     || !isNonNegSafeInt(value.pageSize) || value.pageSize < 1 || value.pageSize > FREQUENCY_PAGE_MAX
   ) {
@@ -380,8 +364,7 @@ function parseCompareView(value: unknown): WorkspaceCompareViewV1 {
     || !isNonNegSafeInt(value.stoplistTopN)
     || value.stoplistTopN > STOPLIST_MAX_TOP_N
     || !exactRecord(value.sort, ['by', 'dirA', 'dirB'])
-    || !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']
-      .includes(value.sort.by as string)
+    || !isKeynessSortField(value.sort.by)
     || (value.sort.dirA !== 1 && value.sort.dirA !== -1)
     || (value.sort.dirB !== 1 && value.sort.dirB !== -1)
     || typeof value.showConfidenceIntervals !== 'boolean'
