@@ -33,6 +33,7 @@ export function ReaderProgressRail({
   const drag = useRef<ReaderProgressDrag | null>(null);
   const keyboardSeeking = useRef(false);
   const horizontalDirection = useRef<1 | -1>(1);
+  const seekBaselineToken = useRef<number | null>(null);
   const previewTokenRef = useRef<number | null>(null);
   const pendingSeek = useRef<number | null>(null);
   const seekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -64,12 +65,13 @@ export function ReaderProgressRail({
       drag.current === null
       && !keyboardSeeking.current
       && previewToken !== null
-      && progress?.token === previewToken
+      && progress !== null
+      && (progress.token === previewToken || progress.token !== seekBaselineToken.current)
     ) {
       previewTokenRef.current = null;
       setPreviewToken(null);
     }
-  }, [previewToken, progress?.token]);
+  }, [previewToken, progress?.token, seeking]);
 
   useEffect(() => {
     if (seeking || previewToken === null || progress?.token === previewToken) return undefined;
@@ -148,6 +150,7 @@ export function ReaderProgressRail({
     if (token === null) return;
     event.preventDefault();
     event.stopPropagation();
+    seekBaselineToken.current = activeProgress?.token ?? null;
     drag.current = { pointerId: event.pointerId };
     setSeeking(true);
     showToken(token);
@@ -220,6 +223,7 @@ export function ReaderProgressRail({
     cancelKeyboardCommit();
     const bounded = Math.max(0, Math.min(activeProgress.tokenCount - 1, token));
     const phase = keyboardSeeking.current ? 'preview' : 'start';
+    if (phase === 'start') seekBaselineToken.current = activeProgress.token;
     keyboardSeeking.current = true;
     setSeeking(true);
     showToken(bounded);

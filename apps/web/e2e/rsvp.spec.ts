@@ -884,3 +884,43 @@ test('Speed character limit accepts consecutive Enter commits in multiword mode'
   await limit.focus();
   await expect(limit).toHaveValue('40');
 });
+
+
+test('Speed adopts bounded continuation sources, revisits them, and releases a playing rail preview', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
+  const words = Array.from({ length: 400 }, (_, index) => `word${index}${'x'.repeat(500)}`);
+  await page.getByLabel('Add files').setInputFiles({ name: 'bounded-speed.txt', mimeType: 'text/plain', buffer: Buffer.from(words.join(' ')) });
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
+  const footer = page.getByRole('slider', { name: 'Corpus footer position' });
+  await footer.focus();
+  await footer.press('Home');
+  await footer.press('Enter');
+  const reader = page.getByRole('main', { name: /Reader: bounded-speed/ });
+  await expect(reader.locator('[data-reader-page]')).toBeVisible();
+  await enterRsvp(reader);
+  const pace = reader.getByRole('spinbutton', { name: 'Pace in words per minute' });
+  await pace.fill('7500');
+  await pace.press('Enter');
+  const progress = reader.getByRole('slider', { name: /Position in/ });
+  await expect.poll(async () => Number(await progress.getAttribute('aria-valuenow')), { timeout: 30_000 }).toBeGreaterThan(200);
+  await reader.getByRole('button', { name: 'pause', exact: true }).click();
+  await progress.focus();
+  await progress.press('Home');
+  await expect.poll(async () => displayedToken(await reader.locator('.reader-position').textContent())).toBeLessThan(10);
+  await reader.getByRole('button', { name: 'play', exact: true }).click();
+  await expect.poll(async () => Number(await progress.getAttribute('aria-valuenow')), { timeout: 30_000 }).toBeGreaterThan(200);
+  const bounds = await progress.boundingBox();
+  if (!bounds) throw new Error('Speed progress has no geometry');
+  await page.mouse.move(bounds.x + bounds.width * 0.15, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * 0.25, bounds.y + bounds.height / 2);
+  await page.mouse.up();
+  const selected = await progress.getAttribute('aria-valuenow');
+  await expect(progress).not.toHaveAttribute('aria-valuenow', selected!);
+  await expect(reader.getByRole('button', { name: 'pause', exact: true })).toBeVisible();
+});

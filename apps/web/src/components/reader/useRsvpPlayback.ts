@@ -36,7 +36,7 @@ interface PlaybackOptions {
   playbackPacing: RsvpPacing;
   onSetPlaying(playing: boolean): void;
   onPublish(token: number): void;
-  onSeek(token: number): void;
+  onSeek(token: number, intent?: 'continuation'): void;
 }
 
 export function useRsvpPlayback({
@@ -67,9 +67,9 @@ export function useRsvpPlayback({
 
   useEffect(() => {
     if (source.status !== 'ready' || source.page.doc !== mode.doc) return;
-    if (!contains(source.page, cursorRef.current)) return;
+    if (!contains(source.page, cursor)) return;
     setResident(source.page);
-  }, [mode.doc, source]);
+  }, [cursor, mode.doc, source]);
 
   useEffect(() => {
     const pauseWhenHidden = () => {
@@ -164,7 +164,7 @@ export function useRsvpPlayback({
       && rsvpNeedsContinuation(resident, cursor, playbackPacing)
     ) {
       requestedSource.current = key;
-      onSeek(cursor);
+      onSeek(Math.max(cursor, resident.tokens.end - 1), 'continuation');
     }
   }, [completed, cursor, frame, onSeek, playbackPacing, resident]);
 
@@ -193,7 +193,7 @@ export function useRsvpPlayback({
       if (step.kind === 'document-end') {
         setCompleted(true);
       } else {
-        onSeek(cursor);
+        onSeek(Math.max(cursor, resident.tokens.end - 1), 'continuation');
       }
     };
     const duration = phase.kind === 'word' ? timing.wordMs : timing.pauseMs;
@@ -231,6 +231,7 @@ export function useRsvpPlayback({
   ) => {
     if (!Number.isSafeInteger(token) || token < 0 || token >= mode.docTokenCount) return false;
     if (!retainPassageHistory) passageHistory.current = { back: [], forward: [] };
+    requestedSource.current = null;
     nextFrameStart.current = null;
     onSetPlaying(false);
     setCompleted(false);

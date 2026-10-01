@@ -2366,7 +2366,7 @@ export function createAppRuntime(
         });
       },
 
-      rsvpSeek(token) {
+      rsvpSeek(token, intent) {
         const state = get();
         const mode = state.interaction.kind === 'rsvp'
           ? state.interaction.rsvp
@@ -2378,7 +2378,12 @@ export function createAppRuntime(
           || token < 0
           || token >= mode.docTokenCount
         ) return;
-        reader.replaceTarget({ doc: mode.doc, cursor: { kind: 'from', token } });
+        const page = state.readerPage?.state.status === 'ready' ? state.readerPage.state.page : null;
+        // Backward seeks and continuation keep context before the cursor,
+        // including a sentence that began in the preceding source window.
+        const kind = intent === 'continuation' || (page?.doc === mode.doc && token < page.tokens.start)
+          ? 'around' : 'from';
+        reader.replaceTarget({ doc: mode.doc, cursor: { kind, token } });
       },
 
       exitRsvp(token) {

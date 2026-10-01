@@ -44,7 +44,7 @@ export interface RsvpReaderProps {
   readonly onSetPlaying: (playing: boolean) => void;
   readonly onSetPacing: (patch: Partial<RsvpPacing>) => void;
   readonly onPublish: (token: number) => void;
-  readonly onSeek: (token: number) => void;
+  readonly onSeek: (token: number, intent?: 'continuation') => void;
   readonly onExit: (token: number) => void;
   readonly onRetry: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement, restSummary: string) => void;

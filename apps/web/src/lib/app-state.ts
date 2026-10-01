@@ -442,7 +442,7 @@ export interface AppState {
   setRsvpPlaying(playing: boolean): void;
   setRsvpPacing(patch: Partial<RsvpPacing>): void;
   publishRsvpPosition(token: number): void;
-  rsvpSeek(token: number): void;
+  rsvpSeek(token: number, intent?: 'continuation'): void;
   exitRsvp(token: number): void;
 
   // ── Route/layer state: session presentation, never research data. ──

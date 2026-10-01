@@ -341,3 +341,30 @@ describe('RSVP interaction ownership', () => {
     f.runtime.dispose();
   });
 });
+
+it('requests a backward Speed source with context before the target', async () => {
+  const f = harness();
+  f.port.publishSnapshot('g1', 's1', ['a']);
+  f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 40, from: 'footer', anchor: 'position' });
+  f.readers().at(-1)!.resolve(fakeReaderPage(30, 60, 100, 'a', 40));
+  await flush();
+  f.store.getState().setReaderVisibleRange({ snapshot: 's1', doc: 'a', tokens: { start: 35, end: 50 }, geometry: '800x600:fit' });
+  f.store.getState().enterRsvp(false);
+  f.store.getState().rsvpSeek(20);
+  expect(f.store.getState().readerPlace?.cursor).toEqual({ kind: 'around', token: 20 });
+  f.runtime.dispose();
+});
+
+
+it('retains context before a forward Speed continuation cursor', async () => {
+  const f = harness();
+  f.port.publishSnapshot('g1', 's1', ['a']);
+  f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 40, from: 'kwic', anchor: 'position' });
+  f.readers().at(-1)!.resolve(fakeReaderPage(30, 60, 100, 'a', 40));
+  await flush();
+  f.store.getState().setReaderVisibleRange({ snapshot: 's1', doc: 'a', tokens: { start: 35, end: 50 }, geometry: 'test' });
+  f.store.getState().enterRsvp(false);
+  f.store.getState().rsvpSeek(55, 'continuation');
+  expect(f.store.getState().readerPlace?.cursor).toEqual({ kind: 'around', token: 55 });
+  f.runtime.dispose();
+});
