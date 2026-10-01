@@ -1,6 +1,6 @@
+import { retryableLazy } from '../retryable-lazy.tsx';
 import { TREND_RATE_DENOMINATOR } from '@texttrends/core';
 import {
-  lazy,
   Suspense,
   useCallback,
   useEffect,
@@ -67,8 +67,10 @@ import { GUIDE_INVITATION_START_ID } from './GuideInvitation.tsx';
 export { useGuide } from './GuideContext.ts';
 export { GuideInvitation } from './GuideInvitation.tsx';
 
-const GuideCard = lazy(() =>
+const GuideCard = retryableLazy(() =>
   import('./GuideCard.tsx').then(({ GuideCard: card }) => ({ default: card })),
+  'Guide',
+  true,
 );
 
 interface ActiveGuide {
@@ -271,7 +273,15 @@ export function GuideProvider({ children }: { readonly children: ReactNode }) {
     origin: GuideOrigin,
   ): Promise<boolean> => {
     const request = ++startRequest.current;
-    const registry = await import('../../lib/guide/registry.ts');
+    let registry: typeof import('../../lib/guide/registry.ts');
+    try {
+      registry = await import('../../lib/guide/registry.ts');
+    } catch {
+      if (mounted.current && request === startRequest.current) {
+        setAnnouncement({ serial: ++serial.current, text: 'The guide could not load. Try starting it again, or reload the app.' });
+      }
+      return false;
+    }
     if (!mounted.current || request !== startRequest.current) return false;
     const definition = registry.guideDefinition(id);
     const currentFacts = factsRef.current;
@@ -516,6 +526,8 @@ export function GuideProvider({ children }: { readonly children: ReactNode }) {
       {showCard && step && (
         <Suspense fallback={null}>
           <GuideCard
+            onLoadFailureReturn={() => handleAction('exit')}
+            onLoadFailureReturnLabel="Exit guide"
             copy={step.copy(facts, active.session.stepPhase)}
             side={step.cardSide}
             stepId={step.id}

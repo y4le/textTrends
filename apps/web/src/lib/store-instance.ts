@@ -310,7 +310,7 @@ async function saveWorkspaceBeforeReload(): Promise<void> {
       }
     });
     const timeout = setTimeout(() => {
-      finish(new Error('Workspace saving did not finish before the cache clear.'));
+      finish(new Error('Workspace saving did not finish before reloading or resetting the app.'));
     }, 15_000);
   });
 }

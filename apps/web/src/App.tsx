@@ -1,5 +1,5 @@
+import { retryableLazy } from './components/retryable-lazy.tsx';
 import {
-  lazy,
   Suspense,
   useCallback,
   useEffect,
@@ -46,22 +46,31 @@ import {
   type GuideReadinessRemedy,
 } from './components/guide/GuideProvider.tsx';
 
-const ReaderDrawer = lazy(() =>
+const ReaderDrawer = retryableLazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
+  'Reader',
 );
-const SettingsPane = lazy(() =>
+const SettingsPane = retryableLazy(() =>
   import('./components/SettingsPane.tsx').then(({ SettingsPane: pane }) => ({ default: pane })),
+  'Settings',
+  true,
 );
-const DebugSurface = lazy(() =>
+const DebugSurface = retryableLazy(() =>
   import('./components/DebugSurface.tsx').then(({ DebugSurface: surface }) => ({ default: surface })),
+  'Debug',
+  true,
 );
-const ReaderControlsPane = lazy(() =>
+const ReaderControlsPane = retryableLazy(() =>
   import('./components/reader/ReaderControlsPane.tsx')
     .then(({ ReaderControlsPane: pane }) => ({ default: pane })),
+  'Reader controls',
+  true,
 );
-const SpeedSettingsPane = lazy(() =>
+const SpeedSettingsPane = retryableLazy(() =>
   import('./components/reader/SpeedSettingsPane.tsx')
     .then(({ SpeedSettingsPane: pane }) => ({ default: pane })),
+  'Speed settings',
+  true,
 );
 
 const focusAfterRender = (id: string) => {
@@ -602,6 +611,8 @@ export function App() {
       ? (
           <Suspense fallback={null}>
             <SettingsPane
+              onLoadFailureReturn={() => closeUtilityPane()}
+              onLoadFailureReturnLabel="Close panel"
               entry={utilityPane.entry}
               onClose={() => closeUtilityPane()}
             />
@@ -610,13 +621,15 @@ export function App() {
       : utilityPane?.kind === 'debug'
         ? (
             <Suspense fallback={null}>
-              <DebugSurface onClose={() => closeUtilityPane()} />
+              <DebugSurface onLoadFailureReturn={() => closeUtilityPane()} onLoadFailureReturnLabel="Close panel" onClose={() => closeUtilityPane()} />
             </Suspense>
           )
       : utilityPane?.kind === 'reader-controls'
         ? (
             <Suspense fallback={null}>
               <ReaderControlsPane
+              onLoadFailureReturn={() => closeUtilityPane()}
+              onLoadFailureReturnLabel="Close panel"
                 onClose={() => closeUtilityPane()}
                 onAnnounce={setReaderKeyboardStatus}
                 onOpenFind={() => openFind(true)}
@@ -633,6 +646,8 @@ export function App() {
           ? (
               <Suspense fallback={null}>
                 <SpeedSettingsPane
+              onLoadFailureReturn={() => closeUtilityPane()}
+              onLoadFailureReturnLabel="Close panel"
                   mode={interaction.rsvp}
                   restSummary={utilityPane.restSummary}
                   onSetPacing={setRsvpPacing}
@@ -771,6 +786,8 @@ export function App() {
           )}
         >
           <ReaderDrawer
+            onLoadFailureReturn={closeReader}
+            onLoadFailureReturnLabel="Return to workbench"
             onAnnounce={setReaderKeyboardStatus}
             onCloseFind={closeFind}
             onOpenFind={() => openFind()}

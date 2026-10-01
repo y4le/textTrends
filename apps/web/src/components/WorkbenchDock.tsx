@@ -1,5 +1,5 @@
+import { retryableLazy } from './retryable-lazy.tsx';
 import {
-  lazy,
   Suspense,
   useCallback,
   useEffect,
@@ -24,11 +24,13 @@ import { useDisplayPreference, usePresentation } from './PresentationProvider.ts
 import { FindBar } from './FindBar.tsx';
 import { guideAnchorProps } from '../lib/guide/anchors.ts';
 
-const QuerySurface = lazy(() =>
+const QuerySurface = retryableLazy(() =>
   import('./QuerySurface.tsx').then(({ QuerySurface: surface }) => ({ default: surface })),
+  'Terms',
 );
-const WorkbenchFooter = lazy(() =>
+const WorkbenchFooter = retryableLazy(() =>
   import('./WorkbenchFooter.tsx').then(({ WorkbenchFooter: footer }) => ({ default: footer })),
+  'Reading footer',
 );
 
 function TermsRailFallback() {
