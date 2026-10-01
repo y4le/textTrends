@@ -1,5 +1,5 @@
 import { LOCAL_LIBRARY_DB_NAME } from './local-library.ts';
-import { ARTIFACT_DB_NAMES } from '../shared/storage-schema.ts';
+import { ARTIFACT_DB_NAMES, SUPERSEDED_DURABLE_DB_NAMES } from '../shared/storage-schema.ts';
 import { preferenceKeys } from './preferences.ts';
 
 export const OWNED_SESSION_STORAGE_KEYS = Object.freeze(preferenceKeys('session'));
@@ -45,6 +45,7 @@ export async function clearAllApplicationStorage(
   await Promise.all([
     ...ARTIFACT_DB_NAMES.map((name) => deleteDatabase(factory, name, onBlocked)),
     deleteDatabase(factory, LOCAL_LIBRARY_DB_NAME, onBlocked),
+    ...SUPERSEDED_DURABLE_DB_NAMES.map((name) => deleteDatabase(factory, name, onBlocked)),
   ]);
   if (session !== null) {
     for (const key of OWNED_SESSION_STORAGE_KEYS) session.removeItem(key);

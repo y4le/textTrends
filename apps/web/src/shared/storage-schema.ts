@@ -9,3 +9,10 @@ export const SUPERSEDED_ARTIFACT_DB_NAMES = Object.freeze([
   'texttrends-artifacts-provisional-db3',
 ]);
 export const ARTIFACT_DB_NAMES = Object.freeze([ARTIFACT_DB_NAME, ...SUPERSEDED_ARTIFACT_DB_NAMES]);
+
+/** Historical durable stores, removed only by an explicit full reset. */
+export const SUPERSEDED_DURABLE_DB_NAMES = Object.freeze([
+  'texttrends-user-data',
+  'texttrends-standard-ebooks-cache-v1',
+  'texttrends-local-library',
+]);

@@ -8,7 +8,7 @@ import {
   OWNED_SESSION_STORAGE_KEYS,
 } from '../src/lib/debug-storage.ts';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
-import { ARTIFACT_DB_NAMES } from '../src/shared/storage-schema.ts';
+import { ARTIFACT_DB_NAMES, SUPERSEDED_DURABLE_DB_NAMES } from '../src/shared/storage-schema.ts';
 import {
   LEGACY_TREND_ROW_PITCH_STORAGE_KEY,
   TREND_ROW_PITCH_STORAGE_KEY,
@@ -38,6 +38,7 @@ describe('debug storage recovery', () => {
     await Promise.all([
       open(factory as unknown as IDBFactory, LOCAL_LIBRARY_DB_NAME),
       ...ARTIFACT_DB_NAMES.map((name) => open(factory as unknown as IDBFactory, name)),
+      ...SUPERSEDED_DURABLE_DB_NAMES.map((name) => open(factory as unknown as IDBFactory, name)),
       open(factory as unknown as IDBFactory, 'unrelated-owner'),
     ]);
     const sessionValues = new Map([
@@ -66,11 +67,12 @@ describe('debug storage recovery', () => {
     await Promise.all([
       ...ARTIFACT_DB_NAMES.map((name) => open(factory, name)),
       open(factory, LOCAL_LIBRARY_DB_NAME),
+      ...SUPERSEDED_DURABLE_DB_NAMES.map((name) => open(factory, name)),
       open(factory, 'texttrends-artifacts-unrelated-owner'),
     ]);
     await clearArtifactDatabase(factory);
     expect((await factory.databases()).map(({ name }) => name).sort())
-      .toEqual(['texttrends-artifacts-unrelated-owner', LOCAL_LIBRARY_DB_NAME].sort());
+      .toEqual(['texttrends-artifacts-unrelated-owner', LOCAL_LIBRARY_DB_NAME, ...SUPERSEDED_DURABLE_DB_NAMES].sort());
   });
 
   it('turns a synchronous IndexedDB refusal into a rejected promise', async () => {

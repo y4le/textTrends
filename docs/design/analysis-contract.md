@@ -192,6 +192,8 @@ Persistence has two owners:
    from library or bundled source bytes; the new layout does not migrate db3.
    Clear cache and Full reset delete every explicitly owned older artifact
    layout as well as the current one; unrelated browser databases are preserved.
+   Full reset also removes historical durable user-data, source-download, and
+   local-library databases by exact name; cache-only clearing preserves them.
 
 The workspace stores corpus references and order, document metadata, notebook
 groups, and analysis-view settings. Reader position, linked selection, current
