@@ -72,7 +72,7 @@ const FooterSparkline = memo(function FooterSparkline({
       if (Number.isFinite(value)) maxValue = Math.max(maxValue, value);
     }
   }
-  const y = linearMap(0, maxValue, geometry.seriesHeight, geometry.topPad);
+  const y = linearMap(0, Math.max(1e-9, maxValue), geometry.seriesHeight, geometry.topPad);
   const hasGhostContext = series.some((item) => item.ghost);
   return (
     <svg
@@ -106,6 +106,14 @@ const FooterSparkline = memo(function FooterSparkline({
             );
           },
           y,
+          (bin) => {
+            const span = trendBinSpan(item.trend, d, bin);
+            const edge = (token: number) => clampToSpan(
+              seriesXFromTokenEdge(d, token, width, layout),
+              x0, x1, d > 0 ? BOUNDARY_GAP : 0, BOUNDARY_GAP,
+            );
+            return { start: edge(span.start), end: edge(span.end) };
+          },
         ).map((path, index) => (
           <g key={`${item.id}:${doc}:${index}`}>
             {!item.ghost && hasGhostContext && (

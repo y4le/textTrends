@@ -531,15 +531,24 @@ export function dockSizing(input: DockSizingInput): DockSizing {
     + FOOTER_LANE_GAP_MIN
     + (showStatus ? base.statusHeight + FOOTER_LANE_GAP_MIN : 0);
   const stripHeight = blockSize - railBlockSize - chromeHeight;
-  const seriesHeight = stripHeight - (showBarcode ? barcodeExtent : 0);
+  const residualSeriesHeight = stripHeight - (showBarcode ? barcodeExtent : 0);
+  // Retiring a discrete chrome lane must not grow the graph while the user
+  // shrinks the dock. Keep its continuous budget and give released pixels to
+  // the passage until they too are consumed by the smaller target.
+  const seriesHeight = Math.min(
+    residualSeriesHeight,
+    Math.max(graphFloor, blockSize - statusLast + graphFloor),
+    base.seriesHeight,
+  );
+  const releasedChrome = (showStatus ? 0 : base.statusHeight + FOOTER_LANE_GAP_MIN)
+    + (showBarcode ? 0 : barcodeExtent);
+  const passageExtra = Math.min(releasedChrome, residualSeriesHeight - seriesHeight);
   const footerGeometry = withStrip(Object.freeze({
     ...base,
     padBlock: FOOTER_PAD_MIN,
     laneGap: FOOTER_LANE_GAP_MIN,
-    passageHeight: passageFloor,
-  }), stripHeight, showStatus
-    ? Math.min(base.seriesHeight, seriesHeight)
-    : seriesHeight);
+    passageHeight: passageFloor + passageExtra,
+  }), stripHeight - passageExtra, seriesHeight);
   const footerSize = footerBlockSize(footerGeometry, tracks, {
     showStatus,
     showBarcode,

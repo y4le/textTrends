@@ -571,6 +571,7 @@ describe('eager footer metrics', () => {
           });
           let priorStatus = false;
           let priorBarcode = false;
+          let priorGraphHeight = 0;
           for (let target = bounds.minBlockSize; target <= bounds.baseBlockSize + 300; target++) {
             const sizing = dockSizing({
               width,
@@ -591,6 +592,8 @@ describe('eager footer metrics', () => {
             );
             expect(Number(sizing.showStatus)).toBeGreaterThanOrEqual(Number(priorStatus));
             expect(Number(sizing.showBarcode)).toBeGreaterThanOrEqual(Number(priorBarcode));
+            expect(sizing.footerGeometry.seriesHeight).toBeGreaterThanOrEqual(priorGraphHeight);
+            priorGraphHeight = sizing.footerGeometry.seriesHeight;
             priorStatus = sizing.showStatus;
             priorBarcode = sizing.showBarcode;
           }

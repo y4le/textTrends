@@ -584,3 +584,28 @@ test('a one-pixel native passage pan at the document start keeps the current tok
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
 });
+
+
+test('footer single-bin evidence spans its bin and an all-zero term stays at the baseline', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
+    name: 'one-bin.txt', mimeType: 'text/plain', buffer: Buffer.from('wolf'),
+  });
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
+  await submitAndAwaitFreshResults(page, 'wolf');
+  const path = page.locator('.footer-sparkline path[data-footer-series-path]').first();
+  await expect(path).toHaveCount(1);
+  const extent = await path.evaluate((element) => {
+    const box = (element as SVGGraphicsElement).getBBox();
+    return { width: box.width, y: box.y, height: box.height };
+  });
+  expect(extent.width).toBeGreaterThan(1);
+  expect(extent.height).toBe(0);
+  await submitAndAwaitFreshResults(page, 'absentword');
+  await expect.poll(() => path.evaluate((element) => (element as SVGGraphicsElement).getBBox().y))
+    .toBe(Number(await page.locator('.footer-sparkline').getAttribute('height')));
+});
