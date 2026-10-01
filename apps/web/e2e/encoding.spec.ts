@@ -32,6 +32,12 @@ test('a UTF-16LE BOM is detected and decoded (distinct encoding badge)', async (
   const source = page.getByRole('region', { name: 'Source details' });
   // The durable descriptor reports the BOM-detected encoding, not utf-8.
   await expect(source.getByText(/encoding:\s*utf-16le/)).toBeVisible();
+  const detail = page.getByRole('region', { name: /Text detail:/ });
+  await detail.getByRole('button', { name: /^Close text detail for / }).click();
+  await expect(detail).toHaveCount(0);
+  await expect(page.getByRole('table', { name: 'Text details' })
+    .locator('tr[data-catalog-book]').first().getByRole('button').first())
+    .toHaveAttribute('aria-expanded', 'false');
 });
 
 test('an invalid-UTF-8 file falls back to Windows-1252 with 0 replacements and a C1 control', async ({ page }) => {

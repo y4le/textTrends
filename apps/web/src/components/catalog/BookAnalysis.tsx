@@ -283,7 +283,7 @@ export function BookAnalysis() {
                                   ? (
                                       <BookDetail
                                         view={detail}
-                                        onClose={popLayer}
+                                        onClose={() => popLayer()}
                                         onScopeMessage={setScopeMessage}
                                       />
                                     )
