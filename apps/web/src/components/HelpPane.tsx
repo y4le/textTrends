@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { Place } from '../lib/places.ts';
+import { workbenchFooterFits } from '../lib/presentation.ts';
 import type { ShortcutHelpContext } from '../lib/shortcuts.ts';
 import {
   isShortcutTypingTarget,
@@ -101,7 +102,7 @@ export function HelpPane({
     && state.snapshot.readyDocs.length > 0
     && state.snapshot.readyDocs.some((doc) =>
       (state.corpusTokenCounts.get(doc) ?? 0) > 0));
-  const footerAvailable = !presentation.shortLandscape && footerHasContent;
+  const footerAvailable = workbenchFooterFits(presentation) && footerHasContent;
   const trendView = useApp((state) => state.trendView);
   const readerScale = useApp((state) => state.readerScale);
   const sections = shortcutHelpSections(context !== 'workbench'

@@ -191,6 +191,54 @@ test('a text imported without terms has footer progress and can open Reader', as
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-anchor', '1');
 });
 
+test('a custom text with tracked terms keeps the reading footer in a short desktop window', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('./?fresh=1');
+  await page.getByLabel('Add files — import and analyze').setInputFiles({
+    name: 'custom.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('forest pine wolf. ocean wave salt. '.repeat(30)),
+  });
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
+  await submitAndAwaitFreshResults(page, 'forest,ocean');
+  await expect(page.locator('[data-series-path]').first()).toBeVisible();
+
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
+  await expect(footer).toBeVisible();
+  expect(await footer.locator('.footer-sparkline path').count()).toBeGreaterThanOrEqual(2);
+  await expect(footer.locator('canvas[data-barcode-band="series"]')).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 500 });
+  await expect(footer).toBeVisible();
+  await expect(page.getByRole('separator', { name: 'Resize reading footer' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Terms' })).toBeVisible();
+  const visibleChartHeight = await page.evaluate(() => {
+    const chart = document.querySelector<HTMLElement>('.trend-scrubber')!.getBoundingClientRect();
+    const dock = document.querySelector<HTMLElement>('.workbench-dock')!.getBoundingClientRect();
+    return Math.max(0, Math.min(chart.bottom, dock.top) - chart.top);
+  });
+  expect(visibleChartHeight).toBeGreaterThanOrEqual(150);
+  await page.getByRole('button', { name: 'Help', exact: true }).click();
+  const help = page.getByRole('dialog', { name: 'Help' });
+  await expect(help.getByRole('heading', { name: 'Reading footer', exact: true })).toBeVisible();
+  await expect(help.getByRole('heading', { name: 'Footer size', exact: true })).toBeVisible();
+  await help.getByRole('button', { name: 'close', exact: true }).click();
+  const slider = footer.getByRole('slider', { name: 'Corpus footer position' });
+  await slider.focus();
+  await slider.press('Home');
+  await expect(footer.locator('.footer-passage')).toContainText('forest');
+  const [footerBox, dockBox] = await Promise.all([
+    footer.boundingBox(),
+    page.locator('.workbench-dock').boundingBox(),
+  ]);
+  expect(footerBox).not.toBeNull();
+  expect(dockBox).not.toBeNull();
+  expect(footerBox!.y).toBeGreaterThanOrEqual(dockBox!.y);
+  expect(footerBox!.y + footerBox!.height).toBeLessThanOrEqual(500);
+  await slider.press('Enter');
+  await expect(page.getByRole('main', { name: 'Reader: custom', exact: true })).toBeVisible();
+});
+
 test('footer keyboard reading exposes page, fine, and open actions', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });

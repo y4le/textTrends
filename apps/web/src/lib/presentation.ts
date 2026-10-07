@@ -25,6 +25,14 @@ export interface Presentation {
   readonly colorScheme: ColorScheme;
 }
 
+/** Narrow landscape layouts spend the reading lane on workbench content.
+ * Wide windows retain it and let dock sizing fit the available height. */
+export function workbenchFooterFits(
+  presentation: Pick<Presentation, 'width' | 'shortLandscape'>,
+): boolean {
+  return presentation.width === 'wide' || !presentation.shortLandscape;
+}
+
 /** Pure threshold authority shared by tests and non-DOM layout decisions. */
 export function widthClassFor(width: number): WidthClass {
   if (!Number.isFinite(width) || width < 0) {

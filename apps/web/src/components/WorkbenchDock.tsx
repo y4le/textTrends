@@ -19,6 +19,7 @@ import {
   readerDockSizing,
 } from '../lib/footer-metrics.ts';
 import { findScope } from '../lib/interaction.ts';
+import { workbenchFooterFits } from '../lib/presentation.ts';
 import { shortcutAria } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { useDisplayPreference, usePresentation } from './PresentationProvider.tsx';
@@ -75,7 +76,7 @@ export function WorkbenchDock({
   const [availableBlockSize, setAvailableBlockSize] = useState(() => window.innerHeight);
   const [viewportBlockSize, setViewportBlockSize] = useState(() => window.innerHeight);
   const [resizing, setResizing] = useState(false);
-  const footerFits = !(mode === 'workbench' && presentation.shortLandscape);
+  const footerFits = mode === 'reader' || workbenchFooterFits(presentation);
   // A rail-only dock has two independent causes: nothing to read yet, or a
   // viewport too short to show the reading instrument without hiding content.
   const footerPresent = documentCount > 0 && footerFits;

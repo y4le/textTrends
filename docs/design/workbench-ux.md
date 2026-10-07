@@ -31,6 +31,10 @@ before lazy chunks or a first snapshot arrive. Empty workspaces keep Terms
 without a reading lane. The footer is the shared corpus-order reading
 instrument; it does not own analytical scope or durable notebook state.
 Read and Speed have their own chrome; only Atlas retains the analytical dock.
+In landscape viewports at most 520px tall, widths below 1024px keep only Terms
+to leave room for workbench content. Wide windows retain the reading footer,
+with its height fitted by the dock. Help shows footer shortcuts when the
+reading lane is available.
 
 ## Inputs and acquisition
 
