@@ -1,4 +1,4 @@
-# Typecheck, test, and build every change. Successful builds from master are
+# Typecheck, test, and build code changes. Successful builds from master are
 # uploaded and deployed through GitHub Pages' artifact-based workflow.
 
 name: ci
@@ -6,7 +6,16 @@ name: ci
 on:
   push:
     branches: [master]
+    # docs/reference.md is deliberately included: shortcuts.test.ts reads it.
+    paths-ignore: &documentation
+      - 'docs/design/**'
+      - 'docs/development.md'
+      - 'docs/explanation.md'
+      - 'docs/how-to.md'
+      - 'docs/tutorial.md'
+      - '**/README.md'
   pull_request:
+    paths-ignore: *documentation
   workflow_dispatch:
 
 concurrency:
@@ -20,7 +29,7 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 32
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
@@ -33,13 +42,13 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
 
-      - name: Workspace source tests before compiled artifacts exist
-        run: pnpm test:source
+      - name: All unit suites before compiled artifacts exist
+        run: pnpm exec vitest run
 
       - name: Typecheck
         run: pnpm typecheck
-      - name: Unit tests
-        run: pnpm test
+      - name: Script tests against compiled package exports
+        run: node --test 'scripts/*.test.mjs'
 
       - name: Production build (deployability; typecheck already ran above)
         run: pnpm --filter @texttrends/web build:bundle
@@ -78,6 +87,10 @@ jobs:
           - name: webkit-compact-2-of-2
             project: webkit-compact
             shard: "2/2"
+          - name: chromium-benchmark
+            # A matrix entry is still a separate runner; timing gates stay isolated.
+            project: chromium-benchmark
+            shard: "1/1"
     # Keep browser binaries and native libraries out of the runner's mutable
     # apt state. This image is pinned to the lockfile's Playwright version.
     container:
@@ -96,14 +109,29 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Real-browser suite (${{ matrix.name }})
+        # GitHub's needs graph gates deployment; do not rerun Playwright dependencies.
         run: >-
           pnpm --filter @texttrends/web exec playwright test
           --project="${{ matrix.project }}"
           --shard="${{ matrix.shard }}"
           --workers=1
+          --no-deps
+          --reporter=line,html
+        env:
+          PLAYWRIGHT_HTML_OPEN: never
 
-      - name: Upload Playwright report and test artifacts
-        if: always()
+      # Retried failures are useful diagnostics even when the job succeeds.
+      - name: Detect retained failure traces
+        id: diagnostics
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -d apps/web/test-results ] &&
+             [ -n "$(find apps/web/test-results -name trace.zip -print -quit)" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload failure diagnostics or benchmark measurements
+        if: ${{ !cancelled() && (failure() || steps.diagnostics.outputs.found == 'true' || matrix.project == 'chromium-benchmark') }}
         uses: actions/upload-artifact@v7
         with:
           name: playwright-${{ matrix.name }}
@@ -111,46 +139,11 @@ jobs:
             apps/web/playwright-report
             apps/web/test-results
           if-no-files-found: ignore
-          retention-days: 14
-
-  browser-benchmark:
-    name: browser / chromium-benchmark
-    needs: checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # A separate runner keeps timing gates isolated from functional load.
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
-      options: --user 1001
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-
-      - name: Real-browser timing gates
-        run: pnpm --filter @texttrends/web e2e:bench
-
-      - name: Upload Playwright report and benchmark artifacts
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-chromium-benchmark
-          path: |
-            apps/web/playwright-report
-            apps/web/test-results
-          if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
   deploy:
     if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
-    needs: [checks, browser, browser-benchmark]
+    needs: [checks, browser]
     runs-on: ubuntu-latest
     permissions:
       contents: read

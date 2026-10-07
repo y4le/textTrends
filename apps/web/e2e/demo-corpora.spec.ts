@@ -161,7 +161,14 @@ test('a one-shot demo URL clears active research state but preserves saved sourc
   await awaitReadyCount(page, 1);
   await expect(page.getByRole('button', { name: 'Edit term: Reader term' })).toBeVisible();
 
+  const confirmation = new Promise<string>((resolve) => {
+    page.once('dialog', async (dialog) => {
+      resolve(dialog.message());
+      await dialog.accept();
+    });
+  });
   await page.goto('./?demo=lotr&p=inputs');
+  expect(await confirmation).toContain('Replace your active texts and term notebook with The Lord of the Rings?');
   await expect(page).toHaveURL(/\?p=inputs$/);
   await awaitReadyCount(page, LOTR.length);
   await expect(active.getByRole('list', { name: 'Active input order' }).getByRole('listitem'))

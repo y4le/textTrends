@@ -48,10 +48,11 @@ pnpm e2e
 ```
 
 `test:source` runs source-dependent suites without building compiled artifacts;
-CI runs it first on a clean checkout to guard source resolution. `test` builds
-compiled packages, runs script tests, then Vitest. `build` runs
-recursive typechecks, produces the normal web bundle, and enforces its byte
-budget and lazy-module boundaries. Use `pnpm typecheck` for a standalone type
+CI runs all Vitest suites once on a clean checkout to guard source resolution,
+then builds packages during typechecking and runs script tests against those
+compiled exports. `test` builds compiled packages, runs script tests, then
+Vitest. `build` runs recursive typechecks, produces the normal web bundle, and
+enforces its byte budget and lazy-module boundaries. Use `pnpm typecheck` for a standalone type
 check or `pnpm check:bundle` against an existing normal production build.
 
 Install browser binaries before the first local browser run:
@@ -73,7 +74,8 @@ reuse an existing dev server.
 | `pnpm e2e` | Functional and WebKit projects, then the serial benchmark project |
 
 Run browser commands sequentially in one checkout. Each rebuilds
-`apps/web/dist`; concurrent production/browser builds can invalidate a run.
+`apps/web/dist` directly from workspace source; compiled package builds are
+unnecessary. Concurrent production/browser builds can invalidate a run.
 New compact specs must be included in `playwright.config.ts`'s explicit
 WebKit allowlist. Normal production builds exclude the e2e protocol facade.
 
@@ -139,10 +141,19 @@ resource derivatives. Card generation is described in
 ## Deployment
 
 The workflow in `.github/workflows/ci.yml` checks pull requests and pushes to
-`master`. Successful master checks, browser suites, and isolated benchmarks
-permit deployment of the checked production artifact to GitHub Pages. Browser
-jobs build their own e2e artifacts on isolated runners. The deployment base is
-`/textTrends/`.
+`master`. Changes limited to design docs, development docs, user tutorials and
+explanations, how-to docs, or README files skip the workflow. `docs/reference.md`
+still triggers checks because the shortcut tests read it. Manual dispatch always
+runs the workflow.
+
+Successful master checks and all browser matrix entries permit deployment of
+the checked production artifact to GitHub Pages. Chromium functional and compact
+WebKit suites each use two shards; benchmarks have their own matrix entry and
+runner. Browser jobs build their own e2e artifacts and never repeat project
+dependencies. Browser failures, including failures that pass on retry, upload
+diagnostics; benchmarks also upload measurements on success. Reports are
+retained for seven days. The deployment
+base is `/textTrends/`.
 
 A cleared public release still needs the owner-led publication and licensing
 cut in the [roadmap](design/current-roadmap.md); passing CI does not perform it.
