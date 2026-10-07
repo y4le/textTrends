@@ -74,8 +74,8 @@ reuse an existing dev server.
 | `pnpm e2e` | Functional and WebKit projects, then the serial benchmark project |
 
 Run browser commands sequentially in one checkout. Each rebuilds
-`apps/web/dist` directly from workspace source; compiled package builds are
-unnecessary. Concurrent production/browser builds can invalidate a run.
+`apps/web/dist` and the compiled package exports needed by Node-side test
+fixtures. Concurrent production/browser builds can invalidate a run.
 New compact specs must be included in `playwright.config.ts`'s explicit
 WebKit allowlist. Normal production builds exclude the e2e protocol facade.
 
